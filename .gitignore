@@ -1,0 +1,42 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Node.js
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# IDEs and editors
+.idea/
+.vscode/
+
+# Temporary files
+*.tmp
+*.temp
+~$*
+
+# Manual archives
+*.zip
+*.rar
+*.7z
