@@ -10,11 +10,26 @@
 - 报价方案：`报价方案.docx`
 - 客户讲解手册：`客户讲解手册.md`
 - 实现方向与接口设计：`06_实现方向与接口设计.md`
-- 前端静态演示：`前端演示_极简版.html`
+- 前端静态演示：`demo/agent-console/index.html`
 - 后端 FastAPI 雏形：`backend/`
 - Docker Compose 雏形：`docker-compose.yml`
 
 目前代码仍处于早期骨架阶段，真正开发应从项目结构、后端基础架构、数据库模型和前端工程化开始。
+
+## 前端演示
+
+当前 demo 独立存放在：
+
+```text
+demo/agent-console/index.html
+```
+
+演示定位：
+
+```text
+第一阶段：人操作多个 Agent
+后续升级：总调度 Agent 调用多个专业 Agent
+```
 
 ## 产品目标
 

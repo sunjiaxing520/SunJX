@@ -41,19 +41,6 @@ services:
     networks:
       - blue_music_net
 
-  frontend:
-    build: ./frontend
-    container_name: blue_music_frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    networks:
-      - blue_music_net
-
 volumes:
   postgres_data:
 
