@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蓝乐AI音乐创作平台 - 前端演示</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #334155;
+            margin-bottom: 30px;
+        }
+        
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 2px;
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 30px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            background: #2d3748;
+        }
+        
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #1e293b, #2d3748);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        
+        .content {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 30px;
+            min-height: 400px;
+        }
+        
+        .content h2 {
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 10px 24px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 5px;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff4d4f, #ff7875);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #52c41a, #73d13d);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #faad14, #ffc53d);
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .table th {
+            background: #2d3748;
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 2px solid #334155;
+        }
+        
+        .table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #334155;
+        }
+        
+        .table tr:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-online {
+            background: rgba(82, 196, 26, 0.2);
+            color: #52c41a;
+        }
+        
+        .badge-offline {
+            background: rgba(255, 77, 79, 0.2);
+            color: #ff4d4f;
+        }
+        
+        .badge-warning {
+            background: rgba(250, 173, 20, 0.2);
+            color: #faad14;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 30px;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid #334155;
+        }
+        
+        .modal h3 {
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #94a3b8;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            background: #2d3748;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #52c41a;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @media (max-width: 768px) {
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .tabs { flex-wrap: wrap; }
+        }
+        
+        @media (max-width: 480px) {
+            .stats { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">蓝乐 AI 音乐创作平台</div>
+            <button class="btn" onclick="showLogin()">登录 / 注册</button>
+        </div>
+        
+        <div class="tabs" id="tabs">
+            <div class="tab active" onclick="switchTab('dashboard')">📊 仪表盘</div>
+            <div class="tab" onclick="switchTab('agents')">🤖 Agent管理</div>
+            <div class="tab" onclick="switchTab('crawler')">🕷️ 爬虫控制</div>
+            <div class="tab" onclick="switchTab('analyze')">🧠 风格分析</div>
+            <div class="tab" onclick="switchTab('create')">🎵 音乐创作</div>
+            <div class="tab" onclick="switchTab('backup')">💾 备份回档</div>
+            <div class="tab" onclick="switchTab('logs')">📋 操作日志</div>
+        </div>
+        
+        <div class="content" id="content">
+            <h2>系统仪表盘</h2>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-label">用户数量</div>
+                    <div class="stat-value">12</div>
+                    <div class="stat-label">+2 本周新增</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Agent数量</div>
+                    <div class="stat-value">5</div>
+                    <div class="stat-label">3 个在线</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">歌曲数量</div>
+                    <div class="stat-value">500</div>
+                    <div class="stat-label">今日新增 12</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">创作数量</div>
+                    <div class="stat-value">23</div>
+                    <div class="stat-label">+3 今日新增</div>
+                </div>
+            </div>
+            
+            <h3>平台核心功能</h3>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button class="btn" onclick="showModal('createAgent')">新建 Agent</button>
+                <button class="btn btn-success" onclick="showModal('runCrawler')">立即爬取</button>
+                <button class="btn btn-warning" onclick="showModal('runAnalyze')">风格分析</button>
+                <button class="btn" onclick="showModal('runCreate')">音乐创作</button>
+                <button class="btn" onclick="showModal('backup')">系统备份</button>
+                <button class="btn btn-danger" onclick="showModal('restore')">执行回档</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 登录模态框 -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <h3>用户登录</h3>
+            <div class="form-group">
+                <label>邮箱</label>
+                <input type="email" class="form-control" id="loginEmail" placeholder="user@example.com">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" class="form-control" id="loginPassword" placeholder="请输入密码">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('loginModal')">取消</button>
+                <button class="btn btn-success" onclick="login()">登录</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 创建Agent模态框 -->
+    <div class="modal" id="createAgentModal">
+        <div class="modal-content">
+            <h3>新建 Agent</h3>
+            <div class="form-group">
+                <label>Agent名称</label>
+                <input type="text" class="form-control" id="agentName" placeholder="分析Agent-GPT4">
+            </div>
+            <div class="form-group">
+                <label>Agent类型</label>
+                <select class="form-control" id="agentType">
+                    <option value="crawler">爬虫Agent</option>
+                    <option value="analyzer">分析Agent</option>
+                    <option value="creator">创作Agent</option>
+                    <option value="backup">备份Agent</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>模型</label>
+                <select class="form-control" id="agentModel">
+                    <option value="gpt-4o">GPT-4o</option>
+                    <option value="claude-3.5">Claude 3.5</option>
+                    <option value="qwen">通义千问</option>
+                    <option value="ernie">文心一言</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('createAgentModal')">取消</button>
+                <button class="btn btn-success" onclick="createAgent()">创建</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 运行爬虫模态框 -->
+    <div class="modal" id="runCrawlerModal">
+        <div class="modal-content">
+            <h3>运行爬虫</h3>
+            <div class="form-group">
+                <label>数据源</label>
+                <select class="form-control" id="crawlerSource">
+                    <option value="qqmusic">QQ音乐热歌榜</option>
+                    <option value="netease">网易云音乐</option>
+                    <option value="kugou">酷狗音乐</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>爬取数量</label>
+                <input type="number" class="form-control" id="crawlerCount" value="500" min="1" max="1000">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('runCrawlerModal')">取消</button>
+                <button class="btn btn-success" onclick="runCrawler()">开始爬取</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 风格分析模态框 -->
+    <div class="modal" id="runAnalyzeModal">
+        <div class="modal-content">
+            <h3>风格分析</h3>
+            <div class="form-group">
+                <label>分析Agent</label>
+                <select class="form-control" id="analyzeAgent">
+                    <option value="gpt4">GPT-4o 分析器</option>
+                    <option value="claude">Claude 3.5 分析器</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>分析数量</label>
+                <input type="number" class="form-control" id="analyzeCount" value="50" min="1" max="500">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('runAnalyzeModal')">取消</button>
+                <button class="btn btn-success" onclick="runAnalyze()">开始分析</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 音乐创作模态框 -->
+    <div class="modal" id="runCreateModal">
+        <div class="modal-content">
+            <h3>音乐创作</h3>
+            <div class="form-group">
+                <label>参考风格</label>
+                <select class="form-control" id="createStyle">
+                    <option value="pop">流行</option>
+                    <option value="rock">摇滚</option>
+                    <option value="electronic">电子</option>
+                    <option value="folk">民谣</option>
+                    <option value="rnb">R&B</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>情绪</label>
+                <select class="form-control" id="createEmotion">
+                    <option value="happy">欢快</option>
+                    <option value="sad">悲伤</option>
+                    <option value="relaxed">轻松</option>
+                    <option value="energetic">激昂</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>生成数量 (1-10)</label>
+                <input type="number" class="form-control" id="createCount" value="3" min="1" max="10">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('runCreateModal')">取消</button>
+                <button class="btn btn-success" onclick="runCreate()">开始创作</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 备份模态框 -->
+    <div class="modal" id="backupModal">
+        <div class="modal-content">
+            <h3>系统备份</h3>
+            <div class="form-group">
+                <label>备份类型</label>
+                <select class="form-control" id="backupType">
+                    <option value="full">全量备份</option>
+                    <option value="incremental">增量备份</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>加密方式</label>
+                <select class="form-control" id="backupEncrypt">
+                    <option value="aes256">AES-256 加密</option>
+                    <option value="none">不加密</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('backupModal')">取消</button>
+                <button class="btn btn-success" onclick="runBackup()">开始备份</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 回档模态框 -->
+    <div class="modal" id="restoreModal">
+        <div class="modal-content">
+            <h3>系统回档 ⚠️</h3>
+            <div class="form-group">
+                <label>选择备份点</label>
+                <select class="form-control" id="restoreBackup">
+                    <option value="1">2026-05-27 02:00 (45MB)</option>
+                    <option value="2">2026-05-26 02:00 (44MB)</option>
+                    <option value="3">2026-05-25 02:00 (43MB)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>影响范围</label>
+                <input type="text" class="form-control" value="8 个表，15678 条记录" readonly>
+            </div>
+            <div class="form-group">
+                <label>管理员密码（二次确认）</label>
+                <input type="password" class="form-control" id="restorePassword" placeholder="请输入管理员密码">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal('restoreModal')">取消</button>
+                <button class="btn btn-danger" onclick="runRestore()">确认回档</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 当前激活的标签
+        let currentTab = 'dashboard';
+        let loggedIn = false;
+        
+        // 切换标签页
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // 更新标签样式
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // 更新内容
+            const content = document.getElementById('content');
+            
+            if (tab === 'dashboard') {
+                content.innerHTML = `
+                    <h2>系统仪表盘</h2>
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-label">用户数量</div>
+                            <div class="stat-value">12</div>
+                            <div class="stat-label">+2 本周新增</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Agent数量</div>
+                            <div class="stat-value">5</div>
+                            <div class="stat-label">3 个在线</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">歌曲数量</div>
+                            <div class="stat-value">500</div>
+                            <div class="stat-label">今日新增 12</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">创作数量</div>
+                            <div class="stat-value">23</div>
+                            <div class="stat-label">+3 今日新增</div>
+                        </div>
+                    </div>
+                    
+                    <h3>平台核心功能</h3>
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn" onclick="showModal('createAgent')">新建 Agent</button>
+                        <button class="btn btn-success" onclick="showModal('runCrawler')">立即爬取</button>
+                        <button class="btn btn-warning" onclick="showModal('runAnalyze')">风格分析</button>
+                        <button class="btn" onclick="showModal('runCreate')">音乐创作</button>
+                        <button class="btn" onclick="showModal('backup')">系统备份</button>
+                        <button class="btn btn-danger" onclick="showModal('restore')">执行回档</button>
+                    </div>
+                `;
+            } else if (tab === 'agents') {
+                content.innerHTML = `
+                    <h2>Agent 管理</h2>
+                    <button class="btn" onclick="showModal('createAgent')">新建 Agent</button>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Agent名称</th>
+                                <th>类型</th>
+                                <th>状态</th>
+                                <th>最近运行</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>爬虫Agent</td>
+                                <td><span class="badge badge-online">爬虫</span></td>
+                                <td><span class="badge badge-online">在线</span></td>
+                                <td>2026-05-27 02:00</td>
+                                <td>
+                                    <button class="btn" onclick="toast('编辑爬虫Agent')">编辑</button>
+                                    <button class="btn btn-danger" onclick="toast('删除爬虫Agent')">删除</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>分析Agent-GPT4</td>
+                                <td><span class="badge badge-online">分析</span></td>
+                                <td><span class="badge badge-online">在线</span></td>
+                                <td>2026-05-27 02:30</td>
+                                <td>
+                                    <button class="btn" onclick="toast('编辑分析Agent')">编辑</button>
+                                    <button class="btn btn-danger" onclick="toast('删除分析Agent')">删除</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>创作Agent-Suno</td>
+                                <td><span class="badge badge-warning">创作</span></td>
+                                <td><span class="badge badge-online">在线</span></td>
+                                <td>2026-05-27 10:00</td>
+                                <td>
+                                    <button class="btn" onclick="toast('编辑创作Agent')">编辑</button>
+                                    <button class="btn btn-danger" onclick="toast('删除创作Agent')">删除</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                `;
+            } else if (tab === 'crawler') {
+                content.innerHTML = `
+                    <h2>爬虫控制</h2>
+                    <div style="display: flex; gap: 20px;">
+                        <div style="flex: 1;">
+                            <div class="stat-card">
+                                <div class="stat-label">最近爬取时间</div>
+                                <div class="stat-value" style="font-size: 24px;">2026-05-27 02:00</div>
+                                <button class="btn btn-success" style="width: 100%; margin-top: 20px;" onclick="showModal('runCrawler')">立即爬取</button>
+                            </div>
+                        </div>
+                        <div style="flex: 1;">
+                            <div class="stat-card">
+                                <div class="stat-label">爬取进度</div>
+                                <div style="background: #2d3748; height: 8px; border-radius: 4px; margin: 10px 0;">
+                                    <div style="background: linear-gradient(90deg, #667eea, #764ba2); width: 75%; height: 100%; border-radius: 4px;"></div>
+                                </div>
+                                <div class="stat-label">375/500 首</div>
+                                <div class="stat-label" style="margin-top: 10px;">成功: 500 首 | 失败: 0 首</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (tab === 'analyze') {
+                content.innerHTML = `
+                    <h2>风格分析</h2>
+                    <div style="display: flex; gap: 20px;">
+                        <div style="flex: 1;">
+                            <div class="stat-card">
+                                <div class="stat-label">最近分析时间</div>
+                                <div class="stat-value" style="font-size: 24px;">2026-05-27 02:30</div>
+                                <button class="btn btn-warning" style="width: 100%; margin-top: 20px;" onclick="showModal('runAnalyze')">立即分析</button>
+                            </div>
+                        </div>
+                        <div style="flex: 1;">
+                            <div class="stat-card">
+                                <div class="stat-label">待分析歌曲</div>
+                                <div class="stat-value" style="font-size: 24px;">45 首</div>
+                                <div style="background: #2d3748; height: 8px; border-radius: 4px; margin: 10px 0;">
+                                    <div style="background: linear-gradient(90deg, #faad14, #ffc53d); width: 60%; height: 100%; border-radius: 4px;"></div>
+                                </div>
+                                <div class="stat-label">27/45 已完成</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (tab === 'create') {
+                content.innerHTML = `
+                    <h2>音乐创作</h2>
+                    <div style="display: flex; gap: 20px;">
+                        <div style="flex: 1;">
+                            <div class="stat-card">
+                                <div class="stat-label">最近创作时间</div>
+                                <div class="stat-value" style="font-size: 24px;">2026-05-27 10:00</div>
+                                <button class="btn" style="width: 100%; margin-top: 20px;" onclick="showModal('runCreate')">开始创作</button>
+                            </div>
+                        </div>
+                        <div style="flex: 1;">
+                            <div class="stat-card">
+                                <div class="stat-label">今日生成</div>
+                                <div class="stat-value" style="font-size: 24px;">3 首</div>
+                                <div style="background: #2d3748; height: 8px; border-radius: 4px; margin: 10px 0;">
+                                    <div style="background: linear-gradient(90deg, #52c41a, #73d13d); width: 95%; height: 100%; border-radius: 4px;"></div>
+                                </div>
+                                <div class="stat-label">创作成功率 95%</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (tab === 'backup') {
+                content.innerHTML = `
+                    <h2>备份回档</h2>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <button class="btn" onclick="showModal('backup')">立即备份</button>
+                        <button class="btn btn-danger" onclick="showModal('restore')">执行回档</button>
+                    </div>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>备份时间</th>
+                                <th>文件大小</th>
+                                <th>状态</th>
+                                <th>涉及表数</th>
+                                <th>记录数</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>2026-05-27 02:00</td>
+                                <td>45MB</td>
+                                <td><span class="badge badge-online">成功</span></td>
+                                <td>8</td>
+                                <td>15678</td>
+                                <td>
+                                    <button class="btn" onclick="toast('下载备份')">下载</button>
+                                    <button class="btn btn-danger" onclick="showModal('restore')">回档</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>2026-05-26 02:00</td>
+                                <td>44MB</td>
+                                <td><span class="badge badge-online">成功</span></td>
+                                <td>8</td>
+                                <td>15432</td>
+                                <td>
+                                    <button class="btn" onclick="toast('下载备份')">下载</button>
+                                    <button class="btn btn-danger" onclick="showModal('restore')">回档</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                `;
+            } else if (tab === 'logs') {
+                content.innerHTML = `
+                    <h2>操作日志</h2>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>用户</th>
+                                <th>操作</th>
+                                <th>目标</th>
+                                <th>IP地址</th>
+                                <th>时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>admin</td>
+                                <td>创建用户</td>
+                                <td>user@example.com</td>
+                                <td>192.168.1.100</td>
+                                <td>2026-05-27 14:30</td>
+                            </tr>
+                            <tr>
+                                <td>user1</td>
+                                <td>触发爬虫</td>
+                                <td>QQ音乐热歌榜</td>
+                                <td>192.168.1.101</td>
+                                <td>2026-05-27 14:25</td>
+                            </tr>
+                            <tr>
+                                <td>admin</td>
+                                <td>配置Agent</td>
+                                <td>分析Agent-GPT4</td>
+                                <td>192.168.1.100</td>
+                                <td>2026-05-27 14:20</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                `;
+            }
+        }
+        
+        // 显示模态框
+        function showModal(modalId) {
+            document.getElementById(modalId + 'Modal').style.display = 'flex';
+        }
+        
+        // 隐藏模态框
+        function hideModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+        
+        // 显示登录模态框
+        function showLogin() {
+            showModal('login');
+        }
+        
+        // 登录
+        function login() {
+            const email = document.getElementById('loginEmail').value;
+            if (email) {
+                loggedIn = true;
+                document.querySelector('.header .btn').textContent = '欢迎，管理员';
+                toast('登录成功！');
+                hideModal('loginModal');
+            } else {
+                toast('请输入邮箱', 'warning');
+            }
+        }
+        
+        // 创建Agent
+        function createAgent() {
+            const name = document.getElementById('agentName').value;
+            if (name) {
+                toast(`Agent "${name}" 创建成功！`);
+                hideModal('createAgentModal');
+            } else {
+                toast('请输入Agent名称', 'warning');
+            }
+        }
+        
+        // 运行爬虫
+        function runCrawler() {
+            const count = document.getElementById('crawlerCount').value;
+            toast(`爬虫任务已启动，将爬取 ${count} 首歌曲！`);
+            hideModal('runCrawlerModal');
+        }
+        
+        // 运行分析
+        function runAnalyze() {
+            const count = document.getElementById('analyzeCount').value;
+            toast(`分析任务已启动，共 ${count} 首歌曲待分析！`);
+            hideModal('runAnalyzeModal');
+        }
+        
+        // 运行创作
+        function runCreate() {
+            const count = document.getElementById('createCount').value;
+            toast(`创作任务已启动，将生成 ${count} 首歌曲！`);
+            hideModal('runCreateModal');
+        }
+        
+        // 运行备份
+        function runBackup() {
+            toast('备份任务已启动，请稍后查看备份列表！');
+            hideModal('backupModal');
+        }
+        
+        // 运行回档
+        function runRestore() {
+            const password = document.getElementById('restorePassword').value;
+            if (password) {
+                toast('回档任务已启动，系统将在完成后自动重启！', 'warning');
+                hideModal('restoreModal');
+            } else {
+                toast('请输入管理员密码', 'warning');
+            }
+        }
+        
+        // 显示提示
+        function toast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            toast.style.background = type === 'warning' ? '#faad14' : 
+                                   type === 'error' ? '#ff4d4f' : '#52c41a';
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+        
+        // 初始化
+        window.onload = function() {
+            console.log('✅ 蓝乐 AI 音乐创作平台前端演示已加载');
+            console.log('💡 点击标签页切换功能模块');
+            console.log('🔧 所有按钮都有交互反馈');
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: blue_music_postgres
+    environment:
+      POSTGRES_USER: blue_music
+      POSTGRES_PASSWORD: blue_music_pass
+      POSTGRES_DB: blue_music_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - blue_music_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: blue_music_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - blue_music_net
+
+  backend:
+    build: ./backend
+    container_name: blue_music_backend
+    environment:
+      DATABASE_URL: postgresql://blue_music:blue_music_pass@postgres:5432/blue_music_db
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: dev_secret_key_change_in_production
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - blue_music_net
+
+  frontend:
+    build: ./frontend
+    container_name: blue_music_frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - blue_music_net
+
+volumes:
+  postgres_data:
+
+networks:
+  blue_music_net:
