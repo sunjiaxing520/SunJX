@@ -7,7 +7,9 @@
 项目资料已整理进入 `SunJX/projects/blue-music-platform`，包含：
 
 - 需求规格说明书：`需求规格说明书_v2.md`
+- 项目精炼说明：`项目精炼说明.md`
 - 报价方案：`报价方案.docx`
+- 报价方案精简版：`报价方案_精简版.md`
 - 客户讲解手册：`客户讲解手册.md`
 - 实现方向与接口设计：`06_实现方向与接口设计.md`
 - 前端静态演示：`demo/agent-console/index.html`
@@ -36,7 +38,7 @@ demo/agent-console/index.html
 平台核心链路：
 
 ```text
-音乐榜单采集 -> 音乐特征分析 -> AI 辅助创作 -> Dashboard 展示 -> 权限与审计管理
+音乐榜单采集 -> 音乐特征分析 -> AI 作词 -> Suno 创作 -> Dashboard 展示
 ```
 
 ## 技术栈
@@ -55,8 +57,10 @@ demo/agent-console/index.html
 4. 实现登录注册和 JWT 鉴权。
 5. 实现 Agent 配置与状态管理。
 6. 实现爬虫 Agent 的手动触发和数据入库。
-7. 实现分析 Agent 和创作 Agent。
-8. 完成 Dashboard、部署文档和验收清单。
+7. 实现分析 Agent。
+8. 实现带基础记忆的作词 Agent。
+9. 实现 Suno 创作 Agent。
+10. 完成 Dashboard、部署文档和验收清单。
 
 ## 协作要求
 

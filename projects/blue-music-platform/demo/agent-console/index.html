@@ -541,10 +541,10 @@
         <header class="hero">
           <h1>♪ 一键洗歌使用教程</h1>
           <div class="guide">
-            <span>① 上传伴奏/歌词</span>
-            <span>② 选择榜单歌曲</span>
-            <span>③ 点击二次创作</span>
-            <span>④ 右侧查看进度和结果</span>
+            <span>① 选择榜单参考</span>
+            <span>② 作词 Agent 写歌词</span>
+            <span>③ Suno 创作 Agent 提交</span>
+            <span>④ 查看进度和结果</span>
           </div>
         </header>
 
@@ -553,7 +553,7 @@
             <div class="panel-head">
               <div>
                 <div class="panel-title">🎧 自定义二创</div>
-                <div class="panel-desc">上传素材，交给创作 Agent 整理后提交给 Suno。</div>
+                <div class="panel-desc">先由作词 Agent 生成歌词，再交给 Suno 创作 Agent 整理提交。</div>
               </div>
             </div>
             <div class="panel-body">
@@ -562,18 +562,19 @@
                 <div class="file-box">♪ 选择伴奏文件</div>
               </div>
               <div class="field">
-                <label>上传歌词</label>
-                <div class="file-box" style="border-color:rgba(49,183,255,.45);color:#7dd3fc">♫ 选择歌词文件</div>
-              </div>
-              <div class="field">
-                <label>或手动输入歌词</label>
-                <textarea id="lyrics">在这里粘贴或输入歌词，也可以只写创作方向。</textarea>
+                <label>作词要求</label>
+                <textarea id="lyrics">主题：夏天夜晚、城市灯光、年轻人的心动。要求：副歌抓耳，适合短视频传播。</textarea>
               </div>
               <div class="field">
                 <label>创作风格</label>
                 <input id="style" value="流行、R&B、轻电子、女声">
               </div>
-              <button class="btn" id="createBtn" style="width:100%">✦ 开始二创</button>
+              <button class="btn" id="createBtn" style="width:100%">✦ 生成歌词并开始创作</button>
+              <div class="output" style="margin-top:16px;min-height:150px" id="memoryBox">作词 Agent 记忆：
+
+偏好风格：口语化、画面感、短视频抓耳
+常用主题：夜晚、心动、成长、治愈
+避免表达：过度堆砌、太生硬、太像模板</div>
             </div>
           </div>
 
@@ -661,7 +662,7 @@
           <div class="panel-head">
             <div>
               <div class="panel-title">⚙️ 生成进度和结果</div>
-              <div class="panel-desc">这里展示创作 Agent 的整理结果。当前为前端演示，不会真实调用 Suno。</div>
+              <div class="panel-desc">这里展示作词 Agent 和 Suno 创作 Agent 的整理结果。当前为前端演示，不会真实调用 Suno。</div>
             </div>
           </div>
           <div class="panel-body">
@@ -693,6 +694,12 @@
             <button class="btn secondary" data-demo-log="音乐分析 Agent：已分析所选榜单歌曲。">模拟运行</button>
           </div>
           <div class="agent-card">
+            <span class="tag ok">首期重点</span>
+            <h3>作词 Agent</h3>
+            <p>负责根据主题、风格、榜单分析和用户偏好写歌词。它需要基础记忆，记住客户常用主题和喜欢的表达方式。</p>
+            <button class="btn secondary" data-demo-log="作词 Agent：已根据记忆生成一版歌词，并等待用户确认。">模拟运行</button>
+          </div>
+          <div class="agent-card">
             <span class="tag ok">首期</span>
             <h3>Suno 创作 Agent</h3>
             <p>负责整理表单、提交任务、跟踪状态、回收结果。音乐生成能力由 Suno 提供。</p>
@@ -716,6 +723,7 @@
           <div class="guide">
             <span>客户可加费扩展</span>
             <span>可选多个分析 Agent</span>
+            <span>可选多个作词 Agent</span>
             <span>可选多个创作 Agent</span>
             <span>最终可升级总调度 Agent</span>
           </div>
@@ -731,12 +739,12 @@
             <span>可以选爆款趋势分析、情绪分析、歌词主题分析、专业音乐分析。</span>
           </div>
           <div class="flow-step">
-            <strong>第三步：选择创作 Agent</strong>
-            <span>可以选流行创作、短视频创作、纯音乐创作、治愈系创作。</span>
+            <strong>第三步：选择作词 Agent</strong>
+            <span>可以选短视频作词、治愈系作词、国风作词、说唱作词，每个 Agent 可拥有不同记忆。</span>
           </div>
           <div class="flow-step">
-            <strong>第四步：保存工作链</strong>
-            <span>客户保存成自己的创作流程，下次一键运行。</span>
+            <strong>第四步：选择创作 Agent</strong>
+            <span>可以选 Suno 创作、纯音乐创作、流行歌创作等，再保存成客户自己的工作链。</span>
           </div>
         </div>
 
@@ -752,7 +760,7 @@
             <div class="output">首期先做“人操作多个固定 Agent”，保证客户能看懂、能演示、能验收。
 
 如果后续客户认可，可以增加“自定义工作链”：
-客户自己选择多个分析 Agent、多个创作 Agent，组成自己的创作流程。
+客户自己选择多个分析 Agent、多个作词 Agent、多个创作 Agent，组成自己的创作流程。
 
 再往后，可以增加“总调度 Agent”：
 用户只描述目标，总调度 Agent 自动选择合适的专业 Agent，并安排它们协作完成任务。
@@ -793,7 +801,18 @@
     document.getElementById("createBtn").addEventListener("click", () => {
       const style = document.getElementById("style").value.trim();
       const lyrics = document.getElementById("lyrics").value.trim();
-      document.getElementById("resultBox").textContent = `创作 Agent 已收到任务。
+      document.getElementById("resultBox").textContent = `作词 Agent 已生成歌词草稿：
+
+《夏夜蓝调》
+主歌：
+霓虹落在窗边，晚风轻轻绕过街角
+你说别急着告别，月光刚好还没睡着
+
+副歌：
+夏夜的心跳，跟着灯火慢慢升高
+在人海里遇到你，是我偷偷写下的讯号
+
+Suno 创作 Agent 已收到任务。
 
 任务类型：二次创作
 使用工具：Suno
@@ -804,10 +823,12 @@
 ${lyrics}
 
 执行说明：
-1. 整理标题、歌词、风格、情绪、人声要求
-2. 提交给 Suno 创作工具
-3. 等待生成结果
-4. 保存音频链接和任务记录
+1. 作词 Agent 根据基础记忆生成歌词
+2. 用户确认或修改歌词
+3. Suno 创作 Agent 整理标题、歌词、风格、情绪、人声要求
+4. 提交给 Suno 创作工具
+5. 等待生成结果
+6. 保存音频链接和任务记录
 
 当前状态：演示模式，未真实提交。`;
     });
