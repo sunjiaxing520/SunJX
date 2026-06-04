@@ -1,45 +1,56 @@
 # 蓝乐 AI 音乐创作平台
 
-基于多智能体的 AI 音乐榜单爬取、风格分析与智能创作平台。
+蓝乐是一个面向音乐创作者的 AI 音乐创作工作台。
 
-## 当前状态
-
-项目资料已整理进入 `SunJX/projects/blue-music-platform`，包含：
-
-- 需求规格说明书：`需求规格说明书_v2.md`
-- 项目精炼说明：`项目精炼说明.md`
-- 报价方案：`报价方案.docx`
-- 报价方案精简版：`报价方案_精简版.md`
-- 客户讲解手册：`客户讲解手册.md`
-- 实现方向与接口设计：`06_实现方向与接口设计.md`
-- 前端静态演示：`demo/agent-console/index.html`
-- 后端 FastAPI 雏形：`backend/`
-- Docker Compose 雏形：`docker-compose.yml`
-
-目前代码仍处于早期骨架阶段，真正开发应从项目结构、后端基础架构、数据库模型和前端工程化开始。
-
-## 前端演示
-
-当前 demo 独立存放在：
+当前首期主线：
 
 ```text
-demo/agent-console/index.html
+酷狗榜单采集 -> 音乐分析 -> AI 作词 -> Suno 创作 -> Dashboard 展示
 ```
 
-演示定位：
+## 先看这里
+
+如果你是第一次打开项目，建议按这个顺序看：
+
+1. `docs/README.md`：文档导航，说明每类资料放在哪里。
+2. `docs/01-current-scope/项目精炼说明.md`：用最短篇幅理解项目。
+3. `docs/01-current-scope/需求规格说明书_v2.md`：当前需求和验收边界。
+4. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
+5. `backend/app/main.py`：当前后端入口代码。
+
+## 目录说明
 
 ```text
-第一阶段：人操作多个 Agent
-后续升级：总调度 Agent 调用多个专业 Agent
+blue-music-platform/
+├── backend/             # FastAPI 后端代码
+├── demo/                # 静态演示页面
+├── docs/                # 需求、决策、报价、讲解和历史资料
+├── docker-compose.yml   # PostgreSQL、Redis、后端服务编排
+└── README.md            # 项目开发入口
 ```
 
-## 产品目标
+## 当前代码状态
 
-平台核心链路：
+项目代码仍处于早期骨架阶段：
 
-```text
-音乐榜单采集 -> 音乐特征分析 -> AI 作词 -> Suno 创作 -> Dashboard 展示
-```
+- 后端已有 FastAPI 入口和健康检查。
+- Docker Compose 已包含 PostgreSQL、Redis、backend。
+- 前端正式 React 工程还未创建，当前只有静态演示页面。
+- 数据库模型、迁移、认证、Agent、业务接口还未实现。
+
+## 当前有效口径
+
+开发时以这些文件为准：
+
+- `docs/01-current-scope/需求规格说明书_v2.md`
+- `docs/01-current-scope/项目精炼说明.md`
+- `docs/02-decisions/决策记录.md`
+
+特别注意：
+
+- 首期爬虫数据源是酷狗热歌榜。
+- 首期模式是人操作多个固定 Agent。
+- 总调度 Agent、自定义工作链、复杂长期记忆系统都属于后续增强。
 
 ## 技术栈
 
@@ -49,19 +60,14 @@ demo/agent-console/index.html
 - 缓存/任务：Redis
 - 部署：Docker Compose
 
-## 推荐推进顺序
+## 推荐开发顺序
 
-1. 整理项目工程结构。
-2. 完成后端配置、数据库连接和健康检查。
-3. 建立用户、角色、权限、Agent、歌曲、分析结果、创作记录等核心模型。
-4. 实现登录注册和 JWT 鉴权。
-5. 实现 Agent 配置与状态管理。
-6. 实现爬虫 Agent 的手动触发和数据入库。
-7. 实现分析 Agent。
-8. 实现带基础记忆的作词 Agent。
-9. 实现 Suno 创作 Agent。
-10. 完成 Dashboard、部署文档和验收清单。
+1. 后端基础结构、配置、数据库连接。
+2. 用户、角色、权限和 JWT 鉴权。
+3. Dashboard 工作台基础数据。
+4. 酷狗榜单采集任务。
+5. 音乐分析 Agent。
+6. 作词 Agent 和基础记忆。
+7. Suno 创作 Agent。
+8. 前后端联调、部署文档和验收清单。
 
-## 协作要求
-
-所有 agent 修改本项目之前必须先阅读仓库根目录的 `AGENTS.md`。
