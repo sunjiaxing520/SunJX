@@ -1,38 +1,34 @@
-"""
-蓝乐 AI 音乐创作平台 — 后端入口
-FastAPI 应用主文件
-"""
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(
-    title="蓝乐 AI 音乐创作平台",
-    description="多智能体 AI 音乐榜单爬取 + 风格分析 + 智能创作平台",
-    version="0.1.0",
-)
-
-# 允许前端跨域请求
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.api.v1.router import api_router
+from app.core.config import settings
 
 
-# ---------- 根路由：健康检查 ----------
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "蓝乐 AI 音乐创作平台运行中"}
+def create_app() -> FastAPI:
+    """创建 FastAPI 应用，并集中注册中间件和路由。"""
+
+    app = FastAPI(
+        title=settings.PROJECT_NAME,
+        description=settings.PROJECT_DESCRIPTION,
+        version=settings.VERSION,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+    @app.get("/")
+    def root():
+        return {"status": "ok", "message": "蓝乐 AI 音乐创作平台运行中"}
+
+    return app
 
 
-# ---------- 健康检查接口 ----------
-@app.get("/api/health")
-def health_check():
-    return {
-        "status": "healthy",
-        "version": "0.1.0",
-        "service": "blue-music-platform",
-    }
+app = create_app()
