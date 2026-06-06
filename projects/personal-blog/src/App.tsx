@@ -35,6 +35,22 @@ type Post = {
   tag: string
 }
 
+type MapPhoto = {
+  id: string
+  src: string
+  caption: string
+}
+
+type MapPlace = {
+  id: string
+  name: string
+  region: string
+  x: number
+  y: number
+  coverPhotoId?: string
+  photos: MapPhoto[]
+}
+
 type BlogData = {
   brand: string
   badge: string
@@ -50,11 +66,14 @@ type BlogData = {
   workTitle: string
   writingTitle: string
   writingBody: string
+  mapTitle: string
+  mapBody: string
   aboutTitle: string
   contactTitle: string
   footerNote: string
   projects: Project[]
   posts: Post[]
+  mapPlaces: MapPlace[]
   skills: string[]
 }
 
@@ -77,6 +96,9 @@ const defaultData: BlogData = {
   writingTitle: 'Short essays and build logs.',
   writingBody:
     'A place for technical decisions, product thinking, UI craft, and the messy parts of turning early ideas into systems people can use.',
+  mapTitle: 'Map album for places, memories, and field notes.',
+  mapBody:
+    'Pin a place, upload photos for that location, and choose one image to become the marker shown on the map.',
   aboutTitle: 'Developer taste across product, code, and communication.',
   contactTitle: 'Open to sharp product ideas, AI tools, and focused collaborations.',
   footerNote: 'Built with React, TypeScript, and a dark editorial system.',
@@ -123,6 +145,24 @@ const defaultData: BlogData = {
       tag: 'AI',
     },
   ],
+  mapPlaces: [
+    {
+      id: 'shanghai',
+      name: 'Shanghai',
+      region: 'China',
+      x: 78,
+      y: 54,
+      photos: [],
+    },
+    {
+      id: 'beijing',
+      name: 'Beijing',
+      region: 'China',
+      x: 68,
+      y: 36,
+      photos: [],
+    },
+  ],
   skills: [
     'React / TypeScript',
     'FastAPI / Python',
@@ -146,6 +186,12 @@ const cleanData = (data: BlogData): BlogData => ({
   titleLines: data.titleLines.filter(Boolean).slice(0, 4),
   projects: data.projects.slice(0, 9),
   posts: data.posts.slice(0, 12),
+  mapPlaces: data.mapPlaces.slice(0, 12).map((place) => ({
+    ...place,
+    x: Math.min(96, Math.max(4, Number(place.x) || 50)),
+    y: Math.min(92, Math.max(8, Number(place.y) || 50)),
+    photos: place.photos.slice(0, 18),
+  })),
   skills: data.skills.filter(Boolean).slice(0, 18),
 })
 
@@ -162,9 +208,11 @@ function App() {
   })
   const [draft, setDraft] = useState<BlogData>(data)
   const [isEditing, setIsEditing] = useState(false)
+  const [selectedPlaceId, setSelectedPlaceId] = useState(defaultData.mapPlaces[0]?.id)
 
   const heroSrc = data.heroImage || earthImage
   const mailHref = useMemo(() => `mailto:${data.email}`, [data.email])
+  const selectedPlace = data.mapPlaces.find((place) => place.id === selectedPlaceId) ?? data.mapPlaces[0]
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(data))
@@ -196,6 +244,19 @@ function App() {
     }))
   }
 
+  const updateMapPlace = <Key extends keyof MapPlace>(
+    index: number,
+    key: Key,
+    value: MapPlace[Key],
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      mapPlaces: current.mapPlaces.map((place, placeIndex) =>
+        placeIndex === index ? { ...place, [key]: value } : place,
+      ),
+    }))
+  }
+
   const openEditor = () => {
     setDraft(data)
     setIsEditing(true)
@@ -222,6 +283,31 @@ function App() {
     updateProject(index, 'image', await readImageFile(file))
   }
 
+  const uploadMapPhotos = async (index: number, files?: FileList | null) => {
+    if (!files?.length) return
+
+    const incomingPhotos = await Promise.all(
+      Array.from(files).map(async (file) => ({
+        id: crypto.randomUUID(),
+        src: await readImageFile(file),
+        caption: file.name.replace(/\.[^.]+$/, ''),
+      })),
+    )
+
+    setDraft((current) => ({
+      ...current,
+      mapPlaces: current.mapPlaces.map((place, placeIndex) =>
+        placeIndex === index
+          ? {
+              ...place,
+              coverPhotoId: place.coverPhotoId || incomingPhotos[0]?.id,
+              photos: [...place.photos, ...incomingPhotos].slice(0, 18),
+            }
+          : place,
+      ),
+    }))
+  }
+
   return (
     <main>
       <nav className="site-nav" aria-label="Primary navigation">
@@ -232,6 +318,7 @@ function App() {
         <div className="nav-links">
           <a href="#work">Work</a>
           <a href="#writing">Writing</a>
+          <a href="#map-album">Map</a>
           <a href="#about">About</a>
           <a href="#contact">Contact</a>
         </div>
@@ -323,6 +410,73 @@ function App() {
               <time>{post.date}</time>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="section map-section" id="map-album">
+        <div className="section-heading">
+          <span className="section-kicker">Map album</span>
+          <h2>{data.mapTitle}</h2>
+        </div>
+        <div className="map-layout">
+          <div className="memory-map" aria-label="Interactive photo map">
+            <div className="map-surface">
+              <div className="map-grid" />
+              <div className="map-route route-a" />
+              <div className="map-route route-b" />
+              {data.mapPlaces.map((place) => {
+                const cover = place.photos.find((photo) => photo.id === place.coverPhotoId) ?? place.photos[0]
+
+                return (
+                  <button
+                    className={`map-marker ${selectedPlace?.id === place.id ? 'active' : ''}`}
+                    key={place.id}
+                    style={{ left: `${place.x}%`, top: `${place.y}%` }}
+                    type="button"
+                    onClick={() => setSelectedPlaceId(place.id)}
+                  >
+                    {cover ? <img src={cover.src} alt="" /> : <MapPin size={20} aria-hidden="true" />}
+                    <span>{place.photos.length || 0}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <aside className="map-detail">
+            {selectedPlace ? (
+              <>
+                <div className="map-detail-heading">
+                  <div>
+                    <span>{selectedPlace.region}</span>
+                    <h3>{selectedPlace.name}</h3>
+                  </div>
+                  <strong>{selectedPlace.photos.length} photos</strong>
+                </div>
+                <p>{data.mapBody}</p>
+                <div className="photo-strip">
+                  {selectedPlace.photos.length ? (
+                    selectedPlace.photos.map((photo) => (
+                      <figure key={photo.id}>
+                        <img src={photo.src} alt={photo.caption} />
+                        <figcaption>{photo.caption}</figcaption>
+                      </figure>
+                    ))
+                  ) : (
+                    <div className="empty-album">
+                      <ImageUp size={24} aria-hidden="true" />
+                      <span>打开编辑器，为这个地点上传图片。</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="empty-album">
+                <MapPin size={24} aria-hidden="true" />
+                <span>先在编辑器里添加一个地点。</span>
+              </div>
+            )}
+          </aside>
         </div>
       </section>
 
@@ -488,6 +642,23 @@ function App() {
                 />
               </label>
 
+              <label>
+                地图相册标题
+                <textarea
+                  rows={3}
+                  value={draft.mapTitle}
+                  onChange={(event) => updateDraft('mapTitle', event.target.value)}
+                />
+              </label>
+              <label>
+                地图相册说明
+                <textarea
+                  rows={3}
+                  value={draft.mapBody}
+                  onChange={(event) => updateDraft('mapBody', event.target.value)}
+                />
+              </label>
+
               <div className="editor-group">
                 <div className="editor-group-title">
                   <strong>作品</strong>
@@ -566,6 +737,133 @@ function App() {
                         删除
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="editor-group">
+                <div className="editor-group-title">
+                  <strong>地图相册</strong>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateDraft('mapPlaces', [
+                        ...draft.mapPlaces,
+                        {
+                          id: crypto.randomUUID(),
+                          name: 'New place',
+                          region: 'Region',
+                          x: 50,
+                          y: 50,
+                          photos: [],
+                        },
+                      ])
+                    }
+                  >
+                    <Plus size={16} aria-hidden="true" />
+                    添加地点
+                  </button>
+                </div>
+                {draft.mapPlaces.map((place, index) => (
+                  <div className="editor-card" key={place.id}>
+                    <label>
+                      地点名
+                      <input value={place.name} onChange={(event) => updateMapPlace(index, 'name', event.target.value)} />
+                    </label>
+                    <label>
+                      地区
+                      <input value={place.region} onChange={(event) => updateMapPlace(index, 'region', event.target.value)} />
+                    </label>
+                    <div className="range-pair">
+                      <label>
+                        地图横向位置 {place.x}%
+                        <input
+                          max="96"
+                          min="4"
+                          type="range"
+                          value={place.x}
+                          onChange={(event) => updateMapPlace(index, 'x', Number(event.target.value))}
+                        />
+                      </label>
+                      <label>
+                        地图纵向位置 {place.y}%
+                        <input
+                          max="92"
+                          min="8"
+                          type="range"
+                          value={place.y}
+                          onChange={(event) => updateMapPlace(index, 'y', Number(event.target.value))}
+                        />
+                      </label>
+                    </div>
+                    <label className="upload-box compact-upload">
+                      <ImageUp size={18} aria-hidden="true" />
+                      <div>
+                        <strong>上传这个地点的图片</strong>
+                        <span>可以一次选择多张，保存后点击地图点查看。</span>
+                      </div>
+                      <input
+                        accept="image/*"
+                        multiple
+                        type="file"
+                        onChange={(event) => uploadMapPhotos(index, event.target.files)}
+                      />
+                    </label>
+                    {place.photos.length > 0 && (
+                      <div className="photo-editor-grid">
+                        {place.photos.map((photo) => (
+                          <div className="photo-editor-item" key={photo.id}>
+                            <img src={photo.src} alt="" />
+                            <input
+                              value={photo.caption}
+                              onChange={(event) =>
+                                updateMapPlace(
+                                  index,
+                                  'photos',
+                                  place.photos.map((candidate) =>
+                                    candidate.id === photo.id
+                                      ? { ...candidate, caption: event.target.value }
+                                      : candidate,
+                                  ),
+                                )
+                              }
+                            />
+                            <div className="editor-card-actions">
+                              <button
+                                type="button"
+                                onClick={() => updateMapPlace(index, 'coverPhotoId', photo.id)}
+                              >
+                                {place.coverPhotoId === photo.id ? '已设封面' : '设为标记'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateMapPlace(
+                                    index,
+                                    'photos',
+                                    place.photos.filter((candidate) => candidate.id !== photo.id),
+                                  )
+                                }
+                              >
+                                <Trash2 size={15} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateDraft(
+                          'mapPlaces',
+                          draft.mapPlaces.filter((_, placeIndex) => placeIndex !== index),
+                        )
+                      }
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      删除地点
+                    </button>
                   </div>
                 ))}
               </div>
