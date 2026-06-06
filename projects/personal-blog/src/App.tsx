@@ -210,6 +210,92 @@ const placeToVector = (place: MapPlace, radius = 2.14) => {
   )
 }
 
+const createEarthTexture = () => {
+  const canvas = document.createElement('canvas')
+  canvas.width = 2048
+  canvas.height = 1024
+  const context = canvas.getContext('2d')
+
+  if (!context) return new THREE.Texture()
+
+  const ocean = context.createLinearGradient(0, 0, canvas.width, canvas.height)
+  ocean.addColorStop(0, '#082234')
+  ocean.addColorStop(0.35, '#12506c')
+  ocean.addColorStop(0.68, '#0d344f')
+  ocean.addColorStop(1, '#061827')
+  context.fillStyle = ocean
+  context.fillRect(0, 0, canvas.width, canvas.height)
+
+  for (let index = 0; index < 900; index += 1) {
+    const x = Math.random() * canvas.width
+    const y = Math.random() * canvas.height
+    const radius = 1 + Math.random() * 3.5
+    context.fillStyle = Math.random() > 0.45 ? 'rgba(94, 174, 204, 0.22)' : 'rgba(7, 38, 58, 0.24)'
+    context.beginPath()
+    context.arc(x, y, radius, 0, Math.PI * 2)
+    context.fill()
+  }
+
+  const drawLand = (points: Array<[number, number]>, fill: string) => {
+    context.save()
+    context.beginPath()
+    points.forEach(([x, y], index) => {
+      if (index === 0) context.moveTo(x, y)
+      else context.lineTo(x, y)
+    })
+    context.closePath()
+    context.shadowColor = 'rgba(255, 238, 198, 0.34)'
+    context.shadowBlur = 18
+    context.fillStyle = fill
+    context.fill()
+    context.shadowBlur = 0
+    context.strokeStyle = 'rgba(244, 250, 255, 0.5)'
+    context.lineWidth = 3
+    context.stroke()
+    context.restore()
+  }
+
+  const scale = (points: Array<[number, number]>) => points.map(([x, y]) => [x * 2, y * 2] as [number, number])
+
+  drawLand(scale([[116, 95], [174, 58], [246, 78], [296, 130], [282, 204], [224, 252], [158, 226], [112, 164]]), '#8daf74')
+  drawLand(scale([[262, 246], [316, 264], [360, 332], [342, 432], [288, 480], [244, 390], [228, 310]]), '#c79a66')
+  drawLand(scale([[438, 124], [514, 72], [612, 96], [668, 172], [628, 256], [524, 280], [424, 226], [394, 166]]), '#c4b47d')
+  drawLand(scale([[612, 176], [720, 132], [884, 168], [960, 246], [914, 326], [756, 320], [618, 252]]), '#9dbb76')
+  drawLand(scale([[556, 282], [628, 294], [676, 370], [642, 474], [566, 426], [512, 342]]), '#c99a64')
+  drawLand(scale([[792, 360], [880, 348], [952, 404], [902, 458], [822, 432]]), '#b8ad78')
+
+  const cloudBands = [
+    [180, 148, 320, 34, -0.16],
+    [720, 248, 440, 42, 0.14],
+    [1180, 166, 360, 34, -0.12],
+    [1380, 654, 520, 42, 0.09],
+    [460, 736, 420, 36, 0.25],
+    [1760, 308, 300, 30, -0.2],
+  ]
+
+  cloudBands.forEach(([x, y, width, height, rotation]) => {
+    context.save()
+    context.translate(x, y)
+    context.rotate(rotation)
+    const gradient = context.createRadialGradient(0, 0, 8, 0, 0, width)
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.52)')
+    gradient.addColorStop(0.58, 'rgba(255, 255, 255, 0.18)')
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    context.fillStyle = gradient
+    context.beginPath()
+    context.ellipse(0, 0, width, height, 0, 0, Math.PI * 2)
+    context.fill()
+    context.restore()
+  })
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.anisotropy = 8
+  return texture
+}
+
 const createMarkerTexture = (place: MapPlace, active: boolean) => {
   const canvas = document.createElement('canvas')
   canvas.width = 256
@@ -319,8 +405,7 @@ function GlobeMap({
     globeGroup.rotation.y = Math.PI
     scene.add(globeGroup)
 
-    const earthTexture = new THREE.TextureLoader().load(earthImage)
-    earthTexture.colorSpace = THREE.SRGBColorSpace
+    const earthTexture = createEarthTexture()
     earthTexture.anisotropy = renderer.capabilities.getMaxAnisotropy()
 
     const globe = new THREE.Mesh(
