@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {
   ArrowUpRight,
   BookOpen,
@@ -183,17 +185,314 @@ const readImageFile = (file: File) =>
 
 const cleanData = (data: BlogData): BlogData => ({
   ...data,
-  titleLines: data.titleLines.filter(Boolean).slice(0, 4),
-  projects: data.projects.slice(0, 9),
-  posts: data.posts.slice(0, 12),
-  mapPlaces: data.mapPlaces.slice(0, 12).map((place) => ({
+  titleLines: (data.titleLines ?? defaultData.titleLines).filter(Boolean).slice(0, 4),
+  projects: (data.projects ?? defaultData.projects).slice(0, 9),
+  posts: (data.posts ?? defaultData.posts).slice(0, 12),
+  mapPlaces: (data.mapPlaces ?? defaultData.mapPlaces).slice(0, 12).map((place) => ({
     ...place,
     x: Math.min(96, Math.max(4, Number(place.x) || 50)),
     y: Math.min(92, Math.max(8, Number(place.y) || 50)),
-    photos: place.photos.slice(0, 18),
+    photos: (place.photos ?? []).slice(0, 18),
   })),
-  skills: data.skills.filter(Boolean).slice(0, 18),
+  skills: (data.skills ?? defaultData.skills).filter(Boolean).slice(0, 18),
 })
+
+const placeToVector = (place: MapPlace, radius = 2.14) => {
+  const longitude = (place.x / 100) * 360 - 180
+  const latitude = 90 - (place.y / 100) * 180
+  const phi = THREE.MathUtils.degToRad(90 - latitude)
+  const theta = THREE.MathUtils.degToRad(longitude + 180)
+
+  return new THREE.Vector3(
+    -(radius * Math.sin(phi) * Math.cos(theta)),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta),
+  )
+}
+
+const createGlobeTexture = () => {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1024
+  canvas.height = 512
+  const context = canvas.getContext('2d')
+
+  if (!context) return new THREE.Texture()
+
+  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height)
+  gradient.addColorStop(0, '#071015')
+  gradient.addColorStop(0.52, '#10212a')
+  gradient.addColorStop(1, '#05070a')
+  context.fillStyle = gradient
+  context.fillRect(0, 0, canvas.width, canvas.height)
+
+  context.strokeStyle = 'rgba(141, 216, 255, 0.18)'
+  context.lineWidth = 1
+  for (let x = 0; x <= canvas.width; x += 64) {
+    context.beginPath()
+    context.moveTo(x, 0)
+    context.lineTo(x, canvas.height)
+    context.stroke()
+  }
+  for (let y = 0; y <= canvas.height; y += 64) {
+    context.beginPath()
+    context.moveTo(0, y)
+    context.lineTo(canvas.width, y)
+    context.stroke()
+  }
+
+  const landForms = [
+    [190, 185, 168, 84, -0.2],
+    [420, 210, 130, 72, 0.26],
+    [625, 235, 184, 92, -0.13],
+    [765, 160, 120, 68, 0.42],
+    [600, 350, 112, 72, -0.34],
+  ]
+
+  landForms.forEach(([x, y, width, height, rotation]) => {
+    context.save()
+    context.translate(x, y)
+    context.rotate(rotation)
+    context.fillStyle = 'rgba(248, 250, 252, 0.1)'
+    context.strokeStyle = 'rgba(141, 216, 255, 0.28)'
+    context.beginPath()
+    context.ellipse(0, 0, width, height, 0, 0, Math.PI * 2)
+    context.fill()
+    context.stroke()
+    context.restore()
+  })
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+const createMarkerTexture = (place: MapPlace, active: boolean) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const context = canvas.getContext('2d')
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+
+  if (!context) return texture
+
+  const cover = place.photos.find((photo) => photo.id === place.coverPhotoId) ?? place.photos[0]
+
+  const drawBase = (image?: HTMLImageElement) => {
+    context.clearRect(0, 0, canvas.width, canvas.height)
+    context.save()
+    context.shadowColor = active ? 'rgba(255, 180, 137, 0.86)' : 'rgba(141, 216, 255, 0.62)'
+    context.shadowBlur = active ? 34 : 24
+    context.beginPath()
+    context.arc(128, 128, 86, 0, Math.PI * 2)
+    context.fillStyle = active ? '#ffb489' : '#8dd8ff'
+    context.fill()
+    context.restore()
+
+    context.save()
+    context.beginPath()
+    context.arc(128, 128, 72, 0, Math.PI * 2)
+    context.clip()
+    if (image) {
+      const ratio = Math.max(144 / image.width, 144 / image.height)
+      const width = image.width * ratio
+      const height = image.height * ratio
+      context.drawImage(image, 128 - width / 2, 128 - height / 2, width, height)
+    } else {
+      const gradient = context.createLinearGradient(72, 72, 180, 188)
+      gradient.addColorStop(0, '#f8fafc')
+      gradient.addColorStop(0.45, '#8dd8ff')
+      gradient.addColorStop(1, '#1f2937')
+      context.fillStyle = gradient
+      context.fillRect(56, 56, 160, 160)
+      context.fillStyle = '#071015'
+      context.font = '700 56px system-ui'
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillText(String(place.photos.length || 0), 128, 128)
+    }
+    context.restore()
+
+    context.lineWidth = 10
+    context.strokeStyle = '#f8fafc'
+    context.beginPath()
+    context.arc(128, 128, 76, 0, Math.PI * 2)
+    context.stroke()
+    texture.needsUpdate = true
+  }
+
+  if (cover) {
+    const image = new Image()
+    image.onload = () => drawBase(image)
+    image.src = cover.src
+  }
+
+  drawBase()
+  return texture
+}
+
+function GlobeMap({
+  places,
+  selectedPlaceId,
+  onSelectPlace,
+}: {
+  places: MapPlace[]
+  selectedPlaceId?: string
+  onSelectPlace: (id: string) => void
+}) {
+  const mountRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const mount = mountRef.current
+    if (!mount) return undefined
+
+    const scene = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(38, mount.clientWidth / mount.clientHeight, 0.1, 100)
+    camera.position.set(0, 0.35, 7.2)
+
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setSize(mount.clientWidth, mount.clientHeight)
+    renderer.setClearColor(0x000000, 0)
+    mount.appendChild(renderer.domElement)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.enablePan = false
+    controls.minDistance = 4.5
+    controls.maxDistance = 9
+    controls.autoRotate = false
+
+    scene.add(new THREE.AmbientLight(0x8dd8ff, 1.15))
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+    keyLight.position.set(3, 4, 6)
+    scene.add(keyLight)
+    const rimLight = new THREE.DirectionalLight(0xffb489, 1.2)
+    rimLight.position.set(-4, -1, -3)
+    scene.add(rimLight)
+
+    const globeGroup = new THREE.Group()
+    globeGroup.rotation.y = Math.PI
+    scene.add(globeGroup)
+
+    const globe = new THREE.Mesh(
+      new THREE.SphereGeometry(2, 96, 96),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: createGlobeTexture(),
+        metalness: 0.25,
+        roughness: 0.72,
+      }),
+    )
+    globeGroup.add(globe)
+
+    const wire = new THREE.Mesh(
+      new THREE.SphereGeometry(2.012, 48, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0x8dd8ff,
+        transparent: true,
+        opacity: 0.1,
+        wireframe: true,
+      }),
+    )
+    globeGroup.add(wire)
+
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(2.16, 96, 96),
+      new THREE.MeshBasicMaterial({
+        color: 0x8dd8ff,
+        transparent: true,
+        opacity: 0.08,
+        side: THREE.BackSide,
+      }),
+    )
+    globeGroup.add(glow)
+
+    const starGeometry = new THREE.BufferGeometry()
+    const starPositions = new Float32Array(420 * 3)
+    for (let index = 0; index < starPositions.length; index += 3) {
+      starPositions[index] = (Math.random() - 0.5) * 14
+      starPositions[index + 1] = (Math.random() - 0.5) * 9
+      starPositions[index + 2] = -3 - Math.random() * 8
+    }
+    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
+    scene.add(
+      new THREE.Points(
+        starGeometry,
+        new THREE.PointsMaterial({ color: 0xdbeafe, size: 0.018, transparent: true, opacity: 0.72 }),
+      ),
+    )
+
+    const sprites = places.map((place) => {
+      const material = new THREE.SpriteMaterial({
+        map: createMarkerTexture(place, place.id === selectedPlaceId),
+        transparent: true,
+        depthTest: false,
+      })
+      const sprite = new THREE.Sprite(material)
+      sprite.position.copy(placeToVector(place))
+      sprite.scale.setScalar(place.id === selectedPlaceId ? 0.55 : 0.44)
+      sprite.userData.placeId = place.id
+      globeGroup.add(sprite)
+      return sprite
+    })
+
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    const handlePointerDown = (event: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+      pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObjects(sprites)[0]
+      if (hit?.object.userData.placeId) onSelectPlace(hit.object.userData.placeId)
+    }
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+
+    let frameId = 0
+    const animate = () => {
+      frameId = requestAnimationFrame(animate)
+      globeGroup.rotation.y += 0.0009
+      controls.update()
+      renderer.render(scene, camera)
+    }
+    animate()
+
+    const resizeObserver = new ResizeObserver(() => {
+      const width = mount.clientWidth
+      const height = mount.clientHeight
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+      renderer.setSize(width, height)
+    })
+    resizeObserver.observe(mount)
+
+    return () => {
+      cancelAnimationFrame(frameId)
+      resizeObserver.disconnect()
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
+      mount.removeChild(renderer.domElement)
+      renderer.dispose()
+      scene.traverse((object) => {
+        if (object instanceof THREE.Mesh || object instanceof THREE.Sprite || object instanceof THREE.Points) {
+          object.geometry?.dispose()
+          const material = object.material
+          if (Array.isArray(material)) {
+            material.forEach((item) => item.dispose())
+          } else {
+            material.dispose()
+          }
+        }
+      })
+    }
+  }, [onSelectPlace, places, selectedPlaceId])
+
+  return (
+    <div className="globe-stage" ref={mountRef}>
+      <div className="globe-hint">Drag to rotate / scroll to zoom</div>
+    </div>
+  )
+}
 
 function App() {
   const [data, setData] = useState<BlogData>(() => {
@@ -420,27 +719,11 @@ function App() {
         </div>
         <div className="map-layout">
           <div className="memory-map" aria-label="Interactive photo map">
-            <div className="map-surface">
-              <div className="map-grid" />
-              <div className="map-route route-a" />
-              <div className="map-route route-b" />
-              {data.mapPlaces.map((place) => {
-                const cover = place.photos.find((photo) => photo.id === place.coverPhotoId) ?? place.photos[0]
-
-                return (
-                  <button
-                    className={`map-marker ${selectedPlace?.id === place.id ? 'active' : ''}`}
-                    key={place.id}
-                    style={{ left: `${place.x}%`, top: `${place.y}%` }}
-                    type="button"
-                    onClick={() => setSelectedPlaceId(place.id)}
-                  >
-                    {cover ? <img src={cover.src} alt="" /> : <MapPin size={20} aria-hidden="true" />}
-                    <span>{place.photos.length || 0}</span>
-                  </button>
-                )
-              })}
-            </div>
+            <GlobeMap
+              onSelectPlace={setSelectedPlaceId}
+              places={data.mapPlaces}
+              selectedPlaceId={selectedPlace?.id}
+            />
           </div>
 
           <aside className="map-detail">
