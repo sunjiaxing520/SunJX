@@ -210,62 +210,6 @@ const placeToVector = (place: MapPlace, radius = 2.14) => {
   )
 }
 
-const createGlobeTexture = () => {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1024
-  canvas.height = 512
-  const context = canvas.getContext('2d')
-
-  if (!context) return new THREE.Texture()
-
-  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height)
-  gradient.addColorStop(0, '#071015')
-  gradient.addColorStop(0.52, '#10212a')
-  gradient.addColorStop(1, '#05070a')
-  context.fillStyle = gradient
-  context.fillRect(0, 0, canvas.width, canvas.height)
-
-  context.strokeStyle = 'rgba(141, 216, 255, 0.18)'
-  context.lineWidth = 1
-  for (let x = 0; x <= canvas.width; x += 64) {
-    context.beginPath()
-    context.moveTo(x, 0)
-    context.lineTo(x, canvas.height)
-    context.stroke()
-  }
-  for (let y = 0; y <= canvas.height; y += 64) {
-    context.beginPath()
-    context.moveTo(0, y)
-    context.lineTo(canvas.width, y)
-    context.stroke()
-  }
-
-  const landForms = [
-    [190, 185, 168, 84, -0.2],
-    [420, 210, 130, 72, 0.26],
-    [625, 235, 184, 92, -0.13],
-    [765, 160, 120, 68, 0.42],
-    [600, 350, 112, 72, -0.34],
-  ]
-
-  landForms.forEach(([x, y, width, height, rotation]) => {
-    context.save()
-    context.translate(x, y)
-    context.rotate(rotation)
-    context.fillStyle = 'rgba(248, 250, 252, 0.1)'
-    context.strokeStyle = 'rgba(141, 216, 255, 0.28)'
-    context.beginPath()
-    context.ellipse(0, 0, width, height, 0, 0, Math.PI * 2)
-    context.fill()
-    context.stroke()
-    context.restore()
-  })
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
-
 const createMarkerTexture = (place: MapPlace, active: boolean) => {
   const canvas = document.createElement('canvas')
   canvas.width = 256
@@ -375,34 +319,29 @@ function GlobeMap({
     globeGroup.rotation.y = Math.PI
     scene.add(globeGroup)
 
+    const earthTexture = new THREE.TextureLoader().load(earthImage)
+    earthTexture.colorSpace = THREE.SRGBColorSpace
+    earthTexture.anisotropy = renderer.capabilities.getMaxAnisotropy()
+
     const globe = new THREE.Mesh(
       new THREE.SphereGeometry(2, 96, 96),
       new THREE.MeshStandardMaterial({
         color: 0xffffff,
-        map: createGlobeTexture(),
-        metalness: 0.25,
-        roughness: 0.72,
+        map: earthTexture,
+        emissive: 0x06283a,
+        emissiveIntensity: 0.22,
+        metalness: 0.08,
+        roughness: 0.58,
       }),
     )
     globeGroup.add(globe)
-
-    const wire = new THREE.Mesh(
-      new THREE.SphereGeometry(2.012, 48, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0x8dd8ff,
-        transparent: true,
-        opacity: 0.1,
-        wireframe: true,
-      }),
-    )
-    globeGroup.add(wire)
 
     const glow = new THREE.Mesh(
       new THREE.SphereGeometry(2.16, 96, 96),
       new THREE.MeshBasicMaterial({
         color: 0x8dd8ff,
         transparent: true,
-        opacity: 0.08,
+        opacity: 0.16,
         side: THREE.BackSide,
       }),
     )
@@ -473,6 +412,7 @@ function GlobeMap({
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
       mount.removeChild(renderer.domElement)
       renderer.dispose()
+      earthTexture.dispose()
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.Sprite || object instanceof THREE.Points) {
           object.geometry?.dispose()
