@@ -105,7 +105,11 @@ function App() {
             <Sparkles size={16} aria-hidden="true" />
             Personal developer blog and portfolio
           </div>
-          <h1>Building refined software for ambitious ideas.</h1>
+          <h1>
+            <span>为雄心勃勃的</span>
+            <span>想法，打造</span>
+            <span>精炼软件。</span>
+          </h1>
           <p className="hero-lede">
             I design and ship AI products, web tools, and quiet interfaces with a bias
             toward clarity, momentum, and production taste.

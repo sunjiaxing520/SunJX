@@ -128,12 +128,18 @@ p {
 }
 
 h1 {
-  max-width: 760px;
+  max-width: 700px;
   margin-top: 22px;
   color: #f8fafc;
-  font-size: clamp(3rem, 7vw, 7.2rem);
-  line-height: 0.92;
+  font-size: clamp(2.75rem, 4.8vw, 5.2rem);
+  font-weight: 850;
+  line-height: 1.12;
   letter-spacing: 0;
+  text-wrap: balance;
+}
+
+h1 span {
+  display: block;
 }
 
 .hero-lede {
@@ -530,6 +536,12 @@ footer span:last-child {
   .hero-section,
   .section {
     padding-inline: 18px;
+  }
+
+  h1 {
+    max-width: 100%;
+    font-size: clamp(2.15rem, 9.6vw, 2.75rem);
+    line-height: 1.16;
   }
 
   .hero-actions,
