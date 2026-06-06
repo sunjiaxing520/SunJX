@@ -73,6 +73,37 @@ footer {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.edit-toggle,
+.icon-button,
+.editor-group-title button,
+.editor-card button,
+.small-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.edit-toggle {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.edit-toggle:hover,
+.icon-button:hover,
+.editor-group-title button:hover,
+.editor-card button:hover,
+.small-upload:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
 .hero-section {
   position: relative;
   display: grid;
@@ -294,6 +325,15 @@ h1 span {
 .project-card {
   min-height: 360px;
   padding: 22px;
+  overflow: hidden;
+}
+
+.project-image {
+  width: calc(100% + 44px);
+  height: 160px;
+  margin: -22px -22px 22px;
+  object-fit: cover;
+  filter: saturate(0.8) contrast(1.08) brightness(0.82);
 }
 
 .project-meta,
@@ -472,6 +512,202 @@ footer span:last-child {
   gap: 8px;
 }
 
+.editor-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.editor-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.editor-panel {
+  position: absolute;
+  inset: 14px 14px 14px auto;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(520px, calc(100vw - 28px));
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(11, 13, 16, 0.96);
+  box-shadow: 0 28px 120px rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(18px);
+}
+
+.editor-header,
+.editor-actions,
+.editor-group-title,
+.editor-card-actions,
+.editor-two {
+  display: flex;
+}
+
+.editor-header {
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.editor-header h2 {
+  margin-top: 8px;
+  color: #f8fafc;
+  font-size: 1.35rem;
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.editor-actions {
+  gap: 10px;
+  padding: 14px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.editor-actions .primary-action,
+.editor-actions .secondary-action {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 0;
+  cursor: pointer;
+}
+
+.editor-scroll {
+  display: grid;
+  gap: 16px;
+  padding: 20px 22px 28px;
+  overflow: auto;
+}
+
+.editor-scroll label,
+.editor-card label {
+  display: grid;
+  gap: 8px;
+  color: #a8b3c4;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.editor-scroll input,
+.editor-scroll textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.055);
+  font: 500 14px/1.5 inherit;
+  outline: none;
+}
+
+.editor-scroll input {
+  height: 40px;
+  padding: 0 12px;
+}
+
+.editor-scroll textarea {
+  resize: vertical;
+  min-height: 86px;
+  padding: 10px 12px;
+}
+
+.editor-scroll input:focus,
+.editor-scroll textarea:focus {
+  border-color: rgba(141, 216, 255, 0.58);
+  box-shadow: 0 0 0 3px rgba(141, 216, 255, 0.11);
+}
+
+.upload-box {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed rgba(141, 216, 255, 0.36);
+  border-radius: 8px;
+  color: #f8fafc;
+  background: rgba(141, 216, 255, 0.07);
+}
+
+.upload-box svg {
+  color: #8dd8ff;
+}
+
+.upload-box span {
+  display: block;
+  margin-top: 4px;
+  color: #a8b3c4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.upload-box input,
+.small-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.editor-group {
+  display: grid;
+  gap: 12px;
+}
+
+.editor-group-title {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #f8fafc;
+}
+
+.editor-group-title button,
+.editor-card button,
+.small-upload {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.editor-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.editor-card.compact textarea {
+  min-height: 64px;
+}
+
+.editor-two {
+  gap: 10px;
+}
+
+.editor-two label {
+  min-width: 0;
+  flex: 1;
+}
+
+.editor-card-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.small-upload {
+  position: relative;
+}
+
 @media (max-width: 960px) {
   .site-nav {
     inset: 12px 12px auto;
@@ -479,6 +715,10 @@ footer span:last-child {
 
   .nav-links {
     display: none;
+  }
+
+  .edit-toggle {
+    margin-left: auto;
   }
 
   .hero-section,
@@ -566,5 +806,15 @@ footer span:last-child {
   .timeline-item {
     display: grid;
     gap: 8px;
+  }
+
+  .editor-panel {
+    inset: 8px;
+    width: auto;
+  }
+
+  .editor-actions,
+  .editor-two {
+    display: grid;
   }
 }
