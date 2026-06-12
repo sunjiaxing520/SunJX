@@ -10,9 +10,10 @@
 2. `01-current-scope/需求规格说明书_v2.md`
 3. `02-decisions/决策记录.md`
 4. `03-implementation/分阶段开发任务书.md`
-5. `03-implementation/后端学习路线.md`
-6. `03-implementation/接手评估.md`
-7. `03-implementation/06_实现方向与接口设计.md`
+5. `03-implementation/开发质量门.md`
+6. `03-implementation/后端学习路线.md`
+7. `03-implementation/接手评估.md`
+8. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 
