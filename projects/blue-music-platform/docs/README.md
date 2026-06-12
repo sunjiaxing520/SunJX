@@ -9,8 +9,10 @@
 1. `01-current-scope/项目精炼说明.md`
 2. `01-current-scope/需求规格说明书_v2.md`
 3. `02-decisions/决策记录.md`
-4. `03-implementation/接手评估.md`
-5. `03-implementation/06_实现方向与接口设计.md`
+4. `03-implementation/分阶段开发任务书.md`
+5. `03-implementation/后端学习路线.md`
+6. `03-implementation/接手评估.md`
+7. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 
@@ -37,4 +39,3 @@ docs/
 `archive/00_项目记忆.md` 是早期项目记忆，里面有 QQ 音乐、OpenClaw、完整版范围等旧口径。
 
 如果它和当前 SRS 或决策记录冲突，以当前 SRS 和决策记录为准。
-

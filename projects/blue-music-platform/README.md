@@ -16,7 +16,8 @@
 2. `docs/01-current-scope/项目精炼说明.md`：用最短篇幅理解项目。
 3. `docs/01-current-scope/需求规格说明书_v2.md`：当前需求和验收边界。
 4. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
-5. `backend/app/main.py`：当前后端入口代码。
+5. `docs/03-implementation/分阶段开发任务书.md`：开发阶段、交付物和验收标准。
+6. `backend/app/main.py`：当前后端入口代码。
 
 ## 目录说明
 
@@ -70,4 +71,3 @@ blue-music-platform/
 6. 作词 Agent 和基础记忆。
 7. Suno 创作 Agent。
 8. 前后端联调、部署文档和验收清单。
-
