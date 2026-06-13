@@ -12,12 +12,13 @@
 
 如果你是第一次打开项目，建议按这个顺序看：
 
-1. `docs/README.md`：文档导航，说明每类资料放在哪里。
-2. `docs/01-current-scope/项目精炼说明.md`：用最短篇幅理解项目。
-3. `docs/01-current-scope/需求规格说明书_v2.md`：当前需求和验收边界。
-4. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
-5. `docs/03-implementation/分阶段开发任务书.md`：开发阶段、交付物和验收标准。
-6. `backend/app/main.py`：当前后端入口代码。
+1. `中文代码地图.md`：用中文理解每个目录和主要文件。
+2. `docs/README.md`：文档导航，说明每类资料放在哪里。
+3. `docs/01-current-scope/项目精炼说明.md`：用最短篇幅理解项目。
+4. `docs/01-current-scope/需求规格说明书_v2.md`：当前需求和验收边界。
+5. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
+6. `docs/03-implementation/分阶段开发任务书.md`：开发阶段、交付物和验收标准。
+7. `backend/app/main.py`：当前后端入口代码。
 
 ## 目录说明
 
@@ -27,7 +28,8 @@ blue-music-platform/
 ├── demo/                # 静态演示页面
 ├── docs/                # 需求、决策、报价、讲解和历史资料
 ├── docker-compose.yml   # PostgreSQL、Redis、后端服务编排
-└── README.md            # 项目开发入口
+├── README.md            # 项目开发入口
+└── 中文代码地图.md       # 项目目录和代码阅读导航
 ```
 
 ## 当前代码状态
