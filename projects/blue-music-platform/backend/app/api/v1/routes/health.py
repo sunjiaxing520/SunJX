@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.exceptions import AppException
 from app.schemas.health import DatabaseHealthResponse, HealthResponse
 from app.services.health import is_database_available
 
@@ -22,9 +23,10 @@ def health_check() -> HealthResponse:
 @router.get("/health/database", response_model=DatabaseHealthResponse)
 def database_health_check(db: Session = Depends(get_db)) -> DatabaseHealthResponse:
     if not is_database_available(db):
-        raise HTTPException(
+        raise AppException(
+            code="DATABASE_UNAVAILABLE",
+            message="database connection is unavailable",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="database connection is unavailable",
         )
 
     return DatabaseHealthResponse(

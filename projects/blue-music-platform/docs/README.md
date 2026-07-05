@@ -14,8 +14,9 @@
 6. `03-implementation/后端学习路线.md`
 7. `03-implementation/P1_数据库基础讲解.md`
 8. `03-implementation/P1_数据库联调验收记录.md`
-9. `03-implementation/接手评估.md`
-10. `03-implementation/06_实现方向与接口设计.md`
+9. `03-implementation/P1_统一异常处理基础.md`
+10. `03-implementation/接手评估.md`
+11. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 

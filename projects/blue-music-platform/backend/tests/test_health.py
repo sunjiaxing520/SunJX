@@ -73,5 +73,20 @@ def test_database_health_returns_503_when_query_fails(
 
     assert response.status_code == 503
     assert response.json() == {
-        "detail": "database connection is unavailable",
+        "error": {
+            "code": "DATABASE_UNAVAILABLE",
+            "message": "database connection is unavailable",
+        }
+    }
+
+
+def test_not_found_returns_unified_error_response(client: TestClient) -> None:
+    response = client.get("/api/v1/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "HTTP_404",
+            "message": "Not Found",
+        }
     }
