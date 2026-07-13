@@ -25,7 +25,7 @@ def database_health_check(db: Session = Depends(get_db)) -> DatabaseHealthRespon
     if not is_database_available(db):
         raise AppException(
             code="DATABASE_UNAVAILABLE",
-            message="database connection is unavailable",
+            message="数据库连接暂时不可用",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 

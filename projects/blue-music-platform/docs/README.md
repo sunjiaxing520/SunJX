@@ -16,8 +16,9 @@
 8. `03-implementation/P1_数据库联调验收记录.md`
 9. `03-implementation/P1_统一异常处理基础.md`
 10. `03-implementation/P1_阶段总体验收记录.md`
-11. `03-implementation/接手评估.md`
-12. `03-implementation/06_实现方向与接口设计.md`
+11. `03-implementation/错误定位与错误码手册.md`
+12. `03-implementation/接手评估.md`
+13. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 

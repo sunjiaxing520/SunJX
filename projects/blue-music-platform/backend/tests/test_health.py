@@ -19,6 +19,7 @@ def test_root_returns_running_message(client: TestClient) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
+    assert len(response.headers["X-Request-ID"]) == 32
     assert response.json() == {
         "status": "ok",
         "message": "蓝乐 AI 音乐创作平台运行中",
@@ -72,21 +73,17 @@ def test_database_health_returns_503_when_query_fails(
         app.dependency_overrides.clear()
 
     assert response.status_code == 503
-    assert response.json() == {
-        "error": {
-            "code": "DATABASE_UNAVAILABLE",
-            "message": "database connection is unavailable",
-        }
-    }
+    error = response.json()["error"]
+    assert error["code"] == "DATABASE_UNAVAILABLE"
+    assert error["message"] == "数据库连接暂时不可用"
+    assert error["request_id"] == response.headers["X-Request-ID"]
 
 
 def test_not_found_returns_unified_error_response(client: TestClient) -> None:
     response = client.get("/api/v1/missing")
 
     assert response.status_code == 404
-    assert response.json() == {
-        "error": {
-            "code": "HTTP_404",
-            "message": "Not Found",
-        }
-    }
+    error = response.json()["error"]
+    assert error["code"] == "HTTP_404"
+    assert error["message"] == "请求的接口或资源不存在"
+    assert error["request_id"] == response.headers["X-Request-ID"]

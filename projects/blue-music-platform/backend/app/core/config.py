@@ -16,6 +16,16 @@ class Settings:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key_change_in_production")
 
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    LOG_FORMAT = os.getenv(
+        "LOG_FORMAT", "json" if ENVIRONMENT == "production" else "text"
+    ).lower()
+    LOG_TO_FILE = os.getenv(
+        "LOG_TO_FILE", "false" if ENVIRONMENT == "production" else "true"
+    ).lower() in {"1", "true", "yes", "on"}
+    LOG_DIR = os.getenv("LOG_DIR")
+    LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
+
     CORS_ORIGINS = [
         origin.strip()
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
