@@ -216,7 +216,13 @@ def test_super_admin_dashboard_lists_all_agents(
     assert {agent["agent"] for agent in body["agents"]} == {
         agent.value for agent in AgentType
     }
-    assert all(agent["status"] == "not_configured" for agent in body["agents"])
+    status_by_agent = {agent["agent"]: agent["status"] for agent in body["agents"]}
+    assert status_by_agent == {
+        "crawler": "idle",
+        "analysis": "idle",
+        "lyrics": "idle",
+        "music": "not_configured",
+    }
 
 
 def test_member_dashboard_only_lists_permitted_agents(

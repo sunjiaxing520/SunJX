@@ -480,6 +480,119 @@ input {
   background: var(--paper);
 }
 
+.data-table {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.data-table .ant-table-cell {
+  vertical-align: middle;
+}
+
+.report-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.direction-list {
+  border-top: 1px solid var(--line);
+}
+
+.direction-item {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.direction-heading {
+  display: flex;
+  margin-bottom: 18px;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.direction-heading > span {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 5px;
+  color: #ffffff;
+  background: #353941;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.direction-heading h3.ant-typography,
+.lyrics-output-heading h2.ant-typography {
+  margin: 0 0 3px;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.tag-line {
+  display: grid;
+  margin: 10px 0;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.tag-line > strong {
+  padding-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.direction-item .ant-typography {
+  margin: 12px 0 0;
+  line-height: 1.75;
+}
+
+.lyrics-form-section .ant-form {
+  max-width: 1040px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+
+.lyrics-output {
+  min-width: 0;
+}
+
+.lyrics-output-heading {
+  display: flex;
+  margin-bottom: 22px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.lyrics-output-heading > div:first-child {
+  min-width: 0;
+}
+
+.lyrics-output pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #30323a;
+  background: #fafafa;
+  font-family: 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .account-cell {
   display: flex;
   min-width: 0;
@@ -570,6 +683,10 @@ input {
   .workflow-section .ant-steps {
     padding: 16px;
   }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 520px) {
@@ -616,5 +733,19 @@ input {
 
   .permissions-grid {
     grid-template-columns: 1fr;
+  }
+
+  .section-title-row,
+  .lyrics-output-heading {
+    flex-direction: column;
+  }
+
+  .section-title-row > .ant-space,
+  .lyrics-output-heading > .ant-space {
+    width: 100%;
+  }
+
+  .analysis-source-section .section-title-row > .ant-space {
+    align-items: stretch;
   }
 }

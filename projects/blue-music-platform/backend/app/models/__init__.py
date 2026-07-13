@@ -1,5 +1,23 @@
 
+from app.models.analysis import AnalysisReport, AnalysisTask, AnalysisTaskEntry
 from app.models.agent_permission import AgentType, UserAgentPermission
+from app.models.lyrics import LyricsTask, LyricsVersion
+from app.models.ranking import CollectionTask, RankingEntry, RankingSnapshot
 from app.models.user import User, UserRole
+from app.models.workflow import TaskStatus
 
-__all__ = ["AgentType", "User", "UserAgentPermission", "UserRole"]
+__all__ = [
+    "AgentType",
+    "AnalysisReport",
+    "AnalysisTask",
+    "AnalysisTaskEntry",
+    "CollectionTask",
+    "LyricsTask",
+    "LyricsVersion",
+    "RankingEntry",
+    "RankingSnapshot",
+    "TaskStatus",
+    "User",
+    "UserAgentPermission",
+    "UserRole",
+]

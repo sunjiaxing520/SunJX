@@ -14,9 +14,16 @@ const AgentsPage = lazy(() =>
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
 )
-const EmptyModulePage = lazy(() =>
-  import('./pages/EmptyModulePage').then((module) => ({ default: module.EmptyModulePage })),
+const AnalysisPage = lazy(() =>
+  import('./pages/AnalysisPage').then((module) => ({ default: module.AnalysisPage })),
 )
+const LyricsPage = lazy(() =>
+  import('./pages/LyricsPage').then((module) => ({ default: module.LyricsPage })),
+)
+const RankingsPage = lazy(() =>
+  import('./pages/RankingsPage').then((module) => ({ default: module.RankingsPage })),
+)
+const EmptyModulePage = lazy(() => import('./pages/EmptyModulePage').then((module) => ({ default: module.EmptyModulePage })))
 const LoginPage = lazy(() =>
   import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })),
 )
@@ -49,22 +56,13 @@ export default function AppRoutes() {
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
             <Route element={<AgentRoute agent="crawler" />}>
-              <Route
-                path="rankings"
-                element={<EmptyModulePage title="榜单采集" description="采集任务与数据记录" />}
-              />
+              <Route path="rankings" element={<RankingsPage />} />
             </Route>
             <Route element={<AgentRoute agent="analysis" />}>
-              <Route
-                path="analysis"
-                element={<EmptyModulePage title="内容分析" description="作品分析任务与报告" />}
-              />
+              <Route path="analysis" element={<AnalysisPage />} />
             </Route>
             <Route element={<AgentRoute agent="lyrics" />}>
-              <Route
-                path="lyrics"
-                element={<EmptyModulePage title="歌词创作" description="歌词任务与产出文件" />}
-              />
+              <Route path="lyrics" element={<LyricsPage />} />
             </Route>
             <Route element={<AgentRoute agent="music" />}>
               <Route

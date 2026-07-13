@@ -16,6 +16,7 @@ class Settings:
     API_V1_PREFIX = "/api/v1"
 
     ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")
     DATABASE_URL = os.getenv(
         "DATABASE_URL",
         "postgresql://blue_music:blue_music_pass@localhost:5432/blue_music_db",
@@ -36,6 +37,22 @@ class Settings:
     ).lower() in {"1", "true", "yes", "on"}
     LOG_DIR = os.getenv("LOG_DIR")
     LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "30"))
+
+    RANKING_RETENTION_DAYS = int(os.getenv("RANKING_RETENTION_DAYS", "30"))
+    RANKING_DEFAULT_LIMIT = int(os.getenv("RANKING_DEFAULT_LIMIT", "100"))
+    KUGOU_REQUEST_TIMEOUT_SECONDS = float(
+        os.getenv("KUGOU_REQUEST_TIMEOUT_SECONDS", "15")
+    )
+    KUGOU_MAX_RETRIES = int(os.getenv("KUGOU_MAX_RETRIES", "3"))
+
+    AI_PROVIDER = os.getenv("AI_PROVIDER", "local").lower()
+    AI_BASE_URL = os.getenv("AI_BASE_URL", "").rstrip("/")
+    AI_API_KEY = os.getenv("AI_API_KEY", "")
+    AI_MODEL = os.getenv("AI_MODEL", "")
+    AI_REQUEST_TIMEOUT_SECONDS = float(
+        os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60")
+    )
+    AI_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "2"))
 
     CORS_ORIGINS = [
         origin.strip()
