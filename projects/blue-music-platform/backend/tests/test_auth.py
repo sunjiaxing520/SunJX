@@ -195,6 +195,58 @@ def test_member_cannot_use_admin_endpoints(auth_context: AuthContext) -> None:
     assert response.json()["error"]["code"] == "PERMISSION_DENIED"
 
 
+def test_super_admin_dashboard_lists_all_agents(
+    auth_context: AuthContext,
+) -> None:
+    token = _login(auth_context.client, "admin", "admin-password")
+
+    response = auth_context.client.get(
+        "/api/v1/dashboard",
+        headers=_authorization(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metrics"] == {
+        "crawled_today": 0,
+        "analyzed_today": 0,
+        "lyrics_tasks_today": 0,
+        "music_tasks_today": 0,
+    }
+    assert {agent["agent"] for agent in body["agents"]} == {
+        agent.value for agent in AgentType
+    }
+    assert all(agent["status"] == "not_configured" for agent in body["agents"])
+
+
+def test_member_dashboard_only_lists_permitted_agents(
+    auth_context: AuthContext,
+) -> None:
+    admin_token = _login(auth_context.client, "admin", "admin-password")
+    member = _create_member(auth_context.client, admin_token)
+    auth_context.client.put(
+        f"/api/v1/users/{member['id']}/agent-permissions",
+        headers=_authorization(admin_token),
+        json={"agents": ["crawler", "lyrics"]},
+    )
+    member_token = _login(
+        auth_context.client,
+        "member.one",
+        "member-password",
+    )
+
+    response = auth_context.client.get(
+        "/api/v1/dashboard",
+        headers=_authorization(member_token),
+    )
+
+    assert response.status_code == 200
+    assert [agent["agent"] for agent in response.json()["agents"]] == [
+        "crawler",
+        "lyrics",
+    ]
+
+
 def test_admin_manages_member_permissions_status_and_password(
     auth_context: AuthContext,
 ) -> None:

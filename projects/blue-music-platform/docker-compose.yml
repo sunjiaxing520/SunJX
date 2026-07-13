@@ -31,6 +31,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: dev_secret_key_change_in_production
       ENVIRONMENT: development
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     volumes:
       - ./backend:/app
     ports:

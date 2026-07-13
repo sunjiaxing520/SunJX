@@ -20,12 +20,14 @@
 6. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
 7. `docs/03-implementation/分阶段开发任务书.md`：开发阶段、交付物和验收标准。
 8. `backend/app/main.py`：当前后端入口代码。
+9. `frontend/src/main.tsx`：正式前端入口和全局主题配置。
 
 ## 目录说明
 
 ```text
 blue-music-platform/
 ├── backend/             # FastAPI 后端代码
+├── frontend/            # React + TypeScript 正式前端
 ├── demo/                # 静态演示页面
 ├── docs/                # 需求、决策、报价、讲解和历史资料
 ├── docker-compose.yml   # PostgreSQL、Redis、后端服务编排
@@ -36,13 +38,14 @@ blue-music-platform/
 
 ## 当前代码状态
 
-项目已完成后端底座和 P2 登录权限阶段：
+项目已完成后端底座、P2 登录权限和 P3 前端工作台阶段：
 
 - 后端已有 FastAPI 入口、健康检查、统一错误追踪和一键诊断。
 - Docker Compose 已包含 PostgreSQL、Redis、backend。
 - 已实现用户模型、数据库迁移、Argon2 密码哈希、JWT 登录和权限接口。
 - 已实现超级管理员初始化、内部成员管理和四类 Agent 权限。
-- 前端正式 React 工程还未创建，当前只有静态演示页面。
+- 已实现真实登录、受保护路由、权限导航、Dashboard、Agent 状态和账号管理页面。
+- 已实现前端安全诊断记录，可复制最近错误的 `request_id` 供维护定位。
 - 榜单、分析、作词和音乐创作 Agent 业务接口尚未实现。
 
 ## 当前有效口径
@@ -71,7 +74,7 @@ blue-music-platform/
 
 1. 后端基础结构、配置、数据库连接。
 2. 用户、角色、权限和 JWT 鉴权。
-3. Dashboard 工作台基础数据。
+3. Dashboard 工作台基础数据和正式前端。
 4. 酷狗榜单采集任务。
 5. 音乐分析 Agent。
 6. 作词 Agent 和基础记忆。

@@ -38,6 +38,21 @@ def test_health_returns_service_metadata(client: TestClient) -> None:
     }
 
 
+def test_cors_allows_local_vite_frontend(client: TestClient) -> None:
+    response = client.options(
+        "/api/v1/health",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == (
+        "http://127.0.0.1:5173"
+    )
+
+
 def test_database_health_returns_healthy_when_query_succeeds(
     client: TestClient,
 ) -> None:
