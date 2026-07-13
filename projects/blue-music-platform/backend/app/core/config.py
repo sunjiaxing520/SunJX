@@ -1,4 +1,11 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
 class Settings:
@@ -15,6 +22,10 @@ class Settings:
     )
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key_change_in_production")
+    JWT_ALGORITHM = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(
+        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120")
+    )
 
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
     LOG_FORMAT = os.getenv(

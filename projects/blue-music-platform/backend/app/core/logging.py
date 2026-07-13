@@ -21,6 +21,7 @@ CONTEXT_FIELDS = (
     "agent",
     "step",
     "attempt",
+    "target_user_id",
 )
 SENSITIVE_VALUE_PATTERN = re.compile(
     r"(?i)((?:password(?:_hash)?|token|authorization|cookie|secret(?:_key)?|"

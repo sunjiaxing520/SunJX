@@ -6,12 +6,14 @@ from app.core.config import settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.request_context import RequestIdMiddleware
+from app.core.security import validate_security_settings
 
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用，并集中注册中间件和路由。"""
 
     configure_logging()
+    validate_security_settings()
 
     app = FastAPI(
         title=settings.PROJECT_NAME,

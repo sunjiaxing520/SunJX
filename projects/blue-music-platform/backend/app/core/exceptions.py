@@ -9,3 +9,4 @@ class AppException(Exception):
     message: str
     status_code: int = status.HTTP_400_BAD_REQUEST
     detail: object | None = None
+    headers: dict[str, str] | None = None

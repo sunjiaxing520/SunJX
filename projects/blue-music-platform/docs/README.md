@@ -17,8 +17,9 @@
 9. `03-implementation/P1_统一异常处理基础.md`
 10. `03-implementation/P1_阶段总体验收记录.md`
 11. `03-implementation/错误定位与错误码手册.md`
-12. `03-implementation/接手评估.md`
-13. `03-implementation/06_实现方向与接口设计.md`
+12. `03-implementation/P2_登录权限与维护说明.md`
+13. `03-implementation/接手评估.md`
+14. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 

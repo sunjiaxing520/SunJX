@@ -21,6 +21,7 @@ def _error_response(
     message: str,
     request_id: str,
     detail: object | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     content = ErrorResponse(
         error=ErrorDetail(
@@ -30,10 +31,11 @@ def _error_response(
             detail=detail,
         )
     ).model_dump(exclude_none=True)
+    response_headers = {REQUEST_ID_HEADER: request_id, **(headers or {})}
     return JSONResponse(
         status_code=status_code,
         content=content,
-        headers={REQUEST_ID_HEADER: request_id},
+        headers=response_headers,
     )
 
 
@@ -46,6 +48,7 @@ def _log_request_error(
 ) -> None:
     context = {
         "request_id": get_request_id(request),
+        "user_id": getattr(request.state, "user_id", None),
         "method": request.method,
         "path": request.url.path,
         "status_code": status_code,
@@ -88,6 +91,7 @@ async def app_exception_handler(
         message=exc.message,
         request_id=get_request_id(request),
         detail=exc.detail,
+        headers=exc.headers,
     )
 
 
