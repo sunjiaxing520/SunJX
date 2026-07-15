@@ -27,6 +27,7 @@ import {
   Network,
   Settings,
   Users,
+  Workflow as WorkflowIcon,
 } from 'lucide-react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 
@@ -47,6 +48,7 @@ interface NavigationItem {
 
 const NAVIGATION: NavigationItem[] = [
   { key: '/', label: '工作台', icon: <Gauge size={18} /> },
+  { key: '/workflows', label: '自动流程', icon: <WorkflowIcon size={18} /> },
   {
     key: '/rankings',
     label: '榜单采集',

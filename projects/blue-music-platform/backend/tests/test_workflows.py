@@ -24,6 +24,7 @@ class WorkflowContext(NamedTuple):
 def workflow_context(monkeypatch: pytest.MonkeyPatch) -> WorkflowContext:
     monkeypatch.setattr(settings, "AI_PROVIDER", "local")
     monkeypatch.setattr(settings, "AI_MODEL", "")
+    monkeypatch.setattr(settings, "WORKFLOW_STEP_DELAY_SECONDS", 0)
     engine = create_engine(
         "sqlite+pysqlite://",
         connect_args={"check_same_thread": False},
@@ -294,3 +295,126 @@ def test_retention_uses_today_when_collecting_historical_sample(
     assert [item["snapshot_date"] for item in snapshots.json()] == [
         yesterday.isoformat()
     ]
+
+
+def test_configurable_workflow_runs_collection_analysis_and_lyrics(
+    workflow_context: WorkflowContext,
+) -> None:
+    created = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "完整创作流程",
+            "steps": ["collection", "analysis", "lyrics"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+                "lyrics": {
+                    "direction_index": 0,
+                    "theme": "根据榜单趋势完成一首成长主题歌曲",
+                    "language": "中文",
+                },
+            },
+        },
+    )
+
+    assert created.status_code == 201
+    template = created.json()
+    assert template["steps"] == ["collection", "analysis", "lyrics"]
+
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+
+    assert started.status_code == 202
+    run_id = started.json()["id"]
+    detail = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    )
+    assert detail.status_code == 200
+    run = detail.json()
+    assert run["status"] == "completed"
+    assert run["current_step"] is None
+    assert [step["step_type"] for step in run["steps"]] == [
+        "collection",
+        "analysis",
+        "lyrics",
+    ]
+    assert {step["status"] for step in run["steps"]} == {"completed"}
+    assert all(step["task_id"] for step in run["steps"])
+    assert all(step["output_id"] for step in run["steps"])
+
+    collection_step, analysis_step, lyrics_step = run["steps"]
+    collections = workflow_context.client.get(
+        "/api/v1/rankings/collections",
+        headers=_headers(workflow_context),
+    )
+    collection_task = next(
+        item
+        for item in collections.json()
+        if item["id"] == collection_step["task_id"]
+    )
+    assert collection_task["snapshot_id"] == collection_step["output_id"]
+
+    analysis = workflow_context.client.get(
+        f"/api/v1/analysis/tasks/{analysis_step['task_id']}",
+        headers=_headers(workflow_context),
+    )
+    assert analysis.status_code == 200
+    assert analysis.json()["selected_entry_count"] == 15
+    assert analysis.json()["report"]["id"] == analysis_step["output_id"]
+
+    lyrics_task_id = run["steps"][2]["task_id"]
+    lyrics = workflow_context.client.get(
+        f"/api/v1/lyrics/tasks/{lyrics_task_id}",
+        headers=_headers(workflow_context),
+    )
+    assert lyrics.status_code == 200
+    assert lyrics.json()["analysis_report_id"] == analysis_step["output_id"]
+    assert lyrics.json()["versions"]
+    assert lyrics.json()["versions"][0]["id"] == lyrics_step["output_id"]
+
+
+def test_workflow_stops_on_failed_step(
+    workflow_context: WorkflowContext,
+) -> None:
+    created = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "仅分析最新榜单",
+            "steps": ["analysis"],
+            "configuration": {"analysis": {"window_days": 7}},
+        },
+    )
+    assert created.status_code == 201
+
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{created.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    assert started.status_code == 202
+
+    detail = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{started.json()['id']}",
+        headers=_headers(workflow_context),
+    )
+    run = detail.json()
+    assert run["status"] == "failed"
+    assert run["error_code"] == "ANALYSIS_NO_RANKING_DATA"
+    assert run["steps"][0]["status"] == "failed"
+    assert run["steps"][0]["error_code"] == "ANALYSIS_NO_RANKING_DATA"
+
+
+def test_workflow_rejects_lyrics_without_analysis(
+    workflow_context: WorkflowContext,
+) -> None:
+    response = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={"name": "无来源作词", "steps": ["lyrics"]},
+    )
+
+    assert response.status_code == 422

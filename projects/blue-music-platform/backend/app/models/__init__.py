@@ -7,7 +7,13 @@ from app.models.favorite import FavoriteItem
 from app.models.lyrics import LyricsTask, LyricsVersion
 from app.models.ranking import CollectionTask, RankingEntry, RankingSnapshot
 from app.models.user import User, UserRole
-from app.models.workflow import TaskStatus
+from app.models.workflow import (
+    TaskStatus,
+    WorkflowRun,
+    WorkflowRunStep,
+    WorkflowStepType,
+    WorkflowTemplate,
+)
 
 __all__ = [
     "AgentType",
@@ -26,4 +32,8 @@ __all__ = [
     "User",
     "UserAgentPermission",
     "UserRole",
+    "WorkflowRun",
+    "WorkflowRunStep",
+    "WorkflowStepType",
+    "WorkflowTemplate",
 ]

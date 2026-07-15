@@ -21,7 +21,9 @@ import {
   FileMusic,
   Music2,
   RefreshCw,
+  Workflow as WorkflowIcon,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 import { getDashboard } from '../api/dashboard'
 import { AgentStatusTag } from '../components/AgentStatusTag'
@@ -72,6 +74,7 @@ function formatDateTime(value: string) {
 }
 
 export function DashboardPage() {
+  const navigate = useNavigate()
   const [data, setData] = useState<DashboardResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -271,7 +274,9 @@ export function DashboardPage() {
             <Typography.Title level={2}>标准创作流程</Typography.Title>
             <Typography.Text type="secondary">按固定顺序衔接各 Agent</Typography.Text>
           </div>
-          <span className="workflow-state">等待任务</span>
+          <Button icon={<WorkflowIcon size={16} />} onClick={() => navigate('/workflows')}>
+            配置流程
+          </Button>
         </div>
         <Steps
           responsive

@@ -207,6 +207,74 @@ export interface ApiErrorBody {
 }
 
 export type WorkflowTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type WorkflowStepType = 'collection' | 'analysis' | 'lyrics'
+
+export interface WorkflowConfiguration {
+  collection: {
+    source_mode: 'live' | 'sample'
+    limit: number
+  }
+  analysis: {
+    window_days: number
+  }
+  lyrics: {
+    direction_index: number
+    title_hint: string | null
+    theme: string | null
+    language: string
+    requirements: string | null
+  }
+}
+
+export interface WorkflowTemplatePayload {
+  name: string
+  steps: WorkflowStepType[]
+  configuration: WorkflowConfiguration
+}
+
+export interface WorkflowTemplate extends WorkflowTemplatePayload {
+  id: number
+  created_by_id: number | null
+  created_by_username: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkflowRunStep {
+  id: number
+  step_type: WorkflowStepType
+  position: number
+  status: WorkflowTaskStatus
+  task_id: number | null
+  output_id: number | null
+  error_code: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface WorkflowRun {
+  id: number
+  template_id: number | null
+  template_name: string
+  configuration: WorkflowConfiguration
+  status: WorkflowTaskStatus
+  current_step: WorkflowStepType | null
+  requested_by_id: number | null
+  requested_by_username: string | null
+  error_code: string | null
+  error_message: string | null
+  error_detail: Record<string, unknown> | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  steps: WorkflowRunStep[]
+}
+
+export interface WorkflowRunList {
+  items: WorkflowRun[]
+  total: number
+}
 
 export interface CollectionTask {
   id: number

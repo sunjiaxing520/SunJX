@@ -36,6 +36,9 @@ const UsersPage = lazy(() =>
 const AiProvidersPage = lazy(() =>
   import('./pages/AiProvidersPage').then((module) => ({ default: module.AiProvidersPage })),
 )
+const WorkflowsPage = lazy(() =>
+  import('./pages/WorkflowsPage').then((module) => ({ default: module.WorkflowsPage })),
+)
 
 function AgentRoute({ agent }: { agent: AgentType }) {
   const { user } = useAuth()
@@ -61,6 +64,7 @@ export default function AppRoutes() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
+            <Route path="workflows" element={<WorkflowsPage />} />
             <Route element={<AgentRoute agent="crawler" />}>
               <Route path="rankings" element={<RankingsPage />} />
             </Route>

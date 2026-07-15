@@ -20,8 +20,9 @@
 12. `03-implementation/P2_登录权限与维护说明.md`
 13. `03-implementation/P3_前端工作台与维护说明.md`
 14. `03-implementation/P4-P6_榜单分析作词维护说明.md`
-15. `03-implementation/接手评估.md`
-16. `03-implementation/06_实现方向与接口设计.md`
+15. `03-implementation/P6.5_线性自动工作流维护说明.md`
+16. `03-implementation/接手评估.md`
+17. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 

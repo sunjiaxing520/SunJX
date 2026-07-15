@@ -62,6 +62,12 @@ class Settings:
     AI_LYRICS_MAX_OUTPUT_TOKENS = int(
         os.getenv("AI_LYRICS_MAX_OUTPUT_TOKENS", "3500")
     )
+    WORKFLOW_STEP_DELAY_SECONDS = float(
+        os.getenv("WORKFLOW_STEP_DELAY_SECONDS", "15")
+    )
+    WORKFLOW_STALE_SECONDS = float(
+        os.getenv("WORKFLOW_STALE_SECONDS", "1800")
+    )
 
     CORS_ORIGINS = [
         origin.strip()
