@@ -1,11 +1,13 @@
 import json
 
+import httpx
 import pytest
 
 from app.adapters import text_generation
 from app.adapters.text_generation import (
     OpenAICompatibleTextProvider,
     TextProviderConfig,
+    TextProviderError,
 )
 from app.core.config import settings
 
@@ -109,3 +111,145 @@ def test_provider_config_controls_json_and_token_parameter(
     assert captured_request["max_completion_tokens"] == 3500
     assert "max_tokens" not in captured_request
     assert "response_format" not in captured_request
+
+
+def test_provider_timeout_records_precise_reason_and_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_post(url, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("timed out", request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    monkeypatch.setattr(text_generation.time, "sleep", lambda _: None)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="bigmodel",
+            protocol="openai_compatible",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="test-key",
+            model="glm-4.7-flash",
+            request_timeout_seconds=12,
+            max_retries=2,
+        )
+    )
+
+    with pytest.raises(TextProviderError) as error:
+        provider.test_connection()
+
+    assert str(error.value) == "AI 接口请求超时（单次等待上限 12 秒）；已尝试 2 次"
+    assert error.value.call is not None
+    assert error.value.call.attempt_count == 2
+    assert calls == 2
+
+
+def test_provider_http_error_preserves_safe_status_and_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_post(url, **kwargs):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            429,
+            headers={"x-request-id": "provider-rate-limit-123"},
+            json={"error": {"code": "1302", "message": "并发数已达上限"}},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    monkeypatch.setattr(text_generation.time, "sleep", lambda _: None)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="bigmodel",
+            protocol="openai_compatible",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="test-key",
+            model="glm-4.7-flash",
+            max_retries=2,
+        )
+    )
+
+    with pytest.raises(TextProviderError) as error:
+        provider.test_connection()
+
+    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限）；已尝试 2 次"
+    assert error.value.call is not None
+    assert error.value.call.attempt_count == 2
+    assert error.value.call.request_id == "provider-rate-limit-123"
+    assert calls == 2
+
+
+def test_provider_non_retryable_error_stops_and_redacts_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_post(url, **kwargs):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            401,
+            json={
+                "error": {
+                    "code": "1001",
+                    "message": "Authorization: secret-provider-token",
+                }
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="bigmodel",
+            protocol="openai_compatible",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="test-key",
+            model="glm-4.7-flash",
+            max_retries=2,
+        )
+    )
+
+    with pytest.raises(TextProviderError) as error:
+        provider.test_connection()
+
+    assert "HTTP 401" in str(error.value)
+    assert "secret-provider-token" not in str(error.value)
+    assert error.value.call is not None
+    assert error.value.call.attempt_count == 1
+    assert calls == 1
+
+
+def test_provider_empty_choices_returns_a_diagnostic_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(url, **kwargs):
+        return httpx.Response(
+            200,
+            json={"id": "provider-empty-123", "choices": []},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="bigmodel",
+            protocol="openai_compatible",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="test-key",
+            model="glm-4.7-flash",
+            max_retries=1,
+        )
+    )
+
+    with pytest.raises(TextProviderError) as error:
+        provider.test_connection()
+
+    assert str(error.value) == "AI 接口响应中没有可用的生成结果"
+    assert error.value.call is not None
+    assert error.value.call.request_id == "provider-empty-123"

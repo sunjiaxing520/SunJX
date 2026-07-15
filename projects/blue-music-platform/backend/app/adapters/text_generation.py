@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import time
 from collections import Counter
@@ -11,7 +12,11 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import settings
+from app.core.logging import LOGGER_NAME, redact_sensitive_values
 from app.core.time import utc_now
+
+
+provider_logger = logging.getLogger(f"{LOGGER_NAME}.providers")
 
 
 class TextProviderError(RuntimeError):
@@ -430,9 +435,11 @@ class OpenAICompatibleTextProvider:
         url = f"{self.config.base_url.rstrip('/')}/chat/completions"
         started_at = utc_now()
         attempts = max(1, self.config.max_retries)
+        attempt_count = 0
         last_request_id: str | None = None
         last_call: ProviderCallMetadata | None = None
         for attempt in range(1, attempts + 1):
+            attempt_count = attempt
             try:
                 request_body: dict[str, Any] = {
                     "model": self.model,
@@ -491,16 +498,42 @@ class OpenAICompatibleTextProvider:
                 content = body["choices"][0]["message"]["content"]
                 decoded = _decode_json_object(content)
                 return ProviderResult(output=decoded, call=last_call)
-            except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            except (
+                httpx.HTTPError,
+                IndexError,
+                KeyError,
+                TypeError,
+                ValueError,
+                json.JSONDecodeError,
+            ) as exc:
                 last_error = exc
-                if attempt < attempts:
-                    time.sleep(0.5 * attempt)
+                if isinstance(exc, httpx.HTTPStatusError):
+                    last_request_id = (
+                        _provider_request_id(exc.response) or last_request_id
+                    )
+                failure_summary = _provider_failure_summary(
+                    exc,
+                    timeout_seconds=self.config.request_timeout_seconds,
+                )
+                provider_logger.warning(
+                    f"text_provider_attempt_failed: {failure_summary}",
+                    extra={
+                        "agent": self.name,
+                        "step": "provider_request",
+                        "attempt": attempt,
+                        "status_code": _provider_status_code(exc),
+                    },
+                )
+                if attempt < attempts and _should_retry_provider_error(exc):
+                    time.sleep(_provider_retry_delay(exc, attempt))
+                    continue
+                break
 
         completed_at = utc_now()
         call = (
             replace(
                 last_call,
-                attempt_count=attempts,
+                attempt_count=attempt_count,
                 duration_ms=_duration_ms(started_at, completed_at),
                 completed_at=completed_at,
             )
@@ -510,14 +543,18 @@ class OpenAICompatibleTextProvider:
                 endpoint=url,
                 is_external=True,
                 request_id=last_request_id,
-                attempt_count=attempts,
+                attempt_count=attempt_count,
                 duration_ms=_duration_ms(started_at, completed_at),
                 started_at=started_at,
                 completed_at=completed_at,
             )
         )
         raise TextProviderError(
-            "AI 服务请求失败或返回了无法解析的内容",
+            _provider_final_error_message(
+                last_error,
+                attempt_count=attempt_count,
+                timeout_seconds=self.config.request_timeout_seconds,
+            ),
             call=call,
         ) from last_error
 
@@ -539,6 +576,135 @@ def _safe_int(value: object) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _provider_final_error_message(
+    error: Exception | None,
+    *,
+    attempt_count: int,
+    timeout_seconds: float,
+) -> str:
+    if error is None:
+        summary = "AI 接口请求失败"
+    else:
+        summary = _provider_failure_summary(
+            error,
+            timeout_seconds=timeout_seconds,
+        )
+    if attempt_count > 1:
+        return f"{summary}；已尝试 {attempt_count} 次"
+    return summary
+
+
+def _provider_failure_summary(
+    error: Exception,
+    *,
+    timeout_seconds: float,
+) -> str:
+    if isinstance(error, httpx.TimeoutException):
+        return f"AI 接口请求超时（单次等待上限 {_format_seconds(timeout_seconds)} 秒）"
+    if isinstance(error, httpx.HTTPStatusError):
+        status_code = error.response.status_code
+        code, message = _provider_error_payload(error.response)
+        details = ""
+        if code and message:
+            details = f"（{code}：{message}）"
+        elif code:
+            details = f"（{code}）"
+        elif message:
+            details = f"（{message}）"
+        return f"AI 接口返回 HTTP {status_code}{details}"
+    if isinstance(error, httpx.ConnectError):
+        return "无法连接 AI 接口，请检查网络、域名和代理设置"
+    if isinstance(error, httpx.NetworkError):
+        return f"AI 接口网络异常（{type(error).__name__}）"
+    if isinstance(error, httpx.HTTPError):
+        return f"AI 接口 HTTP 通信异常（{type(error).__name__}）"
+    if isinstance(error, json.JSONDecodeError):
+        return "AI 接口响应不是有效 JSON"
+    if isinstance(error, KeyError):
+        missing = _safe_provider_text(str(error).strip("'\""), max_length=80)
+        return f"AI 接口响应缺少字段：{missing or '未知字段'}"
+    if isinstance(error, IndexError):
+        return "AI 接口响应中没有可用的生成结果"
+    if isinstance(error, TypeError):
+        return "AI 接口响应字段类型不正确"
+    if isinstance(error, ValueError):
+        return "AI 接口返回的内容不是有效 JSON 对象"
+    return f"AI 接口请求失败（{type(error).__name__}）"
+
+
+def _provider_error_payload(response: httpx.Response) -> tuple[str | None, str | None]:
+    try:
+        body = response.json()
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(body, dict):
+        return None, None
+    error = body.get("error")
+    source = error if isinstance(error, dict) else body
+    code = _safe_provider_text(source.get("code"), max_length=80)
+    message = _safe_provider_text(source.get("message"), max_length=240)
+    return code, message
+
+
+def _provider_request_id(response: httpx.Response) -> str | None:
+    for header_name in ("x-request-id", "x-zhipu-request-id", "request-id"):
+        if value := response.headers.get(header_name):
+            return _safe_provider_text(value, max_length=200)
+    try:
+        body = response.json()
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    return _safe_provider_text(
+        body.get("request_id") or body.get("id"),
+        max_length=200,
+    )
+
+
+def _safe_provider_text(value: object, *, max_length: int) -> str | None:
+    if value is None:
+        return None
+    cleaned = " ".join(str(value).split())
+    cleaned = redact_sensitive_values(cleaned)
+    cleaned = re.sub(
+        r"(?i)\b(?:api[ _-]?key|authorization)\b\s*[:=]?\s*\S+",
+        "credential=***",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?i)\bbearer\s+[A-Za-z0-9._-]+", "Bearer ***", cleaned)
+    return cleaned[:max_length] or None
+
+
+def _provider_status_code(error: Exception) -> int | None:
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code
+    return None
+
+
+def _should_retry_provider_error(error: Exception) -> bool:
+    if isinstance(error, httpx.HTTPStatusError):
+        status_code = error.response.status_code
+        return status_code in {408, 409, 425, 429} or status_code >= 500
+    return True
+
+
+def _provider_retry_delay(error: Exception, attempt: int) -> float:
+    if isinstance(error, httpx.HTTPStatusError):
+        retry_after = error.response.headers.get("retry-after")
+        try:
+            if retry_after is not None:
+                return min(5.0, max(0.0, float(retry_after)))
+        except ValueError:
+            pass
+    return min(2.0, 0.5 * (2 ** max(0, attempt - 1)))
+
+
+def _format_seconds(value: float) -> str:
+    numeric = float(value)
+    return str(int(numeric)) if numeric.is_integer() else f"{numeric:g}"
 
 
 def _duration_ms(started_at: datetime, completed_at: datetime) -> int:
