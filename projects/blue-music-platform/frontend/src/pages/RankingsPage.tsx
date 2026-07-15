@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   App,
   Button,
-  Descriptions,
-  Drawer,
+  Collapse,
   Dropdown,
   Empty,
   Input,
+  Skeleton,
   Space,
   Table,
   Tag,
@@ -16,7 +16,7 @@ import {
   type MenuProps,
   type TableProps,
 } from 'antd'
-import { ChevronDown, ExternalLink, Eye, Play, RefreshCw } from 'lucide-react'
+import { ChevronDown, ExternalLink, Play, RefreshCw } from 'lucide-react'
 
 import {
   listCollectionTasks,
@@ -52,7 +52,7 @@ export function RankingsPage() {
   const { message } = App.useApp()
   const [tasks, setTasks] = useState<CollectionTask[]>([])
   const [snapshots, setSnapshots] = useState<RankingSnapshot[]>([])
-  const [activeSnapshot, setActiveSnapshot] = useState<RankingSnapshot | null>(null)
+  const [activeSnapshotId, setActiveSnapshotId] = useState<number | null>(null)
   const [entries, setEntries] = useState<RankingEntry[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -62,6 +62,7 @@ export function RankingsPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const detailRequestId = useRef(0)
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -81,27 +82,30 @@ export function RankingsPage() {
   }, [])
 
   const loadEntries = useCallback(async () => {
-    if (!activeSnapshot) return
+    if (!activeSnapshotId) return
 
+    const requestId = ++detailRequestId.current
     setDetailLoading(true)
     setDetailError(null)
     try {
       const result = await listRankingEntries({
-        snapshotId: activeSnapshot.id,
+        snapshotId: activeSnapshotId,
         page,
-        pageSize: 50,
+        pageSize: 20,
         search,
       })
+      if (requestId !== detailRequestId.current) return
       setEntries(result.items)
       setTotal(result.total)
     } catch (loadError) {
+      if (requestId !== detailRequestId.current) return
       setDetailError(errorMessage(loadError))
       setEntries([])
       setTotal(0)
     } finally {
-      setDetailLoading(false)
+      if (requestId === detailRequestId.current) setDetailLoading(false)
     }
-  }, [activeSnapshot, page, search])
+  }, [activeSnapshotId, page, search])
 
   useEffect(() => {
     void loadOverview()
@@ -125,18 +129,16 @@ export function RankingsPage() {
     }
   }
 
-  const openSnapshot = (snapshot: RankingSnapshot) => {
-    setActiveSnapshot(snapshot)
+  const changeSnapshot = (snapshotId: number | null) => {
+    if (snapshotId === activeSnapshotId) return
+
+    detailRequestId.current += 1
+    setActiveSnapshotId(snapshotId)
+    setDetailLoading(false)
     setEntries([])
     setTotal(0)
     setPage(1)
     setSearch('')
-  }
-
-  const closeSnapshot = () => {
-    setActiveSnapshot(null)
-    setEntries([])
-    setTotal(0)
     setDetailError(null)
   }
 
@@ -182,52 +184,6 @@ export function RankingsPage() {
             aria-label="打开酷狗歌曲页"
             href={entry.source_url}
             target="_blank"
-          />
-        </Tooltip>
-      ),
-    },
-  ]
-
-  const snapshotColumns: TableProps<RankingSnapshot>['columns'] = [
-    {
-      title: '榜单日期',
-      dataIndex: 'snapshot_date',
-      width: 150,
-      render: (value: string, snapshot) => (
-        <div className="account-cell">
-          <strong>{value}</strong>
-          <small>来源更新 {snapshot.source_updated_date ?? '未提供'}</small>
-        </div>
-      ),
-    },
-    { title: '榜单', dataIndex: 'chart_name', width: 180 },
-    {
-      title: '结果数量',
-      dataIndex: 'item_count',
-      width: 110,
-      render: (value: number) => `${value} 首`,
-    },
-    {
-      title: '最后采集时间',
-      dataIndex: 'collected_at',
-      width: 190,
-      render: formatTime,
-    },
-    {
-      title: '',
-      key: 'detail',
-      width: 62,
-      fixed: 'right',
-      render: (_, snapshot) => (
-        <Tooltip title="查看榜单详情">
-          <Button
-            type="text"
-            icon={<Eye size={16} />}
-            aria-label={`查看 ${snapshot.snapshot_date} 榜单详情`}
-            onClick={(event) => {
-              event.stopPropagation()
-              openSnapshot(snapshot)
-            }}
           />
         </Tooltip>
       ),
@@ -299,17 +255,92 @@ export function RankingsPage() {
             <Button icon={<RefreshCw size={16} />} loading={loading} onClick={loadOverview} />
           </Tooltip>
         </div>
-        <Table<RankingSnapshot>
-          rowKey="id"
-          columns={snapshotColumns}
-          dataSource={snapshots}
-          loading={loading}
-          pagination={false}
-          scroll={{ x: 760 }}
-          className="data-table result-table"
-          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无采集结果" /> }}
-          onRow={(snapshot) => ({ onClick: () => openSnapshot(snapshot) })}
-        />
+        {loading ? (
+          <div className="ranking-snapshot-loading">
+            <Skeleton active title={false} paragraph={{ rows: 3 }} />
+          </div>
+        ) : snapshots.length === 0 ? (
+          <div className="ranking-snapshot-empty">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无采集结果" />
+          </div>
+        ) : (
+          <Collapse
+            accordion
+            destroyOnHidden
+            activeKey={activeSnapshotId === null ? [] : [String(activeSnapshotId)]}
+            expandIconPlacement="end"
+            className="ranking-snapshot-list"
+            onChange={(keys) => changeSnapshot(keys[0] ? Number(keys[0]) : null)}
+            items={snapshots.map((snapshot) => ({
+              key: String(snapshot.id),
+              label: (
+                <div className="ranking-snapshot-summary">
+                  <div className="ranking-snapshot-primary">
+                    <strong>{snapshot.snapshot_date}</strong>
+                    <span>{snapshot.chart_name}</span>
+                  </div>
+                  <div className="ranking-snapshot-facts">
+                    <span>
+                      <small>歌曲</small>
+                      <strong>{snapshot.item_count} 首</strong>
+                    </span>
+                    <span>
+                      <small>来源更新</small>
+                      <strong>{snapshot.source_updated_date ?? '未提供'}</strong>
+                    </span>
+                    <span>
+                      <small>采集完成</small>
+                      <strong>{formatTime(snapshot.collected_at)}</strong>
+                    </span>
+                  </div>
+                </div>
+              ),
+              children: (
+                <div className="ranking-detail-stack">
+                  <div className="ranking-detail-toolbar">
+                    <Typography.Text type="secondary">
+                      当前快照共 {snapshot.item_count} 首，展开时加载歌曲详情
+                    </Typography.Text>
+                    <Input.Search
+                      allowClear
+                      className="ranking-detail-search"
+                      placeholder="搜索歌曲或歌手"
+                      onSearch={(value) => {
+                        setSearch(value.trim())
+                        setPage(1)
+                      }}
+                    />
+                  </div>
+                  {detailError && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      title={detailError}
+                      action={<Button size="small" onClick={() => void loadEntries()}>重新加载</Button>}
+                    />
+                  )}
+                  <Table<RankingEntry>
+                    rowKey="id"
+                    columns={entryColumns}
+                    dataSource={entries}
+                    loading={detailLoading}
+                    locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无榜单数据" /> }}
+                    pagination={{
+                      current: page,
+                      pageSize: 20,
+                      total,
+                      showSizeChanger: false,
+                      showTotal: (value) => `共 ${value} 首`,
+                      onChange: setPage,
+                    }}
+                    scroll={{ x: 640 }}
+                    className="data-table ranking-entry-table"
+                  />
+                </div>
+              ),
+            }))}
+          />
+        )}
       </section>
 
       <section className="content-section">
@@ -330,47 +361,6 @@ export function RankingsPage() {
         />
       </section>
 
-      <Drawer
-        title={activeSnapshot ? `${activeSnapshot.snapshot_date} · ${activeSnapshot.chart_name}` : '榜单详情'}
-        open={Boolean(activeSnapshot)}
-        onClose={closeSnapshot}
-        size="large"
-      >
-        {activeSnapshot && (
-          <div className="ranking-detail-stack">
-            <Descriptions
-              size="small"
-              column={2}
-              items={[
-                { key: 'date', label: '榜单日期', children: activeSnapshot.snapshot_date },
-                { key: 'count', label: '歌曲数量', children: `${activeSnapshot.item_count} 首` },
-                { key: 'source', label: '来源更新', children: activeSnapshot.source_updated_date ?? '未提供' },
-                { key: 'collected', label: '采集完成', children: formatTime(activeSnapshot.collected_at) },
-              ]}
-            />
-            <Input.Search
-              allowClear
-              className="ranking-detail-search"
-              placeholder="搜索歌曲或歌手"
-              onSearch={(value) => {
-                setSearch(value.trim())
-                setPage(1)
-              }}
-            />
-            {detailError && <Alert type="error" showIcon title={detailError} />}
-            <Table<RankingEntry>
-              rowKey="id"
-              columns={entryColumns}
-              dataSource={entries}
-              loading={detailLoading}
-              locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无榜单数据" /> }}
-              pagination={{ current: page, pageSize: 50, total, showSizeChanger: false, onChange: setPage }}
-              scroll={{ x: 640 }}
-              className="data-table"
-            />
-          </div>
-        )}
-      </Drawer>
     </div>
   )
 }
