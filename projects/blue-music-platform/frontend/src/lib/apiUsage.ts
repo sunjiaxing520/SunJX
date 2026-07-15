@@ -1,8 +1,13 @@
-import type { ApiUsageRecord } from '../types/api'
+import type { ApiUsageRecord, DailyApiUsage } from '../types/api'
 
 
 export function totalTaskTokens(records: ApiUsageRecord[]) {
   return records.reduce((total, record) => total + record.total_tokens, 0)
+}
+
+
+export function sortDailyUsageNewestFirst(records: DailyApiUsage[]) {
+  return [...records].sort((left, right) => right.day.localeCompare(left.day))
 }
 
 

@@ -396,8 +396,33 @@ input {
 }
 
 .usage-subheading.ant-typography {
-  margin: 22px 0 12px;
+  margin: 0;
   font-size: 14px;
+}
+
+.usage-subheading-row {
+  display: flex;
+  min-width: 0;
+  margin: 22px 0 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.usage-subheading-row > span {
+  font-size: 11px;
+  text-align: right;
+}
+
+.usage-history-toggle {
+  display: flex;
+  min-height: 38px;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.usage-history-toggle .ant-btn {
+  color: #62666e;
 }
 
 .ranking-snapshot-list.ant-collapse {
@@ -1140,6 +1165,16 @@ input {
 
   .usage-stat-strip > div:last-child {
     border-bottom: 0;
+  }
+
+  .usage-subheading-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .usage-subheading-row > span {
+    text-align: left;
   }
 
   .metric-card {
