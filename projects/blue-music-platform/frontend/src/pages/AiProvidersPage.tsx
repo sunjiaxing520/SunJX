@@ -8,6 +8,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Popconfirm,
   Select,
   Space,
@@ -73,6 +74,8 @@ const TEST_STATUS: Record<
   failed: { label: '测试失败', color: 'error' },
 }
 
+const PROVIDER_PAGE_SIZE = 8
+
 function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 }
@@ -88,6 +91,7 @@ export function AiProvidersPage() {
   const [saving, setSaving] = useState(false)
   const [action, setAction] = useState<{ id: number; type: string } | null>(null)
   const [importing, setImporting] = useState(false)
+  const [providerPage, setProviderPage] = useState(1)
   const [form] = Form.useForm<ProviderFormValues>()
   const screens = Grid.useBreakpoint()
   const isMobile = screens.md === false
@@ -107,6 +111,10 @@ export function AiProvidersPage() {
       ])
       setTemplates(templateItems)
       setOverview(providerOverview)
+      setProviderPage((current) => Math.min(
+        current,
+        Math.max(1, Math.ceil(providerOverview.items.length / PROVIDER_PAGE_SIZE)),
+      ))
     } catch (loadError) {
       setError(errorMessage(loadError))
     } finally {
@@ -241,7 +249,12 @@ export function AiProvidersPage() {
     }
   }
 
-  const activeProvider = overview?.items.find((item) => item.is_active)
+  const providerItems = overview?.items ?? []
+  const visibleMobileProviders = providerItems.slice(
+    (providerPage - 1) * PROVIDER_PAGE_SIZE,
+    providerPage * PROVIDER_PAGE_SIZE,
+  )
+  const activeProvider = providerItems.find((item) => item.is_active)
   const runtime = activeProvider ?? overview?.environment_fallback
   const environmentImported = overview?.items.some((item) => item.source === 'environment')
 
@@ -416,83 +429,101 @@ export function AiProvidersPage() {
       </section>
 
       {isMobile ? (
-        <div className="provider-mobile-list">
-          {(overview?.items ?? []).map((provider) => {
-            const testStatus = TEST_STATUS[provider.last_test_status]
-            const busy = action?.id === provider.id
-            return (
-              <article className="provider-mobile-item" key={provider.id}>
-                <div className="provider-mobile-heading">
-                  <div>
-                    <strong>{provider.name}</strong>
-                    <span>{provider.template_name} · {provider.model}</span>
+        <>
+          <div className="provider-mobile-list">
+            {visibleMobileProviders.map((provider) => {
+              const testStatus = TEST_STATUS[provider.last_test_status]
+              const busy = action?.id === provider.id
+              return (
+                <article className="provider-mobile-item" key={provider.id}>
+                  <div className="provider-mobile-heading">
+                    <div>
+                      <strong>{provider.name}</strong>
+                      <span>{provider.template_name} · {provider.model}</span>
+                    </div>
+                    {provider.is_active && <Tag color="success">当前使用</Tag>}
                   </div>
-                  {provider.is_active && <Tag color="success">当前使用</Tag>}
-                </div>
-                <div className="provider-mobile-endpoint">{provider.endpoint}</div>
-                <div className="provider-mobile-meta">
-                  <span>密钥 {provider.api_key_hint ?? '不需要'}</span>
-                  <Tag color={testStatus.color}>{testStatus.label}</Tag>
-                </div>
-                <div className="provider-mobile-actions">
-                  <Button
-                    icon={<Cable size={16} />}
-                    loading={busy && action.type === 'test'}
-                    onClick={() => void runAction(provider, 'test')}
-                  >
-                    测试
-                  </Button>
-                  {!provider.is_active && (
+                  <div className="provider-mobile-endpoint">{provider.endpoint}</div>
+                  <div className="provider-mobile-meta">
+                    <span>密钥 {provider.api_key_hint ?? '不需要'}</span>
+                    <Tag color={testStatus.color}>{testStatus.label}</Tag>
+                  </div>
+                  <div className="provider-mobile-actions">
+                    <Button
+                      icon={<Cable size={16} />}
+                      loading={busy && action.type === 'test'}
+                      onClick={() => void runAction(provider, 'test')}
+                    >
+                      测试
+                    </Button>
+                    {!provider.is_active && (
+                      <Popconfirm
+                        title={`切换到 ${provider.name}？`}
+                        onConfirm={() => void runAction(provider, 'activate')}
+                        okText="切换"
+                        cancelText="取消"
+                      >
+                        <Button
+                          icon={<Power size={16} />}
+                          disabled={provider.last_test_status !== 'success'}
+                          loading={busy && action.type === 'activate'}
+                        >
+                          启用
+                        </Button>
+                      </Popconfirm>
+                    )}
+                    <Tooltip title={provider.is_active ? '使用中的接口不可编辑' : '编辑配置'}>
+                      <Button
+                        icon={<Pencil size={16} />}
+                        aria-label="编辑配置"
+                        disabled={provider.is_active}
+                        onClick={() => openEdit(provider)}
+                      />
+                    </Tooltip>
                     <Popconfirm
-                      title={`切换到 ${provider.name}？`}
-                      onConfirm={() => void runAction(provider, 'activate')}
-                      okText="切换"
+                      title="删除此接口配置？"
+                      onConfirm={() => void runAction(provider, 'delete')}
+                      okText="删除"
                       cancelText="取消"
+                      disabled={provider.is_active}
                     >
                       <Button
-                        icon={<Power size={16} />}
-                        disabled={provider.last_test_status !== 'success'}
-                        loading={busy && action.type === 'activate'}
-                      >
-                        启用
-                      </Button>
+                        danger
+                        icon={<Trash2 size={16} />}
+                        aria-label="删除配置"
+                        disabled={provider.is_active}
+                        loading={busy && action.type === 'delete'}
+                      />
                     </Popconfirm>
-                  )}
-                  <Tooltip title={provider.is_active ? '使用中的接口不可编辑' : '编辑配置'}>
-                    <Button
-                      icon={<Pencil size={16} />}
-                      aria-label="编辑配置"
-                      disabled={provider.is_active}
-                      onClick={() => openEdit(provider)}
-                    />
-                  </Tooltip>
-                  <Popconfirm
-                    title="删除此接口配置？"
-                    onConfirm={() => void runAction(provider, 'delete')}
-                    okText="删除"
-                    cancelText="取消"
-                    disabled={provider.is_active}
-                  >
-                    <Button
-                      danger
-                      icon={<Trash2 size={16} />}
-                      aria-label="删除配置"
-                      disabled={provider.is_active}
-                      loading={busy && action.type === 'delete'}
-                    />
-                  </Popconfirm>
-                </div>
-              </article>
-            )
-          })}
-        </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+          {providerItems.length > PROVIDER_PAGE_SIZE && (
+            <Pagination
+              className="provider-pagination"
+              current={providerPage}
+              pageSize={PROVIDER_PAGE_SIZE}
+              total={providerItems.length}
+              showSizeChanger={false}
+              onChange={setProviderPage}
+            />
+          )}
+        </>
       ) : (
         <Table<AiProviderConfig>
           rowKey="id"
           columns={columns}
-          dataSource={overview?.items ?? []}
+          dataSource={providerItems}
           loading={loading}
-          pagination={false}
+          pagination={{
+            current: providerPage,
+            pageSize: PROVIDER_PAGE_SIZE,
+            showSizeChanger: false,
+            hideOnSinglePage: true,
+            onChange: setProviderPage,
+          }}
           scroll={{ x: 980 }}
           locale={{ emptyText: '暂无数据库接口配置' }}
           rowClassName={(provider) => provider.is_active ? 'provider-active-row' : ''}

@@ -16,8 +16,6 @@ import {
   BarChart3,
   Bot,
   ChartNoAxesCombined,
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   FileMusic,
   Music2,
@@ -26,6 +24,7 @@ import {
 
 import { getDashboard } from '../api/dashboard'
 import { AgentStatusTag } from '../components/AgentStatusTag'
+import { CollapsibleList } from '../components/CollapsibleList'
 import { providerName, sortDailyUsageNewestFirst } from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
 import type {
@@ -67,16 +66,11 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showAllDailyUsage, setShowAllDailyUsage] = useState(false)
 
   const dailyUsage = useMemo(
     () => sortDailyUsageNewestFirst(data?.api_usage.daily ?? []),
     [data?.api_usage.daily],
   )
-  const hiddenDailyUsageCount = Math.max(0, dailyUsage.length - DAILY_USAGE_PREVIEW_LIMIT)
-  const visibleDailyUsage = showAllDailyUsage
-    ? dailyUsage
-    : dailyUsage.slice(0, DAILY_USAGE_PREVIEW_LIMIT)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -238,30 +232,24 @@ export function DashboardPage() {
           <Typography.Title level={3} className="usage-subheading">每日用量</Typography.Title>
           <Typography.Text type="secondary">最新日期优先，默认显示最近 3 天</Typography.Text>
         </div>
-        <Table<DailyApiUsage>
-          rowKey="day"
-          size="small"
-          columns={dailyColumns}
-          dataSource={visibleDailyUsage}
-          pagination={false}
-          scroll={{ x: 760 }}
-          className="data-table"
-        />
-        {hiddenDailyUsageCount > 0 && (
-          <div className="usage-history-toggle">
-            <Button
-              type="text"
+        <CollapsibleList
+          items={dailyUsage}
+          previewCount={DAILY_USAGE_PREVIEW_LIMIT}
+          expandText={(hiddenCount) => `展开较早 ${hiddenCount} 天`}
+          collapseText="收起较早记录"
+        >
+          {(visibleDailyUsage) => (
+            <Table<DailyApiUsage>
+              rowKey="day"
               size="small"
-              icon={showAllDailyUsage ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-              aria-expanded={showAllDailyUsage}
-              onClick={() => setShowAllDailyUsage((current) => !current)}
-            >
-              {showAllDailyUsage
-                ? '收起较早记录'
-                : `展开较早 ${hiddenDailyUsageCount} 天`}
-            </Button>
-          </div>
-        )}
+              columns={dailyColumns}
+              dataSource={visibleDailyUsage}
+              pagination={false}
+              scroll={{ x: 760 }}
+              className="data-table"
+            />
+          )}
+        </CollapsibleList>
       </section>
 
       <section className="content-section workflow-section">
@@ -310,18 +298,22 @@ export function DashboardPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>最近接口调用</Typography.Title>
-            <Typography.Text type="secondary">接口、模型与实际返回用量</Typography.Text>
+            <Typography.Text type="secondary">接口、模型与实际返回用量，默认显示最新 5 条</Typography.Text>
           </div>
         </div>
-        <Table<ApiUsageRecord>
-          rowKey="id"
-          columns={recentCallColumns}
-          dataSource={data?.api_usage.recent_calls ?? []}
-          pagination={false}
-          scroll={{ x: 900 }}
-          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无接口调用" /> }}
-          className="data-table"
-        />
+        <CollapsibleList items={data?.api_usage.recent_calls ?? []}>
+          {(visibleCalls) => (
+            <Table<ApiUsageRecord>
+              rowKey="id"
+              columns={recentCallColumns}
+              dataSource={visibleCalls}
+              pagination={false}
+              scroll={{ x: 900 }}
+              locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无接口调用" /> }}
+              className="data-table"
+            />
+          )}
+        </CollapsibleList>
       </section>
     </div>
   )

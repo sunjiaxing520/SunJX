@@ -257,7 +257,7 @@ export function UsersPage() {
         columns={columns}
         dataSource={users}
         loading={loading}
-        pagination={false}
+        pagination={{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }}
         scroll={{ x: 820 }}
         className="users-table"
       />

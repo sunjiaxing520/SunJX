@@ -21,6 +21,7 @@ import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles } from 'lucide-
 
 import { listAnalysisTasks } from '../api/analysis'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
+import { CollapsibleList } from '../components/CollapsibleList'
 import { totalTaskTokens } from '../lib/apiUsage'
 import {
   generateLyrics,
@@ -263,8 +264,12 @@ export function LyricsPage() {
       </section>
 
       <section className="content-section">
-        <div className="section-title-row"><div><Typography.Title level={2}>作词记录</Typography.Title><Typography.Text type="secondary">最近 15 个任务及全部版本</Typography.Text></div></div>
-        <Table<LyricsTask> rowKey="id" columns={columns} dataSource={tasks} loading={loading} pagination={false} scroll={{ x: 700 }} className="data-table" />
+        <div className="section-title-row"><div><Typography.Title level={2}>作词记录</Typography.Title><Typography.Text type="secondary">最近 15 个任务，默认显示最新 5 条</Typography.Text></div></div>
+        <CollapsibleList items={tasks}>
+          {(visibleTasks) => (
+            <Table<LyricsTask> rowKey="id" columns={columns} dataSource={visibleTasks} loading={loading} pagination={false} scroll={{ x: 700 }} className="data-table" />
+          )}
+        </CollapsibleList>
       </section>
 
       <Drawer

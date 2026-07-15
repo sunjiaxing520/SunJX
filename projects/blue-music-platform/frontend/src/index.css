@@ -414,14 +414,18 @@ input {
   text-align: right;
 }
 
-.usage-history-toggle {
+.collapsible-list {
+  min-width: 0;
+}
+
+.collapsible-list-toggle {
   display: flex;
   min-height: 38px;
   align-items: flex-end;
   justify-content: center;
 }
 
-.usage-history-toggle .ant-btn {
+.collapsible-list-toggle .ant-btn {
   color: #62666e;
 }
 
@@ -1002,6 +1006,12 @@ input {
   justify-content: flex-start;
 }
 
+.provider-pagination {
+  display: flex;
+  margin-top: 14px;
+  justify-content: flex-end;
+}
+
 .provider-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1204,6 +1214,10 @@ input {
   .provider-form-grid,
   .provider-form-grid-compact {
     grid-template-columns: 1fr;
+  }
+
+  .provider-pagination {
+    justify-content: center;
   }
 
   .ranking-snapshot-list .ant-collapse-expand-icon {

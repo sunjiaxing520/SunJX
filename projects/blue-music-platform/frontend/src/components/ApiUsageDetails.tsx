@@ -2,6 +2,7 @@ import { Alert, Descriptions, Empty, Table, Tag, Typography, type TableProps } f
 
 import { providerName, totalTaskTokens } from '../lib/apiUsage'
 import type { ApiUsageRecord } from '../types/api'
+import { CollapsibleList } from './CollapsibleList'
 
 const OPERATION_LABELS: Record<string, string> = {
   'analysis.generate': '榜单分析',
@@ -103,16 +104,26 @@ export function ApiUsageDetails({ records }: { records: ApiUsageRecord[] }) {
           { key: 'tokens', label: '累计 Token', children: totalTaskTokens(records).toLocaleString() },
         ]}
       />
-      <Table<ApiUsageRecord>
-        rowKey="id"
-        size="small"
-        columns={columns}
-        dataSource={records}
-        pagination={false}
-        scroll={{ x: 660 }}
-        locale={{ emptyText: <Empty description="暂无接口记录" /> }}
-        className="data-table api-usage-table"
-      />
+      <CollapsibleList
+        items={records}
+        previewCount={3}
+        previewFrom="end"
+        expandText={(hiddenCount) => `展开较早 ${hiddenCount} 次调用`}
+        collapseText="收起较早调用"
+      >
+        {(visibleRecords) => (
+          <Table<ApiUsageRecord>
+            rowKey="id"
+            size="small"
+            columns={columns}
+            dataSource={visibleRecords}
+            pagination={false}
+            scroll={{ x: 660 }}
+            locale={{ emptyText: <Empty description="暂无接口记录" /> }}
+            className="data-table api-usage-table"
+          />
+        )}
+      </CollapsibleList>
     </section>
   )
 }

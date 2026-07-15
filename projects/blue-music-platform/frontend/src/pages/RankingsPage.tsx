@@ -24,6 +24,7 @@ import {
   listRankingSnapshots,
   runRankingCollection,
 } from '../api/rankings'
+import { CollapsibleList } from '../components/CollapsibleList'
 import { errorMessage } from '../lib/errors'
 import type {
   CollectionTask,
@@ -347,18 +348,22 @@ export function RankingsPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>运行记录</Typography.Title>
-            <Typography.Text type="secondary">最近 15 次执行状态，失败原因会保留在记录中</Typography.Text>
+            <Typography.Text type="secondary">最近 15 次执行状态，默认显示最新 5 条</Typography.Text>
           </div>
         </div>
-        <Table<CollectionTask>
-          rowKey="id"
-          columns={taskColumns}
-          dataSource={tasks}
-          loading={loading}
-          pagination={false}
-          scroll={{ x: 790 }}
-          className="data-table"
-        />
+        <CollapsibleList items={tasks}>
+          {(visibleTasks) => (
+            <Table<CollectionTask>
+              rowKey="id"
+              columns={taskColumns}
+              dataSource={visibleTasks}
+              loading={loading}
+              pagination={false}
+              scroll={{ x: 790 }}
+              className="data-table"
+            />
+          )}
+        </CollapsibleList>
       </section>
 
     </div>

@@ -18,6 +18,7 @@ import { Eye, Play, RefreshCw } from 'lucide-react'
 import { listAnalysisTasks, runAnalysis } from '../api/analysis'
 import { listRankingEntries } from '../api/rankings'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
+import { CollapsibleList } from '../components/CollapsibleList'
 import { totalTaskTokens } from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
 import type { AnalysisTask, CreationDirection, RankingEntry } from '../types/api'
@@ -177,18 +178,22 @@ export function AnalysisPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>分析记录</Typography.Title>
-            <Typography.Text type="secondary">最近 15 次分析及结构化报告</Typography.Text>
+            <Typography.Text type="secondary">最近 15 次分析及结构化报告，默认显示最新 5 条</Typography.Text>
           </div>
         </div>
-        <Table<AnalysisTask>
-          rowKey="id"
-          columns={taskColumns}
-          dataSource={tasks}
-          loading={loading}
-          pagination={false}
-          scroll={{ x: 760 }}
-          className="data-table"
-        />
+        <CollapsibleList items={tasks}>
+          {(visibleTasks) => (
+            <Table<AnalysisTask>
+              rowKey="id"
+              columns={taskColumns}
+              dataSource={visibleTasks}
+              loading={loading}
+              pagination={false}
+              scroll={{ x: 760 }}
+              className="data-table"
+            />
+          )}
+        </CollapsibleList>
       </section>
 
       <Drawer
