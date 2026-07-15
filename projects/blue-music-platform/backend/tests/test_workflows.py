@@ -736,3 +736,104 @@ def test_delete_collection_records_keeps_single_daily_snapshot(
         "/api/v1/rankings/collections",
         headers=_headers(workflow_context),
     ).json() == []
+
+
+def test_bulk_delete_workflow_runs_preserves_templates_and_step_outputs(
+    workflow_context: WorkflowContext,
+) -> None:
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "待清理运行记录流程",
+            "steps": ["collection"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15}
+            },
+        },
+    ).json()
+    run_ids = []
+    task_ids = []
+    for _ in range(2):
+        started = workflow_context.client.post(
+            f"/api/v1/workflows/templates/{template['id']}/runs",
+            headers=_headers(workflow_context),
+        )
+        assert started.status_code == 202
+        run = workflow_context.client.get(
+            f"/api/v1/workflows/runs/{started.json()['id']}",
+            headers=_headers(workflow_context),
+        ).json()
+        assert run["status"] == "completed"
+        run_ids.append(run["id"])
+        task_ids.append(run["steps"][0]["task_id"])
+
+    deleted = workflow_context.client.request(
+        "DELETE",
+        "/api/v1/workflows/runs",
+        headers=_headers(workflow_context),
+        json={"run_ids": [run_ids[0], run_ids[0], run_ids[1]]},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {
+        "deleted_count": 2,
+        "deleted_run_ids": run_ids,
+    }
+    history = workflow_context.client.get(
+        "/api/v1/workflows/runs",
+        headers=_headers(workflow_context),
+    )
+    assert history.json()["total"] == 0
+    templates = workflow_context.client.get(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+    )
+    assert [item["id"] for item in templates.json()] == [template["id"]]
+    collection_history = workflow_context.client.get(
+        "/api/v1/rankings/collections",
+        headers=_headers(workflow_context),
+    ).json()
+    assert {item["id"] for item in collection_history} == set(task_ids)
+
+    missing = workflow_context.client.delete(
+        f"/api/v1/workflows/runs/{run_ids[0]}",
+        headers=_headers(workflow_context),
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "WORKFLOW_RUN_NOT_FOUND"
+
+
+def test_running_workflow_run_cannot_be_deleted(
+    workflow_context: WorkflowContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.api.v1.routes.workflows.execute_workflow_run",
+        lambda *_args, **_kwargs: None,
+    )
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "运行中不可删除流程",
+            "steps": ["collection"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15}
+            },
+        },
+    ).json()
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    run_id = started.json()["id"]
+
+    deleted = workflow_context.client.delete(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    )
+
+    assert deleted.status_code == 409
+    assert deleted.json()["error"]["code"] == "WORKFLOW_RUN_DELETE_CONFLICT"
+    assert deleted.json()["error"]["detail"]["active_run_ids"] == [run_id]

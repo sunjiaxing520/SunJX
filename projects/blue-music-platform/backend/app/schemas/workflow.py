@@ -108,3 +108,19 @@ class WorkflowRunResponse(BaseModel):
 class WorkflowRunListResponse(BaseModel):
     items: list[WorkflowRunResponse]
     total: int
+
+
+class WorkflowRunDeleteRequest(BaseModel):
+    run_ids: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("run_ids")
+    @classmethod
+    def clean_run_ids(cls, run_ids: list[int]) -> list[int]:
+        if any(run_id <= 0 for run_id in run_ids):
+            raise ValueError("运行记录编号必须是正整数")
+        return list(dict.fromkeys(run_ids))
+
+
+class WorkflowRunDeleteResponse(BaseModel):
+    deleted_count: int
+    deleted_run_ids: list[int]

@@ -1,6 +1,7 @@
 import { apiRequest } from './client'
 import type {
   WorkflowRun,
+  WorkflowRunDeleteResult,
   WorkflowRunList,
   WorkflowTemplate,
   WorkflowTemplatePayload,
@@ -46,4 +47,17 @@ export function listWorkflowRuns(limit = 15) {
 
 export function getWorkflowRun(runId: number) {
   return apiRequest<WorkflowRun>(`/workflows/runs/${runId}`)
+}
+
+export function deleteWorkflowRun(runId: number) {
+  return apiRequest<void>(`/workflows/runs/${runId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function deleteWorkflowRuns(runIds: number[]) {
+  return apiRequest<WorkflowRunDeleteResult>('/workflows/runs', {
+    method: 'DELETE',
+    body: JSON.stringify({ run_ids: runIds }),
+  })
 }

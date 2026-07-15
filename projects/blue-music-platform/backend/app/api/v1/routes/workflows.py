@@ -2,6 +2,8 @@ from fastapi import APIRouter, BackgroundTasks, Query, Response, status
 
 from app.api.dependencies import CurrentUser, DatabaseSession
 from app.schemas.workflow import (
+    WorkflowRunDeleteRequest,
+    WorkflowRunDeleteResponse,
     WorkflowRunListResponse,
     WorkflowRunResponse,
     WorkflowTemplateResponse,
@@ -9,6 +11,8 @@ from app.schemas.workflow import (
 )
 from app.services.workflows import (
     create_workflow_template,
+    delete_workflow_run,
+    delete_workflow_runs,
     delete_workflow_template,
     execute_workflow_run,
     get_workflow_run,
@@ -89,6 +93,25 @@ def run_list(
     limit: int = Query(default=15, ge=1, le=100),
 ) -> WorkflowRunListResponse:
     return list_workflow_runs(db, limit)
+
+
+@router.delete("/runs", response_model=WorkflowRunDeleteResponse)
+def run_bulk_delete(
+    payload: WorkflowRunDeleteRequest,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> WorkflowRunDeleteResponse:
+    return delete_workflow_runs(db, payload.run_ids)
+
+
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def run_delete(
+    run_id: int,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> Response:
+    delete_workflow_run(db, run_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/runs/{run_id}", response_model=WorkflowRunResponse)

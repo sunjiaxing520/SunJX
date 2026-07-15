@@ -776,9 +776,14 @@ input {
   display: grid;
   min-width: 0;
   width: 100%;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(120px, 0.8fr) auto;
+  grid-template-columns: auto minmax(220px, 1.4fr) minmax(120px, 0.8fr) auto;
   align-items: center;
   gap: 16px;
+}
+
+.workflow-run-checkbox {
+  display: inline-flex;
+  align-items: center;
 }
 
 .workflow-run-summary > div {
@@ -789,7 +794,7 @@ input {
 
 .workflow-run-summary strong,
 .workflow-run-summary small,
-.workflow-run-summary > span {
+.workflow-run-current {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -801,7 +806,7 @@ input {
 }
 
 .workflow-run-summary small,
-.workflow-run-summary > span {
+.workflow-run-current {
   color: var(--muted);
   font-size: 11px;
 }
@@ -1468,11 +1473,11 @@ input {
   }
 
   .workflow-run-summary {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .workflow-run-summary > span {
-    grid-column: 1 / -1;
+  .workflow-run-current {
+    grid-column: 2 / -1;
     grid-row: 2;
   }
 }

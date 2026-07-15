@@ -276,6 +276,11 @@ export interface WorkflowRunList {
   total: number
 }
 
+export interface WorkflowRunDeleteResult {
+  deleted_count: number
+  deleted_run_ids: number[]
+}
+
 export interface CollectionTask {
   id: number
   platform: string

@@ -27,6 +27,7 @@ from app.schemas.lyrics import LyricsCreateRequest
 from app.schemas.ranking import CollectionCreateRequest
 from app.schemas.workflow import (
     WorkflowConfiguration,
+    WorkflowRunDeleteResponse,
     WorkflowRunListResponse,
     WorkflowRunResponse,
     WorkflowRunStepResponse,
@@ -285,6 +286,54 @@ def list_workflow_runs(
     return WorkflowRunListResponse(
         items=[workflow_run_response(db, run) for run in runs],
         total=total,
+    )
+
+
+def delete_workflow_run(db: Session, run_id: int) -> None:
+    delete_workflow_runs(db, [run_id])
+
+
+def delete_workflow_runs(
+    db: Session,
+    run_ids: list[int],
+) -> WorkflowRunDeleteResponse:
+    recover_stale_workflow_runs(db)
+    ordered_ids = list(dict.fromkeys(run_ids))
+    runs = db.scalars(
+        select(WorkflowRun)
+        .options(selectinload(WorkflowRun.steps))
+        .where(WorkflowRun.id.in_(ordered_ids))
+        .with_for_update()
+    ).all()
+    runs_by_id = {run.id: run for run in runs}
+    missing_ids = [run_id for run_id in ordered_ids if run_id not in runs_by_id]
+    if missing_ids:
+        raise AppException(
+            code="WORKFLOW_RUN_NOT_FOUND",
+            message="部分流程运行记录不存在或已经被删除",
+            status_code=404,
+            detail={"missing_run_ids": missing_ids},
+        )
+
+    active_ids = [
+        run.id
+        for run in runs
+        if run.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+    ]
+    if active_ids:
+        raise AppException(
+            code="WORKFLOW_RUN_DELETE_CONFLICT",
+            message="运行中的自动流程不能删除，请等待流程结束后重试",
+            status_code=409,
+            detail={"active_run_ids": active_ids},
+        )
+
+    for run_id in ordered_ids:
+        db.delete(runs_by_id[run_id])
+    db.commit()
+    return WorkflowRunDeleteResponse(
+        deleted_count=len(ordered_ids),
+        deleted_run_ids=ordered_ids,
     )
 
 

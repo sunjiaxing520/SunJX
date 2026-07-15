@@ -37,6 +37,8 @@ import { useNavigate } from 'react-router-dom'
 
 import {
   createWorkflowTemplate,
+  deleteWorkflowRun,
+  deleteWorkflowRuns,
   deleteWorkflowTemplate,
   listWorkflowRuns,
   listWorkflowTemplates,
@@ -209,6 +211,8 @@ export function WorkflowsPage() {
   const [saveMode, setSaveMode] = useState<'save' | 'run' | null>(null)
   const [runningTemplateId, setRunningTemplateId] = useState<number | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [selectedRunIds, setSelectedRunIds] = useState<number[]>([])
+  const [deletingRunIds, setDeletingRunIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const allowedSteps = useMemo(() => {
@@ -277,6 +281,14 @@ export function WorkflowsPage() {
     const timer = window.setInterval(() => void refreshRuns(), 2500)
     return () => window.clearInterval(timer)
   }, [refreshRuns, runs])
+
+  useEffect(() => {
+    setSelectedRunIds((current) => current.filter((runId) =>
+      runs.some((run) =>
+        run.id === runId && run.status !== 'pending' && run.status !== 'running',
+      ),
+    ))
+  }, [runs])
 
   const resetEditor = () => {
     setEditingId(null)
@@ -384,6 +396,43 @@ export function WorkflowsPage() {
     }
   }
 
+  const removeRuns = async (runIds: number[]) => {
+    const uniqueIds = [...new Set(runIds)]
+    if (!uniqueIds.length) return
+    setDeletingRunIds(uniqueIds)
+    try {
+      if (uniqueIds.length === 1) {
+        await deleteWorkflowRun(uniqueIds[0])
+      } else {
+        await deleteWorkflowRuns(uniqueIds)
+      }
+      setSelectedRunIds((current) =>
+        current.filter((runId) => !uniqueIds.includes(runId)),
+      )
+      message.success(`已删除 ${uniqueIds.length} 条自动流程运行记录`)
+      await refreshRuns()
+    } catch (deleteError) {
+      message.error(errorMessage(deleteError))
+    } finally {
+      setDeletingRunIds([])
+    }
+  }
+
+  const deletableRunIds = useMemo(
+    () => runs
+      .filter((run) => run.status !== 'pending' && run.status !== 'running')
+      .map((run) => run.id),
+    [runs],
+  )
+  const allDeletableRunsSelected = deletableRunIds.length > 0
+    && deletableRunIds.every((runId) => selectedRunIds.includes(runId))
+  const someDeletableRunsSelected = selectedRunIds.length > 0
+    && !allDeletableRunsSelected
+
+  const toggleAllRuns = (checked: boolean) => {
+    setSelectedRunIds(checked ? deletableRunIds : [])
+  }
+
   const activeTemplateIds = useMemo(
     () => new Set(
       runs
@@ -474,6 +523,7 @@ export function WorkflowsPage() {
   const runItems = runs.map((run) => {
     const statusMeta = STATUS_META[run.status]
     const template = templates.find((item) => item.id === run.template_id)
+    const isActive = run.status === 'pending' || run.status === 'running'
     const providerReason = typeof run.error_detail?.reason === 'string'
       ? run.error_detail.reason
       : null
@@ -481,11 +531,26 @@ export function WorkflowsPage() {
       key: String(run.id),
       label: (
         <div className="workflow-run-summary">
+          <span
+            className="workflow-run-checkbox"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Checkbox
+              checked={selectedRunIds.includes(run.id)}
+              disabled={isActive}
+              aria-label={`选择自动流程运行记录 ${run.id}`}
+              onChange={(event) => setSelectedRunIds((current) =>
+                event.target.checked
+                  ? [...new Set([...current, run.id])]
+                  : current.filter((runId) => runId !== run.id),
+              )}
+            />
+          </span>
           <div>
             <strong>#{run.id} · {run.template_name}</strong>
             <small>{run.requested_by_username ?? '未知账号'} · {formatTime(run.created_at)}</small>
           </div>
-          <span>{run.current_step ? `当前：${WORKFLOW_STEP_LABELS[run.current_step]}` : `${run.steps.length} 个步骤`}</span>
+          <span className="workflow-run-current">{run.current_step ? `当前：${WORKFLOW_STEP_LABELS[run.current_step]}` : `${run.steps.length} 个步骤`}</span>
           <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
         </div>
       ),
@@ -531,16 +596,35 @@ export function WorkflowsPage() {
             <Typography.Text type="secondary">
               开始 {formatTime(run.started_at)} · 完成 {formatTime(run.completed_at)}
             </Typography.Text>
-            {template && (
-              <Button
-                icon={<Play size={15} />}
-                disabled={!canUseTemplate(template)}
-                loading={runningTemplateId === template.id}
-                onClick={() => void runTemplate(template)}
+            <Space wrap>
+              {template && (
+                <Button
+                  icon={<Play size={15} />}
+                  disabled={!canUseTemplate(template)}
+                  loading={runningTemplateId === template.id}
+                  onClick={() => void runTemplate(template)}
+                >
+                  再次运行
+                </Button>
+              )}
+              <Popconfirm
+                title="删除这条运行记录？"
+                description="只删除自动流程轨迹，已经生成的榜单、分析和歌词会保留。"
+                okText="删除"
+                cancelText="取消"
+                disabled={isActive}
+                onConfirm={() => void removeRuns([run.id])}
               >
-                再次运行
-              </Button>
-            )}
+                <Button
+                  danger
+                  icon={<Trash2 size={15} />}
+                  disabled={isActive}
+                  loading={deletingRunIds.includes(run.id)}
+                >
+                  删除记录
+                </Button>
+              </Popconfirm>
+            </Space>
           </div>
         </div>
       ),
@@ -724,13 +808,40 @@ export function WorkflowsPage() {
             <Typography.Title level={2}>最近运行</Typography.Title>
             <Typography.Text type="secondary">任务编号和产出编号用于追踪整条数据链</Typography.Text>
           </div>
-          <Tooltip title="刷新运行状态">
-            <Button
-              icon={<RefreshCw size={16} />}
-              loading={refreshingRuns}
-              onClick={() => void refreshRuns()}
-            />
-          </Tooltip>
+          <Space wrap>
+            <Checkbox
+              checked={allDeletableRunsSelected}
+              indeterminate={someDeletableRunsSelected}
+              disabled={!deletableRunIds.length}
+              onChange={(event) => toggleAllRuns(event.target.checked)}
+            >
+              全选
+            </Checkbox>
+            <Popconfirm
+              title={`删除已选的 ${selectedRunIds.length} 条运行记录？`}
+              description="只删除自动流程轨迹，不删除各步骤已经生成的产出。"
+              okText="批量删除"
+              cancelText="取消"
+              disabled={!selectedRunIds.length}
+              onConfirm={() => void removeRuns(selectedRunIds)}
+            >
+              <Button
+                danger
+                icon={<Trash2 size={16} />}
+                disabled={!selectedRunIds.length}
+                loading={deletingRunIds.length > 0}
+              >
+                删除已选{selectedRunIds.length ? ` (${selectedRunIds.length})` : ''}
+              </Button>
+            </Popconfirm>
+            <Tooltip title="刷新运行状态">
+              <Button
+                icon={<RefreshCw size={16} />}
+                loading={refreshingRuns}
+                onClick={() => void refreshRuns()}
+              />
+            </Tooltip>
+          </Space>
         </div>
         {loading ? <Skeleton active paragraph={{ rows: 4 }} /> : runs.length ? (
           <CollapsibleList items={runItems} previewCount={5}>
