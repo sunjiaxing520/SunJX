@@ -24,6 +24,7 @@ from app.schemas.analysis import (
 )
 from app.services.api_usage import record_api_usage, task_api_usage
 from app.services.ai_providers import resolve_text_provider
+from app.services.task_recovery import recover_stale_text_tasks
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -343,6 +344,7 @@ def _mark_analysis_failed(
 
 
 def get_analysis_task(db: Session, task_id: int) -> AnalysisTaskResponse:
+    recover_stale_text_tasks(db)
     task = db.scalar(
         select(AnalysisTask)
         .options(
@@ -361,6 +363,7 @@ def get_analysis_task(db: Session, task_id: int) -> AnalysisTaskResponse:
 
 
 def list_analysis_tasks(db: Session, limit: int = 15) -> AnalysisTaskListResponse:
+    recover_stale_text_tasks(db)
     tasks = db.scalars(
         select(AnalysisTask)
         .options(

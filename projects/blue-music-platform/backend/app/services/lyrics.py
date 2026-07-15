@@ -17,6 +17,7 @@ from app.schemas.lyrics import (
 )
 from app.services.api_usage import record_api_usage, task_api_usage
 from app.services.ai_providers import resolve_text_provider
+from app.services.task_recovery import recover_stale_text_tasks
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -158,7 +159,7 @@ def _generate_version(
             title=generated.title,
             content=generated.content,
             style_prompt=generated.style_prompt,
-            sections=generated.sections,
+            sections=[section.model_dump() for section in generated.sections],
         )
         db.add(version)
         record_api_usage(
@@ -272,6 +273,7 @@ def _mark_lyrics_failed(
 
 
 def get_lyrics_task(db: Session, task_id: int) -> LyricsTaskResponse:
+    recover_stale_text_tasks(db)
     task = db.scalar(
         select(LyricsTask)
         .options(selectinload(LyricsTask.versions))
@@ -285,6 +287,7 @@ def get_lyrics_task(db: Session, task_id: int) -> LyricsTaskResponse:
 
 
 def list_lyrics_tasks(db: Session, limit: int = 15) -> LyricsTaskListResponse:
+    recover_stale_text_tasks(db)
     tasks = db.scalars(
         select(LyricsTask)
         .options(selectinload(LyricsTask.versions))

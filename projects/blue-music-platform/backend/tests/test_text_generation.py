@@ -253,3 +253,55 @@ def test_provider_empty_choices_returns_a_diagnostic_error(
     assert str(error.value) == "AI 接口响应中没有可用的生成结果"
     assert error.value.call is not None
     assert error.value.call.request_id == "provider-empty-123"
+
+
+def test_lyrics_sections_require_name_and_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(url, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "id": "provider-invalid-lyrics-123",
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "title": "缺少字段",
+                                    "style_prompt": "流行",
+                                    "sections": [
+                                        {"name": "Verse"},
+                                        {"name": "Chorus", "content": "副歌"},
+                                        {"name": "Outro", "content": "尾声"},
+                                    ],
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ],
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="bigmodel",
+            protocol="openai_compatible",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="test-key",
+            model="glm-4.7-flash",
+            max_retries=1,
+        )
+    )
+
+    with pytest.raises(TextProviderError) as error:
+        provider.generate_lyrics({"theme": "测试"}, variation=1)
+
+    assert str(error.value) == (
+        "AI 歌词结果字段不完整或类型不正确：sections.0.content (missing)"
+    )
+    assert error.value.call is not None
+    assert error.value.call.request_id == "provider-invalid-lyrics-123"

@@ -21,6 +21,7 @@ from app.schemas.dashboard import (
     DashboardResponse,
 )
 from app.services.api_usage import get_api_usage_dashboard
+from app.services.task_recovery import recover_stale_text_tasks
 
 
 AGENT_NAMES = {
@@ -45,6 +46,7 @@ def _available_agents(db: Session, user: User) -> list[AgentType]:
 
 
 def get_dashboard(db: Session, user: User) -> DashboardResponse:
+    recover_stale_text_tasks(db)
     agents = [_agent_status(db, agent) for agent in _available_agents(db, user)]
     today = app_today()
 

@@ -94,15 +94,20 @@ class GeneratedAnalysis(BaseModel):
     creation_directions: list[GeneratedDirection] = Field(min_length=1, max_length=3)
 
 
+class GeneratedLyricsSection(BaseModel):
+    name: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+
+
 class GeneratedLyrics(BaseModel):
-    title: str
-    sections: list[dict[str, str]] = Field(min_length=3, max_length=12)
-    style_prompt: str
+    title: str = Field(min_length=1)
+    sections: list[GeneratedLyricsSection] = Field(min_length=3, max_length=12)
+    style_prompt: str = Field(min_length=1)
 
     @property
     def content(self) -> str:
         return "\n\n".join(
-            f"[{section['name']}]\n{section['content']}" for section in self.sections
+            f"[{section.name}]\n{section.content}" for section in self.sections
         )
 
 
