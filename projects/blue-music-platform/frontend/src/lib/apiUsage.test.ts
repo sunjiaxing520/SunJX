@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { DailyApiUsage } from '../types/api'
-import { sortDailyUsageNewestFirst } from './apiUsage'
+import type { ApiUsageRecord, DailyApiUsage } from '../types/api'
+import { groupApiUsageByTaskType, sortDailyUsageNewestFirst } from './apiUsage'
 
 function usage(day: string): DailyApiUsage {
   return {
@@ -28,5 +28,21 @@ describe('sortDailyUsageNewestFirst', () => {
       '2026-07-15',
       '2026-07-14',
     ])
+  })
+})
+
+describe('groupApiUsageByTaskType', () => {
+  it('keeps each task type separate and preserves record order inside a group', () => {
+    const records = [
+      { id: 3, task_type: 'provider_test' },
+      { id: 2, task_type: 'analysis' },
+      { id: 1, task_type: 'provider_test' },
+    ] as ApiUsageRecord[]
+
+    const groups = groupApiUsageByTaskType(records)
+
+    expect(groups.map((group) => group.taskType)).toEqual(['analysis', 'provider_test'])
+    expect(groups[0].records.map((record) => record.id)).toEqual([2])
+    expect(groups[1].records.map((record) => record.id)).toEqual([3, 1])
   })
 })

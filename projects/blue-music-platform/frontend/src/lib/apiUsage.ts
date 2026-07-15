@@ -1,5 +1,12 @@
 import type { ApiUsageRecord, DailyApiUsage } from '../types/api'
 
+const API_USAGE_TASK_TYPE_ORDER = ['analysis', 'lyrics', 'music', 'provider_test']
+
+export interface ApiUsageTaskGroup {
+  taskType: string
+  records: ApiUsageRecord[]
+}
+
 
 export function totalTaskTokens(records: ApiUsageRecord[]) {
   return records.reduce((total, record) => total + record.total_tokens, 0)
@@ -8,6 +15,27 @@ export function totalTaskTokens(records: ApiUsageRecord[]) {
 
 export function sortDailyUsageNewestFirst(records: DailyApiUsage[]) {
   return [...records].sort((left, right) => right.day.localeCompare(left.day))
+}
+
+
+export function groupApiUsageByTaskType(records: ApiUsageRecord[]): ApiUsageTaskGroup[] {
+  const grouped = new Map<string, ApiUsageRecord[]>()
+  records.forEach((record) => {
+    const taskRecords = grouped.get(record.task_type) ?? []
+    taskRecords.push(record)
+    grouped.set(record.task_type, taskRecords)
+  })
+
+  return Array.from(grouped, ([taskType, taskRecords]) => ({
+    taskType,
+    records: taskRecords,
+  })).sort((left, right) => {
+    const leftIndex = API_USAGE_TASK_TYPE_ORDER.indexOf(left.taskType)
+    const rightIndex = API_USAGE_TASK_TYPE_ORDER.indexOf(right.taskType)
+    const leftOrder = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex
+    const rightOrder = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex
+    return leftOrder - rightOrder || left.taskType.localeCompare(right.taskType)
+  })
 }
 
 

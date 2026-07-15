@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
+  Collapse,
   Empty,
   Skeleton,
   Space,
@@ -25,7 +26,11 @@ import {
 import { getDashboard } from '../api/dashboard'
 import { AgentStatusTag } from '../components/AgentStatusTag'
 import { CollapsibleList } from '../components/CollapsibleList'
-import { providerName, sortDailyUsageNewestFirst } from '../lib/apiUsage'
+import {
+  groupApiUsageByTaskType,
+  providerName,
+  sortDailyUsageNewestFirst,
+} from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
 import type {
   ApiUsageRecord,
@@ -62,6 +67,10 @@ function formatNumber(value: number) {
   return value.toLocaleString('zh-CN')
 }
 
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+
 export function DashboardPage() {
   const [data, setData] = useState<DashboardResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -70,6 +79,10 @@ export function DashboardPage() {
   const dailyUsage = useMemo(
     () => sortDailyUsageNewestFirst(data?.api_usage.daily ?? []),
     [data?.api_usage.daily],
+  )
+  const recentCallGroups = useMemo(
+    () => groupApiUsageByTaskType(data?.api_usage.recent_calls ?? []),
+    [data?.api_usage.recent_calls],
   )
 
   const load = useCallback(async () => {
@@ -153,10 +166,10 @@ export function DashboardPage() {
 
   const recentCallColumns: TableProps<ApiUsageRecord>['columns'] = [
     {
-      title: '任务',
+      title: '任务编号',
       key: 'task',
-      width: 130,
-      render: (_, record) => `${TASK_TYPE_LABELS[record.task_type] ?? record.task_type} #${record.task_id}`,
+      width: 100,
+      render: (_, record) => `#${record.task_id}`,
     },
     {
       title: '模型 / 接口',
@@ -298,22 +311,51 @@ export function DashboardPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>最近接口调用</Typography.Title>
-            <Typography.Text type="secondary">接口、模型与实际返回用量，默认显示最新 5 条</Typography.Text>
+            <Typography.Text type="secondary">按任务类型归类的接口、模型与实际返回用量</Typography.Text>
           </div>
         </div>
-        <CollapsibleList items={data?.api_usage.recent_calls ?? []}>
-          {(visibleCalls) => (
-            <Table<ApiUsageRecord>
-              rowKey="id"
-              columns={recentCallColumns}
-              dataSource={visibleCalls}
-              pagination={false}
-              scroll={{ x: 900 }}
-              locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无接口调用" /> }}
-              className="data-table"
-            />
-          )}
-        </CollapsibleList>
+        {recentCallGroups.length ? (
+          <Collapse
+            accordion
+            destroyOnHidden
+            expandIconPlacement="end"
+            className="api-call-groups"
+            items={recentCallGroups.map((group) => ({
+              key: group.taskType,
+              label: (
+                <div className="api-call-group-label">
+                  <div>
+                    <strong>{TASK_TYPE_LABELS[group.taskType] ?? group.taskType}</strong>
+                    <small>{group.records.length} 条近期记录</small>
+                  </div>
+                  <span>最后调用 {formatDateTime(group.records[0].created_at)}</span>
+                </div>
+              ),
+              children: (
+                <CollapsibleList
+                  items={group.records}
+                  expandText={(hiddenCount) => `展开较早 ${hiddenCount} 次调用`}
+                  collapseText="收起较早调用"
+                >
+                  {(visibleCalls) => (
+                    <Table<ApiUsageRecord>
+                      rowKey="id"
+                      columns={recentCallColumns}
+                      dataSource={visibleCalls}
+                      pagination={false}
+                      scroll={{ x: 820 }}
+                      className="data-table"
+                    />
+                  )}
+                </CollapsibleList>
+              ),
+            }))}
+          />
+        ) : (
+          <div className="ranking-snapshot-empty">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无接口调用" />
+          </div>
+        )}
       </section>
     </div>
   )

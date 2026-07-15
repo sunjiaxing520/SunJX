@@ -429,6 +429,64 @@ input {
   color: #62666e;
 }
 
+.api-call-groups.ant-collapse {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.api-call-groups .ant-collapse-item:last-child {
+  border-bottom: 0;
+}
+
+.api-call-groups .ant-collapse-header {
+  min-height: 64px;
+  align-items: center !important;
+}
+
+.api-call-groups .ant-collapse-header-text {
+  min-width: 0;
+}
+
+.api-call-groups .ant-collapse-content-box {
+  padding: 14px 16px 16px !important;
+}
+
+.api-call-group-label {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.api-call-group-label > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.api-call-group-label strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.api-call-group-label small,
+.api-call-group-label > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.api-call-group-label small {
+  margin-top: 2px;
+}
+
+.api-call-group-label > span {
+  flex: 0 0 auto;
+}
+
 .ranking-snapshot-list.ant-collapse {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1185,6 +1243,20 @@ input {
 
   .usage-subheading-row > span {
     text-align: left;
+  }
+
+  .api-call-groups .ant-collapse-content-box {
+    padding: 10px 8px 12px !important;
+  }
+
+  .api-call-group-label {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .api-call-group-label > span {
+    flex: initial;
   }
 
   .metric-card {
