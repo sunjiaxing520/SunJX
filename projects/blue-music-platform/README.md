@@ -12,15 +12,16 @@
 
 如果你是第一次打开项目，建议按这个顺序看：
 
-1. `中文代码地图.md`：用中文理解每个目录和主要文件。
-2. `项目知识图谱.md`：查看文件引用、请求运行和数据库关系。
-3. `docs/README.md`：文档导航，说明每类资料放在哪里。
-4. `docs/01-current-scope/项目精炼说明.md`：用最短篇幅理解项目。
-5. `docs/01-current-scope/需求规格说明书_v2.md`：当前需求和验收边界。
-6. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
-7. `docs/03-implementation/分阶段开发任务书.md`：开发阶段、交付物和验收标准。
-8. `backend/app/main.py`：当前后端入口代码。
-9. `frontend/src/main.tsx`：正式前端入口和全局主题配置。
+1. `D:\SunJX\docs\notes\蓝乐_当前上下文速记.md`：跨会话的当前事实和知识图谱入口。
+2. `中文代码地图.md`：用中文理解每个目录和主要文件。
+3. `项目知识图谱.md`：查看文件引用、请求运行和数据库关系。
+4. `docs/README.md`：文档导航，说明每类资料放在哪里。
+5. `docs/01-current-scope/项目精炼说明.md`：用最短篇幅理解项目。
+6. `docs/01-current-scope/需求规格说明书_v2.md`：当前需求和验收边界。
+7. `docs/02-decisions/决策记录.md`：以这里记录的最新决策为准。
+8. `docs/03-implementation/分阶段开发任务书.md`：开发阶段、交付物和验收标准。
+9. `backend/app/main.py`：当前后端入口代码。
+10. `frontend/src/main.tsx`：正式前端入口和全局主题配置。
 
 ## 目录说明
 

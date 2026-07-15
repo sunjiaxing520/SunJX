@@ -9,8 +9,14 @@ from typing import Any, Generic, Protocol, TypeVar
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.core.ai_values import (
+    TempoValue,
+    VocalGenderValue,
+    normalize_tempo,
+    normalize_vocal_gender,
+)
 from app.core.config import settings
 from app.core.logging import LOGGER_NAME, redact_sensitive_values
 from app.core.time import utc_now
@@ -80,13 +86,23 @@ class GeneratedDirection(BaseModel):
     mood_tags: list[str] = Field(min_length=1, max_length=8)
     theme_keywords: list[str] = Field(min_length=1, max_length=12)
     scene_tags: list[str] = Field(min_length=1, max_length=8)
-    tempo: str
-    vocal_gender: str
+    tempo: TempoValue
+    vocal_gender: VocalGenderValue
     vocal_style: str
     instrument_tags: list[str] = Field(min_length=1, max_length=10)
     structure: list[str] = Field(min_length=3, max_length=12)
     hook_direction: str
     negative_constraints: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("tempo", mode="before")
+    @classmethod
+    def normalize_tempo_value(cls, value: object) -> object:
+        return normalize_tempo(value)
+
+    @field_validator("vocal_gender", mode="before")
+    @classmethod
+    def normalize_vocal_gender_value(cls, value: object) -> object:
+        return normalize_vocal_gender(value)
 
 
 class GeneratedAnalysis(BaseModel):

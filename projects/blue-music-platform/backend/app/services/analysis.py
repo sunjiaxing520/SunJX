@@ -141,7 +141,6 @@ def create_analysis(
         task.status = TaskStatus.COMPLETED.value
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
-        return get_analysis_task(db, task.id)
     except (TextProviderError, ValueError) as exc:
         db.rollback()
         _mark_analysis_failed(
@@ -175,6 +174,8 @@ def create_analysis(
             status_code=500,
             detail={"task_id": task.id},
         ) from exc
+
+    return get_analysis_task(db, task.id)
 
 
 def _resolve_selected_entries(db: Session, entry_ids: list[int]) -> list[RankingEntry]:

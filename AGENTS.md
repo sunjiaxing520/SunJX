@@ -2,6 +2,16 @@
 
 本仓库由多个 agent 协作维护。所有 agent 必须遵守以下规则。
 
+## Project Memory
+
+处理蓝乐项目 `projects/blue-music-platform` 前，先读取：
+
+```text
+D:\SunJX\docs\notes\蓝乐_当前上下文速记.md
+```
+
+该文件是跨会话压缩记忆入口。只按当前任务继续读取其中链接的正式文档，不依赖冗长聊天历史。阶段、供应商、运行方式、关键约束或测试基线发生变化时，应同步更新该图谱；禁止写入密码、Token 或 API Key。
+
 ## Git Sync Workflow
 
 开始修改前，先检查状态并同步云端：

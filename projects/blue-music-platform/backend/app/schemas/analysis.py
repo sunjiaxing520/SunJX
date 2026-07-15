@@ -1,8 +1,13 @@
 from datetime import date, datetime
-from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.core.ai_values import (
+    TempoValue,
+    VocalGenderValue,
+    normalize_tempo,
+    normalize_vocal_gender,
+)
 from app.schemas.api_usage import ApiUsageResponse
 from app.schemas.ranking import TaskStatusValue
 
@@ -19,13 +24,23 @@ class CreationDirection(BaseModel):
     mood_tags: list[str]
     theme_keywords: list[str]
     scene_tags: list[str]
-    tempo: Literal["slow", "medium", "fast"]
-    vocal_gender: Literal["male", "female", "unspecified"]
+    tempo: TempoValue
+    vocal_gender: VocalGenderValue
     vocal_style: str
     instrument_tags: list[str]
     structure: list[str]
     hook_direction: str
     negative_constraints: list[str]
+
+    @field_validator("tempo", mode="before")
+    @classmethod
+    def normalize_tempo_value(cls, value: object) -> object:
+        return normalize_tempo(value)
+
+    @field_validator("vocal_gender", mode="before")
+    @classmethod
+    def normalize_vocal_gender_value(cls, value: object) -> object:
+        return normalize_vocal_gender(value)
 
 
 class AnalysisReportResponse(BaseModel):

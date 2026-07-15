@@ -5,11 +5,13 @@ import pytest
 
 from app.adapters import text_generation
 from app.adapters.text_generation import (
+    GeneratedDirection,
     OpenAICompatibleTextProvider,
     TextProviderConfig,
     TextProviderError,
 )
 from app.core.config import settings
+from app.schemas.analysis import CreationDirection
 
 
 class FakeResponse:
@@ -44,6 +46,34 @@ class FakeResponse:
                 "prompt_tokens_details": {"cached_tokens": 20},
             },
         }
+
+
+def _direction_payload() -> dict[str, object]:
+    return {
+        "name": "夏日方向",
+        "language": "中文",
+        "genre_tags": ["流行"],
+        "mood_tags": ["轻松"],
+        "theme_keywords": ["夏天"],
+        "scene_tags": ["海边"],
+        "tempo": "medium-fast",
+        "vocal_gender": "不限",
+        "vocal_style": "自然",
+        "instrument_tags": ["吉他"],
+        "structure": ["Verse", "Chorus", "Outro"],
+        "hook_direction": "副歌抓耳",
+        "negative_constraints": [],
+    }
+
+
+def test_analysis_direction_normalizes_provider_aliases() -> None:
+    generated = GeneratedDirection.model_validate(_direction_payload())
+    response = CreationDirection.model_validate(_direction_payload())
+
+    assert generated.tempo == "fast"
+    assert response.tempo == "fast"
+    assert generated.vocal_gender == "unspecified"
+    assert response.vocal_gender == "unspecified"
 
 
 def test_openai_compatible_provider_returns_usage_metadata(
