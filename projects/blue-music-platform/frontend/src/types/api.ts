@@ -110,6 +110,87 @@ export interface ApiUsageDashboard {
   recent_calls: ApiUsageRecord[]
 }
 
+export type MaxTokensParameter = 'max_tokens' | 'max_completion_tokens'
+export type ProviderTestStatus = 'untested' | 'success' | 'failed'
+
+export interface AiProviderTemplate {
+  key: string
+  display_name: string
+  protocol: string
+  description: string
+  default_base_url: string
+  default_model: string
+  requires_api_key: boolean
+  supports_json_mode: boolean
+  max_tokens_parameter: MaxTokensParameter
+  console_url: string | null
+  docs_url: string | null
+}
+
+export interface AiProviderConfig {
+  id: number
+  name: string
+  template_key: string
+  template_name: string
+  protocol: string
+  base_url: string
+  endpoint: string
+  model: string
+  has_api_key: boolean
+  api_key_hint: string | null
+  supports_json_mode: boolean
+  max_tokens_parameter: MaxTokensParameter
+  request_timeout_seconds: number
+  max_retries: number
+  analysis_max_output_tokens: number
+  lyrics_max_output_tokens: number
+  is_active: boolean
+  source: string
+  last_test_status: ProviderTestStatus
+  last_test_message: string | null
+  last_tested_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface EnvironmentAiProvider {
+  configured: boolean
+  template_key: string
+  template_name: string
+  base_url: string
+  endpoint: string
+  model: string
+  has_api_key: boolean
+  api_key_hint: string | null
+}
+
+export interface AiProviderListResponse {
+  items: AiProviderConfig[]
+  runtime_source: 'database' | 'environment'
+  environment_fallback: EnvironmentAiProvider
+}
+
+export interface AiProviderWritePayload {
+  name: string
+  template_key: string
+  base_url?: string
+  model?: string
+  api_key?: string
+  supports_json_mode?: boolean
+  max_tokens_parameter?: MaxTokensParameter
+  request_timeout_seconds: number
+  max_retries: number
+  analysis_max_output_tokens: number
+  lyrics_max_output_tokens: number
+}
+
+export interface AiProviderTestResult {
+  status: 'success' | 'failed'
+  message: string
+  provider: AiProviderConfig
+  api_usage: ApiUsageRecord
+}
+
 export interface DashboardResponse {
   metrics: DashboardMetrics
   agents: DashboardAgentStatus[]

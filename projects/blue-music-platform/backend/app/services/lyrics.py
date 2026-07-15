@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.adapters.text_generation import TextProviderError, get_text_provider
-from app.core.config import settings
+from app.adapters.text_generation import TextGenerationProvider, TextProviderError
 from app.core.exceptions import AppException
 from app.core.logging import LOGGER_NAME
 from app.models import AnalysisReport, LyricsTask, LyricsVersion, TaskStatus
@@ -17,6 +16,7 @@ from app.schemas.lyrics import (
     LyricsVersionResponse,
 )
 from app.services.api_usage import record_api_usage, task_api_usage
+from app.services.ai_providers import resolve_text_provider
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -71,10 +71,19 @@ def create_lyrics_task(
     user_id: int,
 ) -> LyricsTaskResponse:
     merged = _merge_analysis_direction(db, payload)
+    try:
+        provider = resolve_text_provider(db)
+    except TextProviderError as exc:
+        raise AppException(
+            code="AI_PROVIDER_RUNTIME_INVALID",
+            message="当前 AI 接口配置不可用，请联系超级管理员检查接口设置",
+            status_code=503,
+            detail={"reason": str(exc)},
+        ) from exc
     task = LyricsTask(
         status=TaskStatus.PENDING.value,
-        provider=settings.AI_PROVIDER,
-        model=settings.AI_MODEL or ("rules-v1" if settings.AI_PROVIDER == "local" else None),
+        provider=provider.name,
+        model=provider.model,
         requested_by_id=user_id,
         analysis_report_id=payload.analysis_report_id,
         direction_index=payload.direction_index,
@@ -94,7 +103,7 @@ def create_lyrics_task(
     db.add(task)
     db.commit()
     db.refresh(task)
-    _generate_version(db, task, variation=1)
+    _generate_version(db, task, variation=1, provider=provider)
     return get_lyrics_task(db, task.id)
 
 
@@ -112,13 +121,21 @@ def regenerate_lyrics(db: Session, task_id: int) -> LyricsTaskResponse:
     return get_lyrics_task(db, task.id)
 
 
-def _generate_version(db: Session, task: LyricsTask, variation: int) -> None:
-    task.status = TaskStatus.RUNNING.value
-    task.started_at = datetime.now(timezone.utc)
-    task.error_code = None
-    task.error_message = None
-    db.commit()
+def _generate_version(
+    db: Session,
+    task: LyricsTask,
+    variation: int,
+    provider: TextGenerationProvider | None = None,
+) -> None:
     try:
+        provider = provider or resolve_text_provider(db)
+        task.provider = provider.name
+        task.model = provider.model
+        task.status = TaskStatus.RUNNING.value
+        task.started_at = datetime.now(timezone.utc)
+        task.error_code = None
+        task.error_message = None
+        db.commit()
         context = {
             "title_hint": task.title_hint,
             "theme": task.theme,
@@ -133,7 +150,7 @@ def _generate_version(db: Session, task: LyricsTask, variation: int) -> None:
             "requirements": task.requirements,
             "reference_text": task.reference_text,
         }
-        generated_result = get_text_provider().generate_lyrics(context, variation)
+        generated_result = provider.generate_lyrics(context, variation)
         generated = generated_result.output
         version = LyricsVersion(
             task_id=task.id,

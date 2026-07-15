@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.adapters.text_generation import ProviderCallMetadata
 from app.core.config import settings
 from app.core.time import APP_TIMEZONE, app_today, utc_day_bounds, utc_now
-from app.models import ApiUsageRecord
+from app.models import AiProviderConfig, ApiUsageRecord
 from app.schemas.api_usage import (
     ApiUsageDashboard,
     ApiUsageMetrics,
@@ -174,8 +174,24 @@ def get_api_usage_dashboard(
     today_items = day_records[today]
     provider_records: dict[str, list[ApiUsageRecord]] = defaultdict(list)
     for record in records:
-        provider_records[record.provider].append(record)
-    provider_records.setdefault(settings.AI_PROVIDER, [])
+        provider_records[_canonical_provider(record.provider, record.endpoint)].append(record)
+    active_config = db.scalar(
+        select(AiProviderConfig)
+        .where(AiProviderConfig.is_active.is_(True))
+        .order_by(AiProviderConfig.updated_at.desc(), AiProviderConfig.id.desc())
+        .limit(1)
+    )
+    active_provider = active_config.template_key if active_config else settings.AI_PROVIDER
+    provider_records.setdefault(active_provider, [])
+    active_endpoint: str | None = None
+    active_model: str | None = None
+    if active_config:
+        active_endpoint = (
+            "local://rules-v1"
+            if active_config.protocol == "local"
+            else f"{active_config.base_url.rstrip('/')}/chat/completions"
+        )
+        active_model = active_config.model
 
     providers = [
         _provider_summary(
@@ -183,6 +199,8 @@ def get_api_usage_dashboard(
             items,
             today=today,
             include_balance=include_balance,
+            configured_endpoint=active_endpoint if provider == active_provider else None,
+            configured_model=active_model if provider == active_provider else None,
         )
         for provider, items in sorted(provider_records.items())
     ]
@@ -206,6 +224,8 @@ def _provider_summary(
     *,
     today,
     include_balance: bool,
+    configured_endpoint: str | None,
+    configured_model: str | None,
 ) -> ProviderAccountUsage:
     today_records = [
         record
@@ -216,7 +236,7 @@ def _provider_summary(
     for record in records:
         units[record.usage_unit] += float(record.usage_quantity)
 
-    endpoint = records[-1].endpoint if records else _configured_endpoint(provider)
+    endpoint = records[-1].endpoint if records else configured_endpoint or _configured_endpoint(provider)
     display_name, console_url = _provider_identity(provider, endpoint)
     if provider == "local":
         balance_status = "not_applicable"
@@ -230,7 +250,9 @@ def _provider_summary(
         balance_message = "当前供应商未接入自动余额查询，请前往供应商控制台查看"
 
     model_names = {record.model for record in records if record.model}
-    if provider == settings.AI_PROVIDER and settings.AI_MODEL:
+    if configured_model:
+        model_names.add(configured_model)
+    elif provider == settings.AI_PROVIDER and settings.AI_MODEL:
         model_names.add(settings.AI_MODEL)
     models = sorted(model_names)
     return ProviderAccountUsage(
@@ -262,6 +284,14 @@ def _provider_identity(provider: str, endpoint: str) -> tuple[str, str | None]:
     hostname = (urlparse(endpoint).hostname or "").lower()
     if provider == "local":
         return "本地规则基线", None
+    if provider == "bigmodel":
+        return "智谱 BigModel", "https://bigmodel.cn/"
+    if provider == "deepseek":
+        return "DeepSeek", "https://platform.deepseek.com/"
+    if provider == "qwen":
+        return "阿里百炼 Qwen", "https://bailian.console.aliyun.com/"
+    if provider == "minimax":
+        return "MiniMax", "https://platform.minimaxi.com/"
     if hostname.endswith("bigmodel.cn"):
         return "智谱 BigModel", "https://bigmodel.cn/"
     if hostname.endswith("mureka.ai"):
@@ -269,6 +299,21 @@ def _provider_identity(provider: str, endpoint: str) -> tuple[str, str | None]:
     if hostname.endswith("minimaxi.com"):
         return "MiniMax", "https://platform.minimaxi.com/"
     return provider, None
+
+
+def _canonical_provider(provider: str, endpoint: str) -> str:
+    if provider == "local":
+        return provider
+    hostname = (urlparse(endpoint).hostname or "").lower()
+    if hostname.endswith("bigmodel.cn"):
+        return "bigmodel"
+    if hostname.endswith("deepseek.com"):
+        return "deepseek"
+    if hostname.endswith("aliyuncs.com"):
+        return "qwen"
+    if hostname.endswith("minimaxi.com"):
+        return "minimax"
+    return provider
 
 
 def _app_date(value: datetime) -> date:

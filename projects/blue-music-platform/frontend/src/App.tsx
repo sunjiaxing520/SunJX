@@ -30,6 +30,9 @@ const LoginPage = lazy(() =>
 const UsersPage = lazy(() =>
   import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })),
 )
+const AiProvidersPage = lazy(() =>
+  import('./pages/AiProvidersPage').then((module) => ({ default: module.AiProvidersPage })),
+)
 
 function AgentRoute({ agent }: { agent: AgentType }) {
   const { user } = useAuth()
@@ -73,6 +76,7 @@ export default function AppRoutes() {
             <Route path="agents" element={<AgentsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="admin/users" element={<UsersPage />} />
+              <Route path="admin/ai-providers" element={<AiProvidersPage />} />
             </Route>
           </Route>
         </Route>

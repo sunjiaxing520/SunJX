@@ -2,7 +2,7 @@ import json
 import re
 import time
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Generic, Protocol, TypeVar
 from urllib.parse import urlparse
@@ -42,6 +42,21 @@ class ProviderCallMetadata:
     raw_usage: dict[str, Any] | None = None
     started_at: datetime = field(default_factory=utc_now)
     completed_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class TextProviderConfig:
+    template_key: str
+    protocol: str
+    base_url: str
+    api_key: str
+    model: str
+    supports_json_mode: bool = True
+    max_tokens_parameter: str = "max_tokens"
+    request_timeout_seconds: float = 60
+    max_retries: int = 2
+    analysis_max_output_tokens: int = 2500
+    lyrics_max_output_tokens: int = 3500
 
 
 OutputT = TypeVar("OutputT")
@@ -97,6 +112,8 @@ class TextGenerationProvider(Protocol):
         context: dict[str, Any],
         variation: int,
     ) -> ProviderResult[GeneratedLyrics]: ...
+
+    def test_connection(self) -> ProviderResult[dict[str, Any]]: ...
 
 
 GENRE_SIGNALS = {
@@ -305,16 +322,31 @@ class LocalTextProvider:
             call=_local_call("lyrics"),
         )
 
+    def test_connection(self) -> ProviderResult[dict[str, Any]]:
+        return ProviderResult(
+            output={"status": "ok"},
+            call=_local_call("provider-test"),
+        )
+
 
 class OpenAICompatibleTextProvider:
-    name = "openai_compatible"
-
-    def __init__(self) -> None:
-        if not settings.AI_BASE_URL or not settings.AI_API_KEY or not settings.AI_MODEL:
+    def __init__(self, config: TextProviderConfig | None = None) -> None:
+        self.config = config or _environment_text_config()
+        self.name = self.config.template_key
+        if (
+            not self.config.base_url
+            or not self.config.api_key
+            or not self.config.model
+        ):
             raise TextProviderError(
-                "AI_PROVIDER 已设为 openai_compatible，但 AI_BASE_URL、AI_API_KEY 或 AI_MODEL 未配置"
+                "当前 AI 接口缺少 Base URL、API Key 或模型名称"
             )
-        self.model = settings.AI_MODEL
+        if self.config.max_tokens_parameter not in {
+            "max_tokens",
+            "max_completion_tokens",
+        }:
+            raise TextProviderError("当前 AI 接口的最大 Token 参数不受支持")
+        self.model = self.config.model
 
     def analyze(self, context: dict[str, Any]) -> ProviderResult[GeneratedAnalysis]:
         schema = json.dumps(
@@ -335,7 +367,7 @@ class OpenAICompatibleTextProvider:
                 f"必须严格匹配以下JSON Schema：{schema}"
             ),
             user=json.dumps(context, ensure_ascii=False),
-            max_tokens=settings.AI_ANALYSIS_MAX_OUTPUT_TOKENS,
+            max_tokens=self.config.analysis_max_output_tokens,
             temperature=0.2,
         )
         try:
@@ -367,7 +399,7 @@ class OpenAICompatibleTextProvider:
                 f"必须严格匹配以下JSON Schema：{schema}"
             ),
             user=json.dumps(payload, ensure_ascii=False),
-            max_tokens=settings.AI_LYRICS_MAX_OUTPUT_TOKENS,
+            max_tokens=self.config.lyrics_max_output_tokens,
             temperature=0.7,
         )
         try:
@@ -379,6 +411,14 @@ class OpenAICompatibleTextProvider:
             ) from exc
         return ProviderResult(output=output, call=response.call)
 
+    def test_connection(self) -> ProviderResult[dict[str, Any]]:
+        return self._chat_json(
+            system='你正在执行接口连接测试。只返回 JSON：{"status":"ok"}。',
+            user="连接测试",
+            max_tokens=32,
+            temperature=0.1,
+        )
+
     def _chat_json(
         self,
         system: str,
@@ -387,10 +427,11 @@ class OpenAICompatibleTextProvider:
         temperature: float,
     ) -> ProviderResult[dict[str, Any]]:
         last_error: Exception | None = None
-        url = f"{settings.AI_BASE_URL}/chat/completions"
+        url = f"{self.config.base_url.rstrip('/')}/chat/completions"
         started_at = utc_now()
-        attempts = max(1, settings.AI_MAX_RETRIES)
+        attempts = max(1, self.config.max_retries)
         last_request_id: str | None = None
+        last_call: ProviderCallMetadata | None = None
         for attempt in range(1, attempts + 1):
             try:
                 request_body: dict[str, Any] = {
@@ -399,29 +440,25 @@ class OpenAICompatibleTextProvider:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    "response_format": {"type": "json_object"},
                     "temperature": temperature,
-                    "max_tokens": max_tokens,
                 }
+                request_body[self.config.max_tokens_parameter] = max_tokens
+                if self.config.supports_json_mode:
+                    request_body["response_format"] = {"type": "json_object"}
                 if _should_disable_thinking(url, self.model):
                     request_body["thinking"] = {"type": "disabled"}
                 response = httpx.post(
                     url,
                     headers={
-                        "Authorization": f"Bearer {settings.AI_API_KEY}",
+                        "Authorization": f"Bearer {self.config.api_key}",
                         "Content-Type": "application/json",
                     },
                     json=request_body,
-                    timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
+                    timeout=self.config.request_timeout_seconds,
                 )
                 response.raise_for_status()
                 body = response.json()
                 last_request_id = str(body.get("request_id") or body.get("id") or "") or None
-                content = body["choices"][0]["message"]["content"]
-                cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
-                decoded = json.loads(cleaned)
-                if not isinstance(decoded, dict):
-                    raise ValueError("response is not a JSON object")
                 completed_at = utc_now()
                 usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
                 input_tokens = _safe_int(usage.get("prompt_tokens"))
@@ -435,7 +472,7 @@ class OpenAICompatibleTextProvider:
                     if isinstance(prompt_details, dict)
                     else 0
                 )
-                call = ProviderCallMetadata(
+                last_call = ProviderCallMetadata(
                     method="POST",
                     endpoint=url,
                     is_external=True,
@@ -451,22 +488,33 @@ class OpenAICompatibleTextProvider:
                     started_at=started_at,
                     completed_at=completed_at,
                 )
-                return ProviderResult(output=decoded, call=call)
+                content = body["choices"][0]["message"]["content"]
+                decoded = _decode_json_object(content)
+                return ProviderResult(output=decoded, call=last_call)
             except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 last_error = exc
                 if attempt < attempts:
                     time.sleep(0.5 * attempt)
 
         completed_at = utc_now()
-        call = ProviderCallMetadata(
-            method="POST",
-            endpoint=url,
-            is_external=True,
-            request_id=last_request_id,
-            attempt_count=attempts,
-            duration_ms=_duration_ms(started_at, completed_at),
-            started_at=started_at,
-            completed_at=completed_at,
+        call = (
+            replace(
+                last_call,
+                attempt_count=attempts,
+                duration_ms=_duration_ms(started_at, completed_at),
+                completed_at=completed_at,
+            )
+            if last_call is not None
+            else ProviderCallMetadata(
+                method="POST",
+                endpoint=url,
+                is_external=True,
+                request_id=last_request_id,
+                attempt_count=attempts,
+                duration_ms=_duration_ms(started_at, completed_at),
+                started_at=started_at,
+                completed_at=completed_at,
+            )
         )
         raise TextProviderError(
             "AI 服务请求失败或返回了无法解析的内容",
@@ -497,6 +545,25 @@ def _duration_ms(started_at: datetime, completed_at: datetime) -> int:
     return max(0, round((completed_at - started_at).total_seconds() * 1000))
 
 
+def _decode_json_object(content: object) -> dict[str, Any]:
+    if not isinstance(content, str):
+        raise TypeError("response content is not text")
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
+    candidates = [cleaned]
+    first_brace = cleaned.find("{")
+    last_brace = cleaned.rfind("}")
+    if first_brace >= 0 and last_brace > first_brace:
+        candidates.append(cleaned[first_brace : last_brace + 1])
+    for candidate in candidates:
+        try:
+            decoded = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, dict):
+            return decoded
+    raise ValueError("response is not a JSON object")
+
+
 def _validation_summary(exc: ValidationError) -> str:
     issues: list[str] = []
     for error in exc.errors(include_input=False)[:5]:
@@ -513,9 +580,31 @@ def _should_disable_thinking(endpoint: str, model: str | None) -> bool:
     )
 
 
+def _environment_text_config() -> TextProviderConfig:
+    return TextProviderConfig(
+        template_key=settings.AI_PROVIDER,
+        protocol="openai_compatible",
+        base_url=settings.AI_BASE_URL,
+        api_key=settings.AI_API_KEY,
+        model=settings.AI_MODEL,
+        request_timeout_seconds=settings.AI_REQUEST_TIMEOUT_SECONDS,
+        max_retries=settings.AI_MAX_RETRIES,
+        analysis_max_output_tokens=settings.AI_ANALYSIS_MAX_OUTPUT_TOKENS,
+        lyrics_max_output_tokens=settings.AI_LYRICS_MAX_OUTPUT_TOKENS,
+    )
+
+
+def create_text_provider(config: TextProviderConfig) -> TextGenerationProvider:
+    if config.protocol == "local":
+        return LocalTextProvider()
+    if config.protocol == "openai_compatible":
+        return OpenAICompatibleTextProvider(config)
+    raise TextProviderError(f"不支持的 AI 接口协议：{config.protocol}")
+
+
 def get_text_provider() -> TextGenerationProvider:
     if settings.AI_PROVIDER == "local":
         return LocalTextProvider()
     if settings.AI_PROVIDER == "openai_compatible":
-        return OpenAICompatibleTextProvider()
+        return OpenAICompatibleTextProvider(_environment_text_config())
     raise TextProviderError(f"不支持的 AI_PROVIDER：{settings.AI_PROVIDER}")

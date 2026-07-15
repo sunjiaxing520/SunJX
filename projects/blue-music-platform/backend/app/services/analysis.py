@@ -5,8 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.adapters.text_generation import TextProviderError, get_text_provider
-from app.core.config import settings
+from app.adapters.text_generation import TextProviderError
 from app.core.exceptions import AppException
 from app.core.logging import LOGGER_NAME
 from app.models import (
@@ -24,6 +23,7 @@ from app.schemas.analysis import (
     AnalysisTaskResponse,
 )
 from app.services.api_usage import record_api_usage, task_api_usage
+from app.services.ai_providers import resolve_text_provider
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -82,10 +82,19 @@ def create_analysis(
 
     window_end = latest_snapshot.snapshot_date
     window_start = window_end - timedelta(days=payload.window_days - 1)
+    try:
+        provider = resolve_text_provider(db)
+    except TextProviderError as exc:
+        raise AppException(
+            code="AI_PROVIDER_RUNTIME_INVALID",
+            message="当前 AI 接口配置不可用，请联系超级管理员检查接口设置",
+            status_code=503,
+            detail={"reason": str(exc)},
+        ) from exc
     task = AnalysisTask(
         status=TaskStatus.PENDING.value,
-        provider=settings.AI_PROVIDER,
-        model=settings.AI_MODEL or ("rules-v1" if settings.AI_PROVIDER == "local" else None),
+        provider=provider.name,
+        model=provider.model,
         window_days=payload.window_days,
         window_start=window_start,
         window_end=window_end,
@@ -105,7 +114,7 @@ def create_analysis(
         context, metrics, evidence = _build_analysis_context(
             db, selected_entries, window_start, window_end
         )
-        generated_result = get_text_provider().analyze(context)
+        generated_result = provider.analyze(context)
         generated = generated_result.output
         report = AnalysisReport(
             task_id=task.id,

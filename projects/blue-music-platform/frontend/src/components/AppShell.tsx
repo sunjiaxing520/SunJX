@@ -23,6 +23,7 @@ import {
   LogOut,
   Menu as MenuIcon,
   Music2,
+  Network,
   Settings,
   Users,
 } from 'lucide-react'
@@ -70,6 +71,12 @@ const NAVIGATION: NavigationItem[] = [
     agent: 'music',
   },
   { key: '/agents', label: 'Agent 状态', icon: <Bot size={18} /> },
+  {
+    key: '/admin/ai-providers',
+    label: 'AI 接口',
+    icon: <Network size={18} />,
+    adminOnly: true,
+  },
   {
     key: '/admin/users',
     label: '账号管理',

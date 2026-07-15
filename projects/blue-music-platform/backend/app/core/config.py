@@ -49,6 +49,9 @@ class Settings:
     AI_BASE_URL = os.getenv("AI_BASE_URL", "").rstrip("/")
     AI_API_KEY = os.getenv("AI_API_KEY", "")
     AI_MODEL = os.getenv("AI_MODEL", "")
+    AI_CONFIG_ENCRYPTION_KEY = (
+        os.getenv("AI_CONFIG_ENCRYPTION_KEY") or SECRET_KEY
+    )
     AI_REQUEST_TIMEOUT_SECONDS = float(
         os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60")
     )

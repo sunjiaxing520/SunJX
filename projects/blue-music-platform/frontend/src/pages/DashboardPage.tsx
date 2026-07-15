@@ -44,6 +44,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   analysis: '榜单分析',
   lyrics: '歌词创作',
   music: '音乐创作',
+  provider_test: '接口测试',
 }
 
 const BALANCE_LABELS = {

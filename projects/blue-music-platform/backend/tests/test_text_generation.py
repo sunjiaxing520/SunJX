@@ -3,7 +3,10 @@ import json
 import pytest
 
 from app.adapters import text_generation
-from app.adapters.text_generation import OpenAICompatibleTextProvider
+from app.adapters.text_generation import (
+    OpenAICompatibleTextProvider,
+    TextProviderConfig,
+)
 from app.core.config import settings
 
 
@@ -76,3 +79,33 @@ def test_openai_compatible_provider_returns_usage_metadata(
     monkeypatch.setattr(settings, "AI_BASE_URL", "https://api.example.com/v1")
     OpenAICompatibleTextProvider().generate_lyrics({"theme": "测试"}, variation=2)
     assert "thinking" not in captured_request
+
+
+def test_provider_config_controls_json_and_token_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request: dict[str, object] = {}
+
+    def fake_post(*args, **kwargs):
+        captured_request.update(kwargs.get("json") or {})
+        return FakeResponse()
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="minimax",
+            protocol="openai_compatible",
+            base_url="https://api.minimaxi.com/v1",
+            api_key="test-key",
+            model="MiniMax-M2.7",
+            supports_json_mode=False,
+            max_tokens_parameter="max_completion_tokens",
+            max_retries=1,
+        )
+    )
+
+    provider.generate_lyrics({"theme": "测试"}, variation=1)
+
+    assert captured_request["max_completion_tokens"] == 3500
+    assert "max_tokens" not in captured_request
+    assert "response_format" not in captured_request
