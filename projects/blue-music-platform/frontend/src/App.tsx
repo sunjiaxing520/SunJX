@@ -20,6 +20,9 @@ const AnalysisPage = lazy(() =>
 const LyricsPage = lazy(() =>
   import('./pages/LyricsPage').then((module) => ({ default: module.LyricsPage })),
 )
+const FavoritesPage = lazy(() =>
+  import('./pages/FavoritesPage').then((module) => ({ default: module.FavoritesPage })),
+)
 const RankingsPage = lazy(() =>
   import('./pages/RankingsPage').then((module) => ({ default: module.RankingsPage })),
 )
@@ -73,6 +76,7 @@ export default function AppRoutes() {
                 element={<EmptyModulePage title="音乐创作" description="音乐任务与产出文件" />}
               />
             </Route>
+            <Route path="favorites" element={<FavoritesPage />} />
             <Route path="agents" element={<AgentsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="admin/users" element={<UsersPage />} />

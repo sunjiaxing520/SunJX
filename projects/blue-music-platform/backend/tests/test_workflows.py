@@ -171,6 +171,72 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     assert brief.json()["source_lyrics_version_id"] == version_id
     assert brief.json()["genre_tags"]
 
+    analysis_favorite = workflow_context.client.post(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        json={"item_type": "analysis", "target_id": analysis_body["report"]["id"]},
+    )
+    lyrics_favorite = workflow_context.client.post(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        json={"item_type": "lyrics", "target_id": version_id},
+    )
+    duplicate = workflow_context.client.post(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        json={"item_type": "lyrics", "target_id": version_id},
+    )
+    assert analysis_favorite.status_code == 201
+    assert lyrics_favorite.status_code == 201
+    assert duplicate.json()["id"] == lyrics_favorite.json()["id"]
+    assert lyrics_favorite.json()["metadata"]["version_number"] == 2
+    assert lyrics_favorite.json()["created_by_username"] == "admin"
+
+    note = workflow_context.client.patch(
+        f"/api/v1/favorites/{lyrics_favorite.json()['id']}",
+        headers=_headers(workflow_context),
+        json={"note": "  副歌方向满意，后续优先制作  "},
+    )
+    assert note.status_code == 200
+    assert note.json()["note"] == "副歌方向满意，后续优先制作"
+
+    favorites = workflow_context.client.get(
+        "/api/v1/favorites", headers=_headers(workflow_context)
+    )
+    assert favorites.status_code == 200
+    assert favorites.json()["total"] == 2
+    assert {item["item_type"] for item in favorites.json()["items"]} == {
+        "analysis",
+        "lyrics",
+    }
+
+    removed = workflow_context.client.delete(
+        f"/api/v1/favorites/{analysis_favorite.json()['id']}",
+        headers=_headers(workflow_context),
+    )
+    assert removed.status_code == 204
+    analysis_favorites = workflow_context.client.get(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        params={"item_type": "analysis"},
+    )
+    assert analysis_favorites.json()["total"] == 0
+
+    missing_target = workflow_context.client.post(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        json={"item_type": "lyrics", "target_id": 999999},
+    )
+    missing_favorite = workflow_context.client.patch(
+        "/api/v1/favorites/999999",
+        headers=_headers(workflow_context),
+        json={"note": "不存在"},
+    )
+    assert missing_target.status_code == 404
+    assert missing_target.json()["error"]["code"] == "FAVORITE_TARGET_NOT_FOUND"
+    assert missing_favorite.status_code == 404
+    assert missing_favorite.json()["error"]["code"] == "FAVORITE_NOT_FOUND"
+
     dashboard = workflow_context.client.get(
         "/api/v1/dashboard", headers=_headers(workflow_context)
     )

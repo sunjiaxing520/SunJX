@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   App,
@@ -10,29 +10,36 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   type TableProps,
 } from 'antd'
-import { Eye, Play, RefreshCw } from 'lucide-react'
+import { Eye, Play, RefreshCw, Star } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 
-import { listAnalysisTasks, runAnalysis } from '../api/analysis'
+import { getAnalysisTask, listAnalysisTasks, runAnalysis } from '../api/analysis'
+import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { listRankingEntries } from '../api/rankings'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { totalTaskTokens } from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
-import type { AnalysisTask, CreationDirection, RankingEntry } from '../types/api'
+import type { AnalysisTask, CreationDirection, FavoriteItem, RankingEntry } from '../types/api'
 
 const TEMPO_LABELS = { slow: '慢速', medium: '适中', fast: '快速' }
 const GENDER_LABELS = { male: '男声', female: '女声', unspecified: '不限' }
 
 export function AnalysisPage() {
   const { message } = App.useApp()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openedSourceTaskRef = useRef<number | null>(null)
   const [entries, setEntries] = useState<RankingEntry[]>([])
   const [tasks, setTasks] = useState<AnalysisTask[]>([])
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([])
   const [windowDays, setWindowDays] = useState(7)
   const [activeTask, setActiveTask] = useState<AnalysisTask | null>(null)
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([])
+  const [favoriteTargetId, setFavoriteTargetId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,12 +48,17 @@ export function AnalysisPage() {
     setLoading(true)
     setError(null)
     try {
-      const [ranking, history] = await Promise.all([
+      const [ranking, history, favoriteHistory] = await Promise.all([
         listRankingEntries({ pageSize: 100 }),
         listAnalysisTasks(),
+        listFavorites('analysis'),
       ])
       setEntries(ranking.items)
       setTasks(history.items)
+      setFavorites(favoriteHistory.items)
+      setActiveTask((current) => current
+        ? history.items.find((item) => item.id === current.id) ?? current
+        : null)
     } catch (loadError) {
       setError(errorMessage(loadError))
     } finally {
@@ -57,6 +69,60 @@ export function AnalysisPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    const requestedTaskId = Number(searchParams.get('task_id'))
+    if (!requestedTaskId) {
+      openedSourceTaskRef.current = null
+      return
+    }
+    if (loading || openedSourceTaskRef.current === requestedTaskId) return
+    openedSourceTaskRef.current = requestedTaskId
+    const requestedTask = tasks.find((task) => task.id === requestedTaskId)
+    if (requestedTask) {
+      setActiveTask(requestedTask)
+      return
+    }
+    void getAnalysisTask(requestedTaskId)
+      .then(setActiveTask)
+      .catch((sourceError) => message.error(errorMessage(sourceError)))
+  }, [loading, message, searchParams, tasks])
+
+  const favoritesByTarget = useMemo(
+    () => new Map(favorites.map((favorite) => [favorite.target_id, favorite])),
+    [favorites],
+  )
+
+  const toggleFavorite = async (task: AnalysisTask) => {
+    if (!task.report) return
+    const existing = favoritesByTarget.get(task.report.id)
+    setFavoriteTargetId(task.report.id)
+    try {
+      if (existing) {
+        await deleteFavorite(existing.id)
+        setFavorites((items) => items.filter((item) => item.id !== existing.id))
+        message.success('已从收藏夹移除')
+      } else {
+        const created = await createFavorite('analysis', task.report.id)
+        setFavorites((items) => [created, ...items.filter((item) => item.id !== created.id)])
+        message.success('分析报告已加入收藏夹')
+      }
+    } catch (favoriteError) {
+      message.error(errorMessage(favoriteError))
+    } finally {
+      setFavoriteTargetId(null)
+    }
+  }
+
+  const closeDrawer = () => {
+    setActiveTask(null)
+    openedSourceTaskRef.current = null
+    if (searchParams.has('task_id')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('task_id')
+      setSearchParams(next, { replace: true })
+    }
+  }
 
   const submit = async () => {
     setRunning(true)
@@ -119,9 +185,23 @@ export function AnalysisPage() {
     {
       title: '',
       key: 'detail',
-      width: 60,
+      width: 96,
       render: (_, task) => (
-        <Button type="text" icon={<Eye size={16} />} aria-label="查看分析报告" onClick={() => setActiveTask(task)} />
+        <Space size={0}>
+          {task.report && (
+            <Tooltip title={favoritesByTarget.has(task.report.id) ? '取消收藏' : '收藏报告'}>
+              <Button
+                type="text"
+                className={favoritesByTarget.has(task.report.id) ? 'favorite-button-active' : undefined}
+                icon={<Star size={16} fill={favoritesByTarget.has(task.report.id) ? 'currentColor' : 'none'} />}
+                loading={favoriteTargetId === task.report.id}
+                aria-label={favoritesByTarget.has(task.report.id) ? '取消收藏分析报告' : '收藏分析报告'}
+                onClick={() => void toggleFavorite(task)}
+              />
+            </Tooltip>
+          )}
+          <Button type="text" icon={<Eye size={16} />} aria-label="查看分析报告" onClick={() => setActiveTask(task)} />
+        </Space>
       ),
     },
   ]
@@ -199,8 +279,18 @@ export function AnalysisPage() {
       <Drawer
         title={`分析报告${activeTask ? ` #${activeTask.id}` : ''}`}
         open={Boolean(activeTask)}
-        onClose={() => setActiveTask(null)}
+        onClose={closeDrawer}
         size="large"
+        extra={activeTask?.report ? (
+          <Button
+            icon={<Star size={16} fill={favoritesByTarget.has(activeTask.report.id) ? 'currentColor' : 'none'} />}
+            className={favoritesByTarget.has(activeTask.report.id) ? 'favorite-button-active' : undefined}
+            loading={favoriteTargetId === activeTask.report.id}
+            onClick={() => void toggleFavorite(activeTask)}
+          >
+            {favoritesByTarget.has(activeTask.report.id) ? '已收藏' : '收藏报告'}
+          </Button>
+        ) : null}
       >
         {activeTask ? (
           <div className="report-stack">

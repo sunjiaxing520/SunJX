@@ -385,3 +385,30 @@ export interface CreationBrief {
   source_analysis_report_id: number | null
   source_lyrics_version_id: number
 }
+
+export type FavoriteItemType = 'analysis' | 'lyrics'
+
+export interface FavoriteItem {
+  id: number
+  item_type: FavoriteItemType
+  target_id: number
+  source_task_id: number
+  title: string
+  summary: string
+  status: WorkflowTaskStatus
+  provider: string
+  model: string | null
+  total_tokens: number
+  source_created_at: string
+  metadata: Record<string, unknown>
+  note: string | null
+  created_by_id: number | null
+  created_by_username: string | null
+  favorited_at: string
+  updated_at: string
+}
+
+export interface FavoriteList {
+  items: FavoriteItem[]
+  total: number
+}

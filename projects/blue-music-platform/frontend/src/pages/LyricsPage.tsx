@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   App,
@@ -17,14 +17,17 @@ import {
   Typography,
   type TableProps,
 } from 'antd'
-import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles } from 'lucide-react'
+import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles, Star } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 
 import { listAnalysisTasks } from '../api/analysis'
+import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { totalTaskTokens } from '../lib/apiUsage'
 import {
   generateLyrics,
+  getLyricsTask,
   listLyricsTasks,
   regenerateLyrics,
   saveLyricsVersion,
@@ -32,6 +35,7 @@ import {
 import { errorMessage } from '../lib/errors'
 import type {
   AnalysisTask,
+  FavoriteItem,
   LyricsCreatePayload,
   LyricsTask,
   LyricsVersion,
@@ -53,10 +57,15 @@ interface LyricsFormValues {
 
 export function LyricsPage() {
   const { message } = App.useApp()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openedSourceKeyRef = useRef<string | null>(null)
   const [form] = Form.useForm<LyricsFormValues>()
   const [analysisTasks, setAnalysisTasks] = useState<AnalysisTask[]>([])
   const [tasks, setTasks] = useState<LyricsTask[]>([])
   const [activeTask, setActiveTask] = useState<LyricsTask | null>(null)
+  const [activeVersionId, setActiveVersionId] = useState<number | null>(null)
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([])
+  const [favoriteTargetId, setFavoriteTargetId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
@@ -67,9 +76,14 @@ export function LyricsPage() {
     setLoading(true)
     setError(null)
     try {
-      const [analyses, lyrics] = await Promise.all([listAnalysisTasks(), listLyricsTasks()])
+      const [analyses, lyrics, favoriteHistory] = await Promise.all([
+        listAnalysisTasks(),
+        listLyricsTasks(),
+        listFavorites('lyrics'),
+      ])
       setAnalysisTasks(analyses.items)
       setTasks(lyrics.items)
+      setFavorites(favoriteHistory.items)
       setActiveTask((current) => current ? lyrics.items.find((item) => item.id === current.id) ?? current : null)
     } catch (loadError) {
       setError(errorMessage(loadError))
@@ -81,6 +95,74 @@ export function LyricsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    const requestedTaskId = Number(searchParams.get('task_id'))
+    if (!requestedTaskId) {
+      openedSourceKeyRef.current = null
+      return
+    }
+    const requestedVersionValue = searchParams.get('version_id')
+    const sourceKey = `${requestedTaskId}:${requestedVersionValue ?? ''}`
+    if (loading || openedSourceKeyRef.current === sourceKey) return
+    openedSourceKeyRef.current = sourceKey
+    const openRequestedTask = (requestedTask: LyricsTask) => {
+      const requestedVersionId = Number(requestedVersionValue)
+      const requestedVersion = requestedTask.versions.find((version) => version.id === requestedVersionId)
+      setActiveTask(requestedTask)
+      setActiveVersionId(requestedVersion?.id ?? requestedTask.versions.at(-1)?.id ?? null)
+    }
+    const requestedTask = tasks.find((task) => task.id === requestedTaskId)
+    if (requestedTask) {
+      openRequestedTask(requestedTask)
+      return
+    }
+    void getLyricsTask(requestedTaskId)
+      .then(openRequestedTask)
+      .catch((sourceError) => message.error(errorMessage(sourceError)))
+  }, [loading, message, searchParams, tasks])
+
+  const favoritesByTarget = useMemo(
+    () => new Map(favorites.map((favorite) => [favorite.target_id, favorite])),
+    [favorites],
+  )
+
+  const toggleFavorite = async (version: LyricsVersion) => {
+    const existing = favoritesByTarget.get(version.id)
+    setFavoriteTargetId(version.id)
+    try {
+      if (existing) {
+        await deleteFavorite(existing.id)
+        setFavorites((items) => items.filter((item) => item.id !== existing.id))
+        message.success('已从收藏夹移除')
+      } else {
+        const created = await createFavorite('lyrics', version.id)
+        setFavorites((items) => [created, ...items.filter((item) => item.id !== created.id)])
+        message.success(`第 ${version.version_number} 版歌词已加入收藏夹`)
+      }
+    } catch (favoriteError) {
+      message.error(errorMessage(favoriteError))
+    } finally {
+      setFavoriteTargetId(null)
+    }
+  }
+
+  const openTask = (task: LyricsTask) => {
+    setActiveTask(task)
+    setActiveVersionId(task.versions.at(-1)?.id ?? null)
+  }
+
+  const closeDrawer = () => {
+    setActiveTask(null)
+    setActiveVersionId(null)
+    openedSourceKeyRef.current = null
+    if (searchParams.has('task_id') || searchParams.has('version_id')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('task_id')
+      next.delete('version_id')
+      setSearchParams(next, { replace: true })
+    }
+  }
 
   const directions = useMemo(() => analysisTasks.flatMap((task) =>
     (task.report?.creation_directions ?? []).map((direction, index) => ({
@@ -121,6 +203,7 @@ export function LyricsPage() {
       message.success('歌词已经生成')
       form.resetFields()
       setActiveTask(task)
+      setActiveVersionId(task.versions.at(-1)?.id ?? null)
       await load()
     } catch (generateError) {
       message.error(errorMessage(generateError))
@@ -136,6 +219,7 @@ export function LyricsPage() {
     try {
       const updated = await regenerateLyrics(activeTask.id)
       setActiveTask(updated)
+      setActiveVersionId(updated.versions.at(-1)?.id ?? null)
       message.success(`已生成第 ${updated.versions.length} 版歌词`)
       await load()
     } catch (regenerateError) {
@@ -189,10 +273,28 @@ export function LyricsPage() {
     {
       title: '',
       key: 'detail',
-      width: 58,
-      render: (_, task) => (
-        <Button type="text" icon={<Eye size={16} />} aria-label="查看歌词" onClick={() => setActiveTask(task)} />
-      ),
+      width: 96,
+      render: (_, task) => {
+        const latestVersion = task.versions.at(-1)
+        const isFavorite = latestVersion ? favoritesByTarget.has(latestVersion.id) : false
+        return (
+          <Space size={0}>
+            {latestVersion && (
+              <Tooltip title={isFavorite ? '取消收藏最新版本' : '收藏最新版本'}>
+                <Button
+                  type="text"
+                  className={isFavorite ? 'favorite-button-active' : undefined}
+                  icon={<Star size={16} fill={isFavorite ? 'currentColor' : 'none'} />}
+                  loading={favoriteTargetId === latestVersion.id}
+                  aria-label={isFavorite ? '取消收藏最新歌词版本' : '收藏最新歌词版本'}
+                  onClick={() => void toggleFavorite(latestVersion)}
+                />
+              </Tooltip>
+            )}
+            <Button type="text" icon={<Eye size={16} />} aria-label="查看歌词" onClick={() => openTask(task)} />
+          </Space>
+        )
+      },
     },
   ]
 
@@ -264,8 +366,8 @@ export function LyricsPage() {
       </section>
 
       <section className="content-section">
-        <div className="section-title-row"><div><Typography.Title level={2}>作词记录</Typography.Title><Typography.Text type="secondary">最近 15 个任务，默认显示最新 5 条</Typography.Text></div></div>
-        <CollapsibleList items={tasks}>
+        <div className="section-title-row"><div><Typography.Title level={2}>作词记录</Typography.Title><Typography.Text type="secondary">最近 15 个任务，默认显示最新 3 条</Typography.Text></div></div>
+        <CollapsibleList items={tasks} previewCount={3}>
           {(visibleTasks) => (
             <Table<LyricsTask> rowKey="id" columns={columns} dataSource={visibleTasks} loading={loading} pagination={false} scroll={{ x: 700 }} className="data-table" />
           )}
@@ -275,7 +377,7 @@ export function LyricsPage() {
       <Drawer
         title={activeTask ? `歌词任务 #${activeTask.id}` : '歌词任务'}
         open={Boolean(activeTask)}
-        onClose={() => setActiveTask(null)}
+        onClose={closeDrawer}
         size="large"
         extra={<Button icon={<RotateCw size={16} />} loading={regenerating} onClick={regenerate}>重新生成</Button>}
       >
@@ -286,11 +388,21 @@ export function LyricsPage() {
             {activeTask.versions.length ? (
               <Tabs
                 key={`${activeTask.id}-${activeTask.versions.length}`}
-                defaultActiveKey={String(activeTask.versions.at(-1)?.id)}
+                activeKey={String(activeVersionId ?? activeTask.versions.at(-1)?.id)}
+                onChange={(key) => setActiveVersionId(Number(key))}
                 items={activeTask.versions.map((version) => ({
                   key: String(version.id),
                   label: `第 ${version.version_number} 版${version.is_saved ? ' · 已保存' : ''}`,
-                  children: <LyricsVersionView version={version} saving={savingId === version.id} onSave={() => save(version)} />,
+                  children: (
+                    <LyricsVersionView
+                      version={version}
+                      saving={savingId === version.id}
+                      favoriting={favoriteTargetId === version.id}
+                      isFavorite={favoritesByTarget.has(version.id)}
+                      onSave={() => save(version)}
+                      onFavorite={() => void toggleFavorite(version)}
+                    />
+                  ),
                 }))}
               />
             ) : <Empty description="该任务没有生成歌词版本" />}
@@ -301,7 +413,21 @@ export function LyricsPage() {
   )
 }
 
-function LyricsVersionView({ version, saving, onSave }: { version: LyricsVersion; saving: boolean; onSave: () => void }) {
+function LyricsVersionView({
+  version,
+  saving,
+  favoriting,
+  isFavorite,
+  onSave,
+  onFavorite,
+}: {
+  version: LyricsVersion
+  saving: boolean
+  favoriting: boolean
+  isFavorite: boolean
+  onSave: () => void
+  onFavorite: () => void
+}) {
   const { message } = App.useApp()
   const copy = async () => {
     await navigator.clipboard.writeText(`${version.title}\n\n${version.content}`)
@@ -312,6 +438,15 @@ function LyricsVersionView({ version, saving, onSave }: { version: LyricsVersion
       <div className="lyrics-output-heading">
         <div><Typography.Title level={2}>{version.title}</Typography.Title><Typography.Text type="secondary">{version.style_prompt}</Typography.Text></div>
         <Space>
+          <Tooltip title={isFavorite ? '取消收藏' : '加入收藏夹'}>
+            <Button
+              icon={<Star size={16} fill={isFavorite ? 'currentColor' : 'none'} />}
+              className={isFavorite ? 'favorite-button-active' : undefined}
+              loading={favoriting}
+              aria-label={isFavorite ? '取消收藏歌词版本' : '收藏歌词版本'}
+              onClick={onFavorite}
+            />
+          </Tooltip>
           <Tooltip title="复制歌词"><Button icon={<Copy size={16} />} aria-label="复制歌词" onClick={copy} /></Tooltip>
           <Button type={version.is_saved ? 'default' : 'primary'} icon={<BookmarkCheck size={16} />} loading={saving} onClick={onSave}>{version.is_saved ? '已保存' : '保存版本'}</Button>
         </Space>

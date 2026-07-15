@@ -18,6 +18,10 @@ export function listLyricsTasks(): Promise<LyricsTaskList> {
   return apiRequest<LyricsTaskList>('/lyrics/tasks?limit=15')
 }
 
+export function getLyricsTask(taskId: number): Promise<LyricsTask> {
+  return apiRequest<LyricsTask>(`/lyrics/tasks/${taskId}`)
+}
+
 export function regenerateLyrics(taskId: number): Promise<LyricsTask> {
   return apiRequest<LyricsTask>(`/lyrics/tasks/${taskId}/regenerate`, {
     method: 'POST',

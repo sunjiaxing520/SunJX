@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ClipboardCopy,
   FileMusic,
+  FolderHeart,
   Gauge,
   LogOut,
   Menu as MenuIcon,
@@ -70,6 +71,7 @@ const NAVIGATION: NavigationItem[] = [
     icon: <Music2 size={18} />,
     agent: 'music',
   },
+  { key: '/favorites', label: '收藏夹', icon: <FolderHeart size={18} /> },
   { key: '/agents', label: 'Agent 状态', icon: <Bot size={18} /> },
   {
     key: '/admin/ai-providers',
