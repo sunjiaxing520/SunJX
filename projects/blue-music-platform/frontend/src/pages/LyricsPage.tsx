@@ -20,6 +20,8 @@ import {
 import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles } from 'lucide-react'
 
 import { listAnalysisTasks } from '../api/analysis'
+import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
+import { totalTaskTokens } from '../lib/apiUsage'
 import {
   generateLyrics,
   listLyricsTasks,
@@ -166,10 +168,16 @@ export function LyricsPage() {
     },
     { title: '版本', key: 'versions', width: 90, render: (_, task) => task.versions.length },
     {
-      title: '执行器',
+      title: '模型 / 接口',
       key: 'provider',
-      width: 150,
-      render: (_, task) => task.provider === 'local' ? '本地规则基线' : task.model,
+      width: 280,
+      render: (_, task) => <ApiUsageCell records={task.api_usage} provider={task.provider} model={task.model} />,
+    },
+    {
+      title: 'Token',
+      key: 'tokens',
+      width: 100,
+      render: (_, task) => totalTaskTokens(task.api_usage).toLocaleString(),
     },
     {
       title: '状态',
@@ -181,7 +189,7 @@ export function LyricsPage() {
       title: '',
       key: 'detail',
       width: 58,
-      render: (_, task) => task.versions.length > 0 && (
+      render: (_, task) => (
         <Button type="text" icon={<Eye size={16} />} aria-label="查看歌词" onClick={() => setActiveTask(task)} />
       ),
     },
@@ -266,16 +274,22 @@ export function LyricsPage() {
         size="large"
         extra={<Button icon={<RotateCw size={16} />} loading={regenerating} onClick={regenerate}>重新生成</Button>}
       >
-        {activeTask?.versions.length ? (
-          <Tabs
-            key={`${activeTask.id}-${activeTask.versions.length}`}
-            defaultActiveKey={String(activeTask.versions.at(-1)?.id)}
-            items={activeTask.versions.map((version) => ({
-              key: String(version.id),
-              label: `第 ${version.version_number} 版${version.is_saved ? ' · 已保存' : ''}`,
-              children: <LyricsVersionView version={version} saving={savingId === version.id} onSave={() => save(version)} />,
-            }))}
-          />
+        {activeTask ? (
+          <div className="report-stack">
+            <ApiUsageDetails records={activeTask.api_usage} />
+            {activeTask.error_message && <Alert type="error" showIcon title={activeTask.error_message} />}
+            {activeTask.versions.length ? (
+              <Tabs
+                key={`${activeTask.id}-${activeTask.versions.length}`}
+                defaultActiveKey={String(activeTask.versions.at(-1)?.id)}
+                items={activeTask.versions.map((version) => ({
+                  key: String(version.id),
+                  label: `第 ${version.version_number} 版${version.is_saved ? ' · 已保存' : ''}`,
+                  children: <LyricsVersionView version={version} saving={savingId === version.id} onSave={() => save(version)} />,
+                }))}
+              />
+            ) : <Empty description="该任务没有生成歌词版本" />}
+          </div>
         ) : <Empty description="暂无歌词版本" />}
       </Drawer>
     </div>

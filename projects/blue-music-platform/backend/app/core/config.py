@@ -53,6 +53,12 @@ class Settings:
         os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60")
     )
     AI_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "2"))
+    AI_ANALYSIS_MAX_OUTPUT_TOKENS = int(
+        os.getenv("AI_ANALYSIS_MAX_OUTPUT_TOKENS", "2500")
+    )
+    AI_LYRICS_MAX_OUTPUT_TOKENS = int(
+        os.getenv("AI_LYRICS_MAX_OUTPUT_TOKENS", "3500")
+    )
 
     CORS_ORIGINS = [
         origin.strip()

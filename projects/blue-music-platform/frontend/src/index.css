@@ -359,6 +359,47 @@ input {
   border-top: 1px solid var(--line);
 }
 
+.usage-stat-strip {
+  display: grid;
+  margin-bottom: 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.usage-stat-strip > div {
+  display: flex;
+  min-width: 0;
+  min-height: 78px;
+  padding: 14px 16px;
+  flex-direction: column;
+  justify-content: center;
+  border-right: 1px solid var(--line);
+}
+
+.usage-stat-strip > div:last-child {
+  border-right: 0;
+}
+
+.usage-stat-strip span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.usage-stat-strip strong {
+  margin-top: 5px;
+  color: var(--ink);
+  font-size: 21px;
+  line-height: 1.1;
+}
+
+.usage-subheading.ant-typography {
+  margin: 22px 0 12px;
+  font-size: 14px;
+}
+
 .result-table .ant-table-tbody > tr {
   cursor: pointer;
 }
@@ -512,6 +553,52 @@ input {
   gap: 24px;
 }
 
+.api-usage-details {
+  min-width: 0;
+}
+
+.api-usage-details > h3.ant-typography {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.api-usage-details .ant-descriptions {
+  margin-bottom: 14px;
+}
+
+.api-endpoint-cell,
+.token-breakdown {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.api-endpoint-cell code {
+  width: max-content;
+  margin-bottom: 3px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #376bb3;
+  background: #eaf0f8;
+  font-size: 11px;
+}
+
+.api-endpoint-cell span,
+.api-usage-cell small {
+  overflow-wrap: anywhere;
+}
+
+.api-endpoint-cell small,
+.token-breakdown small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.token-breakdown strong {
+  font-size: 14px;
+}
+
 .direction-list {
   border-top: 1px solid var(--line);
 }
@@ -620,6 +707,10 @@ input {
   text-overflow: ellipsis;
 }
 
+.api-usage-cell strong {
+  max-width: 360px;
+}
+
 .account-cell small,
 .muted-copy {
   margin-top: 2px;
@@ -649,6 +740,18 @@ input {
 @media (max-width: 1100px) {
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .usage-stat-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .usage-stat-strip > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .usage-stat-strip > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -733,6 +836,21 @@ input {
 
   .metrics-grid {
     gap: 10px;
+  }
+
+  .usage-stat-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .usage-stat-strip > div,
+  .usage-stat-strip > div:nth-child(2) {
+    min-height: 68px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .usage-stat-strip > div:last-child {
+    border-bottom: 0;
   }
 
   .metric-card {

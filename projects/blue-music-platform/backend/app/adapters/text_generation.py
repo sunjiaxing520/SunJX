@@ -2,16 +2,55 @@ import json
 import re
 import time
 from collections import Counter
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Generic, Protocol, TypeVar
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import settings
+from app.core.time import utc_now
 
 
 class TextProviderError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        call: "ProviderCallMetadata | None" = None,
+    ) -> None:
+        super().__init__(message)
+        self.call = call
+
+
+@dataclass(frozen=True)
+class ProviderCallMetadata:
+    method: str
+    endpoint: str
+    is_external: bool
+    request_id: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cached_tokens: int = 0
+    usage_unit: str = "tokens"
+    usage_quantity: float = 0
+    attempt_count: int = 1
+    duration_ms: int | None = None
+    raw_usage: dict[str, Any] | None = None
+    started_at: datetime = field(default_factory=utc_now)
+    completed_at: datetime = field(default_factory=utc_now)
+
+
+OutputT = TypeVar("OutputT")
+
+
+@dataclass(frozen=True)
+class ProviderResult(Generic[OutputT]):
+    output: OutputT
+    call: ProviderCallMetadata
 
 
 class GeneratedDirection(BaseModel):
@@ -51,13 +90,13 @@ class TextGenerationProvider(Protocol):
     name: str
     model: str | None
 
-    def analyze(self, context: dict[str, Any]) -> GeneratedAnalysis: ...
+    def analyze(self, context: dict[str, Any]) -> ProviderResult[GeneratedAnalysis]: ...
 
     def generate_lyrics(
         self,
         context: dict[str, Any],
         variation: int,
-    ) -> GeneratedLyrics: ...
+    ) -> ProviderResult[GeneratedLyrics]: ...
 
 
 GENRE_SIGNALS = {
@@ -108,7 +147,7 @@ class LocalTextProvider:
     name = "local"
     model = "rules-v1"
 
-    def analyze(self, context: dict[str, Any]) -> GeneratedAnalysis:
+    def analyze(self, context: dict[str, Any]) -> ProviderResult[GeneratedAnalysis]:
         songs = list(context.get("songs") or [])
         metrics = dict(context.get("metrics") or {})
         genres = _top_labels(_signal_counts(songs, GENRE_SIGNALS), ["流行"], 2)
@@ -174,16 +213,19 @@ class LocalTextProvider:
                 negative_constraints=["避免空泛口号", "避免生硬押韵"],
             ),
         ]
-        return GeneratedAnalysis(
-            trend_summary=summary,
-            creation_directions=directions,
+        return ProviderResult(
+            output=GeneratedAnalysis(
+                trend_summary=summary,
+                creation_directions=directions,
+            ),
+            call=_local_call("analysis"),
         )
 
     def generate_lyrics(
         self,
         context: dict[str, Any],
         variation: int,
-    ) -> GeneratedLyrics:
+    ) -> ProviderResult[GeneratedLyrics]:
         theme = str(context.get("theme") or "一次没有说完的告别").strip()
         keywords = list(context.get("keywords") or [])
         moods = list(context.get("mood_tags") or ["克制", "温柔"])
@@ -254,10 +296,13 @@ class LocalTextProvider:
             str(context.get("tempo") or "medium"),
             str(context.get("vocal_style") or "自然叙事人声"),
         ]
-        return GeneratedLyrics(
-            title=title,
-            sections=sections,
-            style_prompt=", ".join(part for part in style_parts if part),
+        return ProviderResult(
+            output=GeneratedLyrics(
+                title=title,
+                sections=sections,
+                style_prompt=", ".join(part for part in style_parts if part),
+            ),
+            call=_local_call("lyrics"),
         )
 
 
@@ -271,7 +316,12 @@ class OpenAICompatibleTextProvider:
             )
         self.model = settings.AI_MODEL
 
-    def analyze(self, context: dict[str, Any]) -> GeneratedAnalysis:
+    def analyze(self, context: dict[str, Any]) -> ProviderResult[GeneratedAnalysis]:
+        schema = json.dumps(
+            GeneratedAnalysis.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
         response = self._chat_json(
             system=(
                 "你是音乐市场趋势分析助手。仅依据提供的榜单元数据和排名变化做方向性分析，"
@@ -281,70 +331,186 @@ class OpenAICompatibleTextProvider:
                 "mood_tags, theme_keywords, scene_tags, tempo(slow/medium/fast), "
                 "vocal_gender(male/female/unspecified), vocal_style, instrument_tags, "
                 "structure, hook_direction, negative_constraints。"
+                "所有字符串字段必须返回字符串，数组字段必须返回数组，structure 至少3项。"
+                f"必须严格匹配以下JSON Schema：{schema}"
             ),
             user=json.dumps(context, ensure_ascii=False),
+            max_tokens=settings.AI_ANALYSIS_MAX_OUTPUT_TOKENS,
+            temperature=0.2,
         )
         try:
-            return GeneratedAnalysis.model_validate(response)
+            output = GeneratedAnalysis.model_validate(response.output)
         except ValidationError as exc:
-            raise TextProviderError("AI 分析结果字段不完整或类型不正确") from exc
+            raise TextProviderError(
+                f"AI 分析结果字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
 
     def generate_lyrics(
         self,
         context: dict[str, Any],
         variation: int,
-    ) -> GeneratedLyrics:
+    ) -> ProviderResult[GeneratedLyrics]:
         payload = {**context, "variation": variation}
+        schema = json.dumps(
+            GeneratedLyrics.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
         response = self._chat_json(
             system=(
                 "你是中文原创作词助手。根据创作方案写一首可供音乐生成API使用的原创歌词。"
                 "参考文本只能用于理解方向，不得复写或近似改写。返回纯JSON，字段为 title、"
                 "style_prompt、sections；sections 每项包含 name 和 content，使用 Intro、Verse、"
                 "Pre Chorus、Chorus、Bridge、Outro 等标准段落名。"
+                f"必须严格匹配以下JSON Schema：{schema}"
             ),
             user=json.dumps(payload, ensure_ascii=False),
+            max_tokens=settings.AI_LYRICS_MAX_OUTPUT_TOKENS,
+            temperature=0.7,
         )
         try:
-            return GeneratedLyrics.model_validate(response)
+            output = GeneratedLyrics.model_validate(response.output)
         except ValidationError as exc:
-            raise TextProviderError("AI 歌词结果字段不完整或类型不正确") from exc
+            raise TextProviderError(
+                f"AI 歌词结果字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
 
-    def _chat_json(self, system: str, user: str) -> dict[str, Any]:
+    def _chat_json(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> ProviderResult[dict[str, Any]]:
         last_error: Exception | None = None
         url = f"{settings.AI_BASE_URL}/chat/completions"
-        for attempt in range(1, max(1, settings.AI_MAX_RETRIES) + 1):
+        started_at = utc_now()
+        attempts = max(1, settings.AI_MAX_RETRIES)
+        last_request_id: str | None = None
+        for attempt in range(1, attempts + 1):
             try:
+                request_body: dict[str, Any] = {
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                }
+                if _should_disable_thinking(url, self.model):
+                    request_body["thinking"] = {"type": "disabled"}
                 response = httpx.post(
                     url,
                     headers={
                         "Authorization": f"Bearer {settings.AI_API_KEY}",
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user},
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.7,
-                    },
+                    json=request_body,
                     timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 body = response.json()
+                last_request_id = str(body.get("request_id") or body.get("id") or "") or None
                 content = body["choices"][0]["message"]["content"]
                 cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
                 decoded = json.loads(cleaned)
                 if not isinstance(decoded, dict):
                     raise ValueError("response is not a JSON object")
-                return decoded
+                completed_at = utc_now()
+                usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+                input_tokens = _safe_int(usage.get("prompt_tokens"))
+                output_tokens = _safe_int(usage.get("completion_tokens"))
+                total_tokens = _safe_int(usage.get("total_tokens"))
+                if not total_tokens:
+                    total_tokens = input_tokens + output_tokens
+                prompt_details = usage.get("prompt_tokens_details")
+                cached_tokens = (
+                    _safe_int(prompt_details.get("cached_tokens"))
+                    if isinstance(prompt_details, dict)
+                    else 0
+                )
+                call = ProviderCallMetadata(
+                    method="POST",
+                    endpoint=url,
+                    is_external=True,
+                    request_id=last_request_id,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                    cached_tokens=cached_tokens,
+                    usage_quantity=float(total_tokens),
+                    attempt_count=attempt,
+                    duration_ms=_duration_ms(started_at, completed_at),
+                    raw_usage=usage or None,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                )
+                return ProviderResult(output=decoded, call=call)
             except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 last_error = exc
-                if attempt <= settings.AI_MAX_RETRIES:
+                if attempt < attempts:
                     time.sleep(0.5 * attempt)
 
-        raise TextProviderError("AI 服务请求失败或返回了无法解析的内容") from last_error
+        completed_at = utc_now()
+        call = ProviderCallMetadata(
+            method="POST",
+            endpoint=url,
+            is_external=True,
+            request_id=last_request_id,
+            attempt_count=attempts,
+            duration_ms=_duration_ms(started_at, completed_at),
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+        raise TextProviderError(
+            "AI 服务请求失败或返回了无法解析的内容",
+            call=call,
+        ) from last_error
+
+
+def _local_call(operation: str) -> ProviderCallMetadata:
+    now = utc_now()
+    return ProviderCallMetadata(
+        method="EXECUTE",
+        endpoint=f"local://rules-v1/{operation}",
+        is_external=False,
+        duration_ms=0,
+        started_at=now,
+        completed_at=now,
+    )
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _duration_ms(started_at: datetime, completed_at: datetime) -> int:
+    return max(0, round((completed_at - started_at).total_seconds() * 1000))
+
+
+def _validation_summary(exc: ValidationError) -> str:
+    issues: list[str] = []
+    for error in exc.errors(include_input=False)[:5]:
+        location = ".".join(str(part) for part in error.get("loc", ())) or "response"
+        issues.append(f"{location} ({error.get('type', 'invalid')})")
+    return "、".join(issues) or "响应结构无效"
+
+
+def _should_disable_thinking(endpoint: str, model: str | None) -> bool:
+    hostname = (urlparse(endpoint).hostname or "").lower()
+    model_name = (model or "").lower()
+    return hostname.endswith("bigmodel.cn") and model_name.startswith(
+        ("glm-4.7", "glm-5")
+    )
 
 
 def get_text_provider() -> TextGenerationProvider:

@@ -20,6 +20,7 @@ from app.schemas.dashboard import (
     DashboardMetrics,
     DashboardResponse,
 )
+from app.services.api_usage import get_api_usage_dashboard
 
 
 AGENT_NAMES = {
@@ -62,6 +63,10 @@ def get_dashboard(db: Session, user: User) -> DashboardResponse:
             music_tasks_today=0,
         ),
         agents=agents,
+        api_usage=get_api_usage_dashboard(
+            db,
+            include_balance=user.role == UserRole.SUPER_ADMIN,
+        ),
     )
 
 

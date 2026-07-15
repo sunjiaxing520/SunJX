@@ -21,7 +21,9 @@ class WorkflowContext(NamedTuple):
 
 
 @pytest.fixture
-def workflow_context() -> WorkflowContext:
+def workflow_context(monkeypatch: pytest.MonkeyPatch) -> WorkflowContext:
+    monkeypatch.setattr(settings, "AI_PROVIDER", "local")
+    monkeypatch.setattr(settings, "AI_MODEL", "")
     engine = create_engine(
         "sqlite+pysqlite://",
         connect_args={"check_same_thread": False},
@@ -126,6 +128,9 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     assert analysis.status_code == 201
     analysis_body = analysis.json()
     assert analysis_body["status"] == "completed"
+    assert analysis_body["api_usage"][0]["endpoint"] == "local://rules-v1/analysis"
+    assert analysis_body["api_usage"][0]["is_external"] is False
+    assert analysis_body["api_usage"][0]["total_tokens"] == 0
     assert analysis_body["report"]["trend_metrics"]["available_days"] == 2
     assert len(analysis_body["report"]["creation_directions"]) == 3
 
@@ -150,6 +155,7 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     )
     assert regenerated.status_code == 200
     assert len(regenerated.json()["versions"]) == 2
+    assert len(regenerated.json()["api_usage"]) == 2
     version_id = regenerated.json()["versions"][1]["id"]
 
     saved = workflow_context.client.put(
@@ -164,6 +170,16 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     assert brief.status_code == 200
     assert brief.json()["source_lyrics_version_id"] == version_id
     assert brief.json()["genre_tags"]
+
+    dashboard = workflow_context.client.get(
+        "/api/v1/dashboard", headers=_headers(workflow_context)
+    )
+    usage = dashboard.json()["api_usage"]
+    assert dashboard.status_code == 200
+    assert usage["metrics"]["executions_today"] == 3
+    assert usage["metrics"]["external_calls_today"] == 0
+    assert usage["metrics"]["tokens_today"] == 0
+    assert usage["providers"][0]["balance_status"] == "not_applicable"
 
 
 def test_analysis_requires_ranking_data(workflow_context: WorkflowContext) -> None:

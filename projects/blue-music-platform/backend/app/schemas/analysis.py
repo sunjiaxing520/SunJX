@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.api_usage import ApiUsageResponse
 from app.schemas.ranking import TaskStatusValue
 
 
@@ -51,6 +52,7 @@ class AnalysisTaskResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    api_usage: list[ApiUsageResponse]
     report: AnalysisReportResponse | None
 
 

@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.api_usage import ApiUsageResponse
 from app.schemas.ranking import TaskStatusValue
 
 
@@ -68,6 +69,7 @@ class LyricsTaskResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    api_usage: list[ApiUsageResponse]
     versions: list[LyricsVersionResponse]
 
 

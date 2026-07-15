@@ -23,12 +23,13 @@ from app.schemas.analysis import (
     AnalysisTaskListResponse,
     AnalysisTaskResponse,
 )
+from app.services.api_usage import record_api_usage, task_api_usage
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
 
 
-def analysis_task_response(task: AnalysisTask) -> AnalysisTaskResponse:
+def analysis_task_response(db: Session, task: AnalysisTask) -> AnalysisTaskResponse:
     report = None
     if task.report is not None:
         report = AnalysisReportResponse(
@@ -54,6 +55,7 @@ def analysis_task_response(task: AnalysisTask) -> AnalysisTaskResponse:
         started_at=task.started_at,
         completed_at=task.completed_at,
         created_at=task.created_at,
+        api_usage=task_api_usage(db, "analysis", task.id),
         report=report,
     )
 
@@ -103,7 +105,8 @@ def create_analysis(
         context, metrics, evidence = _build_analysis_context(
             db, selected_entries, window_start, window_end
         )
-        generated = get_text_provider().analyze(context)
+        generated_result = get_text_provider().analyze(context)
+        generated = generated_result.output
         report = AnalysisReport(
             task_id=task.id,
             trend_summary=generated.trend_summary,
@@ -115,13 +118,29 @@ def create_analysis(
             provider_payload=generated.model_dump(),
         )
         db.add(report)
+        record_api_usage(
+            db,
+            task_type="analysis",
+            task_id=task.id,
+            operation="analysis.generate",
+            provider=task.provider,
+            model=task.model,
+            call=generated_result.call,
+            status=TaskStatus.COMPLETED.value,
+        )
         task.status = TaskStatus.COMPLETED.value
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
         return get_analysis_task(db, task.id)
     except (TextProviderError, ValueError) as exc:
         db.rollback()
-        _mark_analysis_failed(db, task.id, "ANALYSIS_PROVIDER_FAILED", str(exc))
+        _mark_analysis_failed(
+            db,
+            task.id,
+            "ANALYSIS_PROVIDER_FAILED",
+            str(exc),
+            call=getattr(exc, "call", None),
+        )
         raise AppException(
             code="ANALYSIS_PROVIDER_FAILED",
             message="榜单分析失败，请查看任务记录中的具体原因",
@@ -284,7 +303,14 @@ def _build_analysis_context(
     return {"songs": songs, "metrics": metrics, "evidence": evidence}, metrics, evidence
 
 
-def _mark_analysis_failed(db: Session, task_id: int, code: str, message: str) -> None:
+def _mark_analysis_failed(
+    db: Session,
+    task_id: int,
+    code: str,
+    message: str,
+    *,
+    call=None,
+) -> None:
     task = db.get(AnalysisTask, task_id)
     if task is None:
         return
@@ -292,6 +318,18 @@ def _mark_analysis_failed(db: Session, task_id: int, code: str, message: str) ->
     task.error_code = code
     task.error_message = message
     task.completed_at = datetime.now(timezone.utc)
+    record_api_usage(
+        db,
+        task_type="analysis",
+        task_id=task.id,
+        operation="analysis.generate",
+        provider=task.provider,
+        model=task.model,
+        call=call,
+        status=TaskStatus.FAILED.value,
+        error_code=code,
+        error_message=message,
+    )
     db.commit()
 
 
@@ -310,7 +348,7 @@ def get_analysis_task(db: Session, task_id: int) -> AnalysisTaskResponse:
             message="分析任务不存在",
             status_code=404,
         )
-    return analysis_task_response(task)
+    return analysis_task_response(db, task)
 
 
 def list_analysis_tasks(db: Session, limit: int = 15) -> AnalysisTaskListResponse:
@@ -325,6 +363,6 @@ def list_analysis_tasks(db: Session, limit: int = 15) -> AnalysisTaskListRespons
     ).all()
     total = db.scalar(select(func.count(AnalysisTask.id))) or 0
     return AnalysisTaskListResponse(
-        items=[analysis_task_response(task) for task in tasks],
+        items=[analysis_task_response(db, task) for task in tasks],
         total=total,
     )

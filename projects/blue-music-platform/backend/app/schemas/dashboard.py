@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.models import AgentType
+from app.schemas.api_usage import ApiUsageDashboard
 
 
 AgentRuntimeStatus = Literal["not_configured", "idle", "running", "failed"]
@@ -25,3 +26,4 @@ class DashboardAgentStatus(BaseModel):
 class DashboardResponse(BaseModel):
     metrics: DashboardMetrics
     agents: list[DashboardAgentStatus]
+    api_usage: ApiUsageDashboard

@@ -17,6 +17,8 @@ import { Eye, Play, RefreshCw } from 'lucide-react'
 
 import { listAnalysisTasks, runAnalysis } from '../api/analysis'
 import { listRankingEntries } from '../api/rankings'
+import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
+import { totalTaskTokens } from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
 import type { AnalysisTask, CreationDirection, RankingEntry } from '../types/api'
 
@@ -92,10 +94,16 @@ export function AnalysisPage() {
     },
     { title: '歌曲数', dataIndex: 'selected_entry_count', width: 90 },
     {
-      title: '执行器',
+      title: '模型 / 接口',
       key: 'provider',
-      width: 150,
-      render: (_, task) => task.provider === 'local' ? '本地规则基线' : task.model,
+      width: 280,
+      render: (_, task) => <ApiUsageCell records={task.api_usage} provider={task.provider} model={task.model} />,
+    },
+    {
+      title: 'Token',
+      key: 'tokens',
+      width: 100,
+      render: (_, task) => totalTaskTokens(task.api_usage).toLocaleString(),
     },
     {
       title: '状态',
@@ -111,7 +119,7 @@ export function AnalysisPage() {
       title: '',
       key: 'detail',
       width: 60,
-      render: (_, task) => task.report && (
+      render: (_, task) => (
         <Button type="text" icon={<Eye size={16} />} aria-label="查看分析报告" onClick={() => setActiveTask(task)} />
       ),
     },
@@ -189,29 +197,35 @@ export function AnalysisPage() {
         onClose={() => setActiveTask(null)}
         size="large"
       >
-        {activeTask?.report ? (
+        {activeTask ? (
           <div className="report-stack">
-            <Alert
-              type={availableDays >= 7 ? 'success' : 'warning'}
-              showIcon
-              title={`有效数据 ${availableDays} 天 · 证据可信度${confidenceLabel}`}
-              description={activeTask.report.trend_summary}
-            />
-            <Descriptions
-              size="small"
-              column={2}
-              items={[
-                { key: 'rising', label: '上升', children: String(metrics?.rising_count ?? 0) },
-                { key: 'new', label: '新出现', children: String(metrics?.new_count ?? 0) },
-                { key: 'stable', label: '稳定', children: String(metrics?.stable_count ?? 0) },
-                { key: 'falling', label: '下降', children: String(metrics?.falling_count ?? 0) },
-              ]}
-            />
-            <div className="direction-list">
-              {directions.map((direction, index) => (
-                <DirectionView direction={direction} index={index} key={`${direction.name}-${index}`} />
-              ))}
-            </div>
+            <ApiUsageDetails records={activeTask.api_usage} />
+            {activeTask.error_message && <Alert type="error" showIcon title={activeTask.error_message} />}
+            {activeTask.report ? (
+              <>
+                <Alert
+                  type={availableDays >= 7 ? 'success' : 'warning'}
+                  showIcon
+                  title={`有效数据 ${availableDays} 天 · 证据可信度${confidenceLabel}`}
+                  description={activeTask.report.trend_summary}
+                />
+                <Descriptions
+                  size="small"
+                  column={2}
+                  items={[
+                    { key: 'rising', label: '上升', children: String(metrics?.rising_count ?? 0) },
+                    { key: 'new', label: '新出现', children: String(metrics?.new_count ?? 0) },
+                    { key: 'stable', label: '稳定', children: String(metrics?.stable_count ?? 0) },
+                    { key: 'falling', label: '下降', children: String(metrics?.falling_count ?? 0) },
+                  ]}
+                />
+                <div className="direction-list">
+                  {directions.map((direction, index) => (
+                    <DirectionView direction={direction} index={index} key={`${direction.name}-${index}`} />
+                  ))}
+                </div>
+              </>
+            ) : <Empty description="该任务没有生成分析报告" />}
           </div>
         ) : <Empty description="暂无报告" />}
       </Drawer>

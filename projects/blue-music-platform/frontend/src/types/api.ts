@@ -34,9 +34,86 @@ export interface DashboardAgentStatus {
   message: string
 }
 
+export type ApiUsageStatus = 'completed' | 'failed'
+export type BalanceStatus =
+  | 'available'
+  | 'manual'
+  | 'not_applicable'
+  | 'hidden'
+  | 'error'
+
+export interface ApiUsageRecord {
+  id: number
+  task_type: string
+  task_id: number
+  operation: string
+  provider: string
+  model: string | null
+  method: string
+  endpoint: string
+  is_external: boolean
+  status: ApiUsageStatus
+  external_request_id: string | null
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cached_tokens: number
+  usage_unit: string
+  usage_quantity: number
+  estimated_cost: number | null
+  currency: string | null
+  attempt_count: number
+  duration_ms: number | null
+  error_code: string | null
+  error_message: string | null
+  started_at: string
+  completed_at: string
+  created_at: string
+}
+
+export interface ApiUsageMetrics {
+  executions_today: number
+  external_calls_today: number
+  tokens_today: number
+  tokens_7d: number
+}
+
+export interface DailyApiUsage {
+  day: string
+  executions: number
+  external_calls: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+}
+
+export interface ProviderAccountUsage {
+  provider: string
+  display_name: string
+  models: string[]
+  executions_today: number
+  tokens_today: number
+  tokens_7d: number
+  usage_by_unit_7d: Record<string, number>
+  balance_status: BalanceStatus
+  balance_amount: number | null
+  balance_unit: string | null
+  balance_message: string
+  console_url: string | null
+  checked_at: string | null
+}
+
+export interface ApiUsageDashboard {
+  metrics: ApiUsageMetrics
+  daily: DailyApiUsage[]
+  providers: ProviderAccountUsage[]
+  recent_calls: ApiUsageRecord[]
+}
+
 export interface DashboardResponse {
   metrics: DashboardMetrics
   agents: DashboardAgentStatus[]
+  api_usage: ApiUsageDashboard
 }
 
 export interface ApiErrorBody {
@@ -138,6 +215,7 @@ export interface AnalysisTask {
   started_at: string | null
   completed_at: string | null
   created_at: string
+  api_usage: ApiUsageRecord[]
   report: AnalysisReport | null
 }
 
@@ -181,6 +259,7 @@ export interface LyricsTask {
   started_at: string | null
   completed_at: string | null
   created_at: string
+  api_usage: ApiUsageRecord[]
   versions: LyricsVersion[]
 }
 

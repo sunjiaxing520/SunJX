@@ -16,6 +16,7 @@ from app.schemas.lyrics import (
     LyricsTaskResponse,
     LyricsVersionResponse,
 )
+from app.services.api_usage import record_api_usage, task_api_usage
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -35,7 +36,7 @@ def lyrics_version_response(version: LyricsVersion) -> LyricsVersionResponse:
     )
 
 
-def lyrics_task_response(task: LyricsTask) -> LyricsTaskResponse:
+def lyrics_task_response(db: Session, task: LyricsTask) -> LyricsTaskResponse:
     return LyricsTaskResponse(
         id=task.id,
         status=task.status,
@@ -59,6 +60,7 @@ def lyrics_task_response(task: LyricsTask) -> LyricsTaskResponse:
         started_at=task.started_at,
         completed_at=task.completed_at,
         created_at=task.created_at,
+        api_usage=task_api_usage(db, "lyrics", task.id),
         versions=[lyrics_version_response(version) for version in task.versions],
     )
 
@@ -131,7 +133,8 @@ def _generate_version(db: Session, task: LyricsTask, variation: int) -> None:
             "requirements": task.requirements,
             "reference_text": task.reference_text,
         }
-        generated = get_text_provider().generate_lyrics(context, variation)
+        generated_result = get_text_provider().generate_lyrics(context, variation)
+        generated = generated_result.output
         version = LyricsVersion(
             task_id=task.id,
             version_number=variation,
@@ -141,12 +144,28 @@ def _generate_version(db: Session, task: LyricsTask, variation: int) -> None:
             sections=generated.sections,
         )
         db.add(version)
+        record_api_usage(
+            db,
+            task_type="lyrics",
+            task_id=task.id,
+            operation="lyrics.generate",
+            provider=task.provider,
+            model=task.model,
+            call=generated_result.call,
+            status=TaskStatus.COMPLETED.value,
+        )
         task.status = TaskStatus.COMPLETED.value
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
     except (TextProviderError, ValueError) as exc:
         db.rollback()
-        _mark_lyrics_failed(db, task.id, "LYRICS_PROVIDER_FAILED", str(exc))
+        _mark_lyrics_failed(
+            db,
+            task.id,
+            "LYRICS_PROVIDER_FAILED",
+            str(exc),
+            call=getattr(exc, "call", None),
+        )
         raise AppException(
             code="LYRICS_PROVIDER_FAILED",
             message="歌词生成失败，请查看任务记录中的具体原因",
@@ -205,7 +224,14 @@ def _merge_analysis_direction(
     }
 
 
-def _mark_lyrics_failed(db: Session, task_id: int, code: str, message: str) -> None:
+def _mark_lyrics_failed(
+    db: Session,
+    task_id: int,
+    code: str,
+    message: str,
+    *,
+    call=None,
+) -> None:
     task = db.get(LyricsTask, task_id)
     if task is None:
         return
@@ -213,6 +239,18 @@ def _mark_lyrics_failed(db: Session, task_id: int, code: str, message: str) -> N
     task.error_code = code
     task.error_message = message
     task.completed_at = datetime.now(timezone.utc)
+    record_api_usage(
+        db,
+        task_type="lyrics",
+        task_id=task.id,
+        operation="lyrics.generate",
+        provider=task.provider,
+        model=task.model,
+        call=call,
+        status=TaskStatus.FAILED.value,
+        error_code=code,
+        error_message=message,
+    )
     db.commit()
 
 
@@ -226,7 +264,7 @@ def get_lyrics_task(db: Session, task_id: int) -> LyricsTaskResponse:
         raise AppException(
             code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
         )
-    return lyrics_task_response(task)
+    return lyrics_task_response(db, task)
 
 
 def list_lyrics_tasks(db: Session, limit: int = 15) -> LyricsTaskListResponse:
@@ -238,7 +276,7 @@ def list_lyrics_tasks(db: Session, limit: int = 15) -> LyricsTaskListResponse:
     ).all()
     total = db.scalar(select(func.count(LyricsTask.id))) or 0
     return LyricsTaskListResponse(
-        items=[lyrics_task_response(task) for task in tasks],
+        items=[lyrics_task_response(db, task) for task in tasks],
         total=total,
     )
 
