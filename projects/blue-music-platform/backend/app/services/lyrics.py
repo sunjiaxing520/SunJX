@@ -1,16 +1,25 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters.text_generation import TextGenerationProvider, TextProviderError
 from app.core.exceptions import AppException
 from app.core.logging import LOGGER_NAME
-from app.models import AnalysisReport, LyricsTask, LyricsVersion, TaskStatus
+from app.models import (
+    AnalysisReport,
+    FavoriteItem,
+    LyricsTask,
+    LyricsVersion,
+    TaskStatus,
+    WorkflowRunStep,
+    WorkflowStepType,
+)
 from app.schemas.lyrics import (
     CreationBriefResponse,
     LyricsCreateRequest,
+    LyricsTaskDeleteResponse,
     LyricsTaskListResponse,
     LyricsTaskResponse,
     LyricsVersionResponse,
@@ -298,6 +307,69 @@ def list_lyrics_tasks(db: Session, limit: int = 15) -> LyricsTaskListResponse:
     return LyricsTaskListResponse(
         items=[lyrics_task_response(db, task) for task in tasks],
         total=total,
+    )
+
+
+def delete_lyrics_task(db: Session, task_id: int) -> None:
+    delete_lyrics_tasks(db, [task_id])
+
+
+def delete_lyrics_tasks(
+    db: Session,
+    task_ids: list[int],
+) -> LyricsTaskDeleteResponse:
+    ordered_ids = list(dict.fromkeys(task_ids))
+    tasks = db.scalars(
+        select(LyricsTask)
+        .options(selectinload(LyricsTask.versions))
+        .where(LyricsTask.id.in_(ordered_ids))
+        .with_for_update()
+    ).all()
+    tasks_by_id = {task.id: task for task in tasks}
+    missing_ids = [task_id for task_id in ordered_ids if task_id not in tasks_by_id]
+    if missing_ids:
+        raise AppException(
+            code="LYRICS_TASK_NOT_FOUND",
+            message="部分作词记录不存在或已经被删除",
+            status_code=404,
+            detail={"missing_task_ids": missing_ids},
+        )
+
+    active_ids = [
+        task.id
+        for task in tasks
+        if task.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+    ]
+    if active_ids:
+        raise AppException(
+            code="LYRICS_TASK_DELETE_CONFLICT",
+            message="运行中的作词任务不能删除，请等待任务结束后重试",
+            status_code=409,
+            detail={"active_task_ids": active_ids},
+        )
+
+    version_ids = [version.id for task in tasks for version in task.versions]
+    if version_ids:
+        db.execute(
+            delete(FavoriteItem).where(
+                FavoriteItem.item_type == "lyrics",
+                FavoriteItem.target_id.in_(version_ids),
+            )
+        )
+    db.execute(
+        update(WorkflowRunStep)
+        .where(
+            WorkflowRunStep.step_type == WorkflowStepType.LYRICS.value,
+            WorkflowRunStep.task_id.in_(ordered_ids),
+        )
+        .values(task_id=None, output_id=None)
+    )
+    for task_id in ordered_ids:
+        db.delete(tasks_by_id[task_id])
+    db.commit()
+    return LyricsTaskDeleteResponse(
+        deleted_count=len(ordered_ids),
+        deleted_task_ids=ordered_ids,
     )
 
 

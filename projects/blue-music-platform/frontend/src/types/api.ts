@@ -417,6 +417,11 @@ export interface LyricsTaskList {
   total: number
 }
 
+export interface TaskDeleteResult {
+  deleted_count: number
+  deleted_task_ids: number[]
+}
+
 export interface LyricsCreatePayload {
   analysis_report_id?: number
   direction_index?: number

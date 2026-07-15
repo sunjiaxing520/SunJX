@@ -1,18 +1,22 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.dependencies import DatabaseSession, require_agent_permission
 from app.models import AgentType, User
 from app.schemas.lyrics import (
     CreationBriefResponse,
     LyricsCreateRequest,
+    LyricsTaskDeleteRequest,
+    LyricsTaskDeleteResponse,
     LyricsTaskListResponse,
     LyricsTaskResponse,
     LyricsVersionResponse,
 )
 from app.services.lyrics import (
     create_lyrics_task,
+    delete_lyrics_task,
+    delete_lyrics_tasks,
     get_creation_brief,
     get_lyrics_task,
     list_lyrics_tasks,
@@ -45,6 +49,25 @@ def lyrics_history(
     limit: int = Query(default=15, ge=1, le=100),
 ) -> LyricsTaskListResponse:
     return list_lyrics_tasks(db, limit)
+
+
+@router.delete("/tasks", response_model=LyricsTaskDeleteResponse)
+def lyrics_bulk_delete(
+    payload: LyricsTaskDeleteRequest,
+    db: DatabaseSession,
+    user: LyricsUser,
+) -> LyricsTaskDeleteResponse:
+    return delete_lyrics_tasks(db, payload.task_ids)
+
+
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def lyrics_delete(
+    task_id: int,
+    db: DatabaseSession,
+    user: LyricsUser,
+) -> Response:
+    delete_lyrics_task(db, task_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/tasks/{task_id}", response_model=LyricsTaskResponse)

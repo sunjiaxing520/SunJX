@@ -6,6 +6,7 @@ import {
   Descriptions,
   Drawer,
   Empty,
+  Popconfirm,
   Segmented,
   Space,
   Table,
@@ -14,10 +15,16 @@ import {
   Typography,
   type TableProps,
 } from 'antd'
-import { Eye, Play, RefreshCw, Star } from 'lucide-react'
+import { Eye, Play, RefreshCw, Star, Trash2 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
-import { getAnalysisTask, listAnalysisTasks, runAnalysis } from '../api/analysis'
+import {
+  deleteAnalysisTask,
+  deleteAnalysisTasks,
+  getAnalysisTask,
+  listAnalysisTasks,
+  runAnalysis,
+} from '../api/analysis'
 import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { listRankingEntries } from '../api/rankings'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
@@ -36,6 +43,8 @@ export function AnalysisPage() {
   const [entries, setEntries] = useState<RankingEntry[]>([])
   const [tasks, setTasks] = useState<AnalysisTask[]>([])
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([])
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
+  const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [windowDays, setWindowDays] = useState(7)
   const [activeTask, setActiveTask] = useState<AnalysisTask | null>(null)
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
@@ -124,6 +133,27 @@ export function AnalysisPage() {
     }
   }
 
+  const removeTasks = async (taskIds: number[]) => {
+    const uniqueIds = [...new Set(taskIds)]
+    if (!uniqueIds.length) return
+    setDeletingTaskIds(uniqueIds)
+    try {
+      if (uniqueIds.length === 1) {
+        await deleteAnalysisTask(uniqueIds[0])
+      } else {
+        await deleteAnalysisTasks(uniqueIds)
+      }
+      if (activeTask && uniqueIds.includes(activeTask.id)) closeDrawer()
+      setSelectedTaskIds((current) => current.filter((id) => !uniqueIds.includes(id)))
+      message.success(uniqueIds.length === 1 ? '分析记录已删除' : `已删除 ${uniqueIds.length} 条分析记录`)
+      await load()
+    } catch (deleteError) {
+      message.error(errorMessage(deleteError))
+    } finally {
+      setDeletingTaskIds([])
+    }
+  }
+
   const submit = async () => {
     setRunning(true)
     try {
@@ -185,24 +215,46 @@ export function AnalysisPage() {
     {
       title: '',
       key: 'detail',
-      width: 96,
-      render: (_, task) => (
-        <Space size={0}>
-          {task.report && (
-            <Tooltip title={favoritesByTarget.has(task.report.id) ? '取消收藏' : '收藏报告'}>
-              <Button
-                type="text"
-                className={favoritesByTarget.has(task.report.id) ? 'favorite-button-active' : undefined}
-                icon={<Star size={16} fill={favoritesByTarget.has(task.report.id) ? 'currentColor' : 'none'} />}
-                loading={favoriteTargetId === task.report.id}
-                aria-label={favoritesByTarget.has(task.report.id) ? '取消收藏分析报告' : '收藏分析报告'}
-                onClick={() => void toggleFavorite(task)}
-              />
-            </Tooltip>
-          )}
-          <Button type="text" icon={<Eye size={16} />} aria-label="查看分析报告" onClick={() => setActiveTask(task)} />
-        </Space>
-      ),
+      width: 132,
+      render: (_, task) => {
+        const isActive = task.status === 'pending' || task.status === 'running'
+        return (
+          <Space size={0}>
+            {task.report && (
+              <Tooltip title={favoritesByTarget.has(task.report.id) ? '取消收藏' : '收藏报告'}>
+                <Button
+                  type="text"
+                  className={favoritesByTarget.has(task.report.id) ? 'favorite-button-active' : undefined}
+                  icon={<Star size={16} fill={favoritesByTarget.has(task.report.id) ? 'currentColor' : 'none'} />}
+                  loading={favoriteTargetId === task.report.id}
+                  aria-label={favoritesByTarget.has(task.report.id) ? '取消收藏分析报告' : '收藏分析报告'}
+                  onClick={() => void toggleFavorite(task)}
+                />
+              </Tooltip>
+            )}
+            <Button type="text" icon={<Eye size={16} />} aria-label="查看分析报告" onClick={() => setActiveTask(task)} />
+            <Popconfirm
+              title="删除这条分析记录？"
+              description="分析报告和对应收藏会一并删除，且无法恢复。"
+              okText="删除"
+              cancelText="取消"
+              disabled={isActive}
+              onConfirm={() => void removeTasks([task.id])}
+            >
+              <Tooltip title={isActive ? '运行中的任务不能删除' : '删除产出'}>
+                <Button
+                  type="text"
+                  danger
+                  icon={<Trash2 size={16} />}
+                  loading={deletingTaskIds.includes(task.id)}
+                  disabled={isActive}
+                  aria-label={`删除分析任务 ${task.id}`}
+                />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -260,6 +312,23 @@ export function AnalysisPage() {
             <Typography.Title level={2}>分析记录</Typography.Title>
             <Typography.Text type="secondary">最近 15 次分析及结构化报告，默认显示最新 5 条</Typography.Text>
           </div>
+          {selectedTaskIds.length > 0 && (
+            <Popconfirm
+              title={`删除所选 ${selectedTaskIds.length} 条记录？`}
+              description="所选分析报告和对应收藏会一并删除，且无法恢复。"
+              okText="批量删除"
+              cancelText="取消"
+              onConfirm={() => void removeTasks(selectedTaskIds)}
+            >
+              <Button
+                danger
+                icon={<Trash2 size={16} />}
+                loading={selectedTaskIds.every((id) => deletingTaskIds.includes(id))}
+              >
+                删除所选 ({selectedTaskIds.length})
+              </Button>
+            </Popconfirm>
+          )}
         </div>
         <CollapsibleList items={tasks}>
           {(visibleTasks) => (
@@ -269,7 +338,14 @@ export function AnalysisPage() {
               dataSource={visibleTasks}
               loading={loading}
               pagination={false}
-              scroll={{ x: 760 }}
+              rowSelection={{
+                selectedRowKeys: selectedTaskIds,
+                onChange: (keys) => setSelectedTaskIds(keys.map(Number)),
+                getCheckboxProps: (task) => ({
+                  disabled: task.status === 'pending' || task.status === 'running',
+                }),
+              }}
+              scroll={{ x: 800 }}
               className="data-table"
             />
           )}

@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters.text_generation import TextProviderError
@@ -12,13 +12,18 @@ from app.models import (
     AnalysisReport,
     AnalysisTask,
     AnalysisTaskEntry,
+    FavoriteItem,
+    LyricsTask,
     RankingEntry,
     RankingSnapshot,
     TaskStatus,
+    WorkflowRunStep,
+    WorkflowStepType,
 )
 from app.schemas.analysis import (
     AnalysisCreateRequest,
     AnalysisReportResponse,
+    AnalysisTaskDeleteResponse,
     AnalysisTaskListResponse,
     AnalysisTaskResponse,
 )
@@ -378,4 +383,75 @@ def list_analysis_tasks(db: Session, limit: int = 15) -> AnalysisTaskListRespons
     return AnalysisTaskListResponse(
         items=[analysis_task_response(db, task) for task in tasks],
         total=total,
+    )
+
+
+def delete_analysis_task(db: Session, task_id: int) -> None:
+    delete_analysis_tasks(db, [task_id])
+
+
+def delete_analysis_tasks(
+    db: Session,
+    task_ids: list[int],
+) -> AnalysisTaskDeleteResponse:
+    ordered_ids = list(dict.fromkeys(task_ids))
+    tasks = db.scalars(
+        select(AnalysisTask)
+        .options(
+            selectinload(AnalysisTask.selected_entries),
+            selectinload(AnalysisTask.report),
+        )
+        .where(AnalysisTask.id.in_(ordered_ids))
+        .with_for_update()
+    ).all()
+    tasks_by_id = {task.id: task for task in tasks}
+    missing_ids = [task_id for task_id in ordered_ids if task_id not in tasks_by_id]
+    if missing_ids:
+        raise AppException(
+            code="ANALYSIS_TASK_NOT_FOUND",
+            message="部分分析记录不存在或已经被删除",
+            status_code=404,
+            detail={"missing_task_ids": missing_ids},
+        )
+
+    active_ids = [
+        task.id
+        for task in tasks
+        if task.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+    ]
+    if active_ids:
+        raise AppException(
+            code="ANALYSIS_TASK_DELETE_CONFLICT",
+            message="运行中的分析任务不能删除，请等待任务结束后重试",
+            status_code=409,
+            detail={"active_task_ids": active_ids},
+        )
+
+    report_ids = [task.report.id for task in tasks if task.report is not None]
+    if report_ids:
+        db.execute(
+            delete(FavoriteItem).where(
+                FavoriteItem.item_type == "analysis",
+                FavoriteItem.target_id.in_(report_ids),
+            )
+        )
+        db.execute(
+            update(LyricsTask)
+            .where(LyricsTask.analysis_report_id.in_(report_ids))
+            .values(analysis_report_id=None, direction_index=None)
+        )
+    db.execute(
+        update(WorkflowRunStep)
+        .where(
+            WorkflowRunStep.step_type == WorkflowStepType.ANALYSIS.value,
+            WorkflowRunStep.task_id.in_(ordered_ids),
+        )
+        .values(task_id=None, output_id=None)
+    )
+    for task_id in ordered_ids:
+        db.delete(tasks_by_id[task_id])
+    db.commit()
+    return AnalysisTaskDeleteResponse(
+        deleted_count=len(ordered_ids),
+        deleted_task_ids=ordered_ids,
     )

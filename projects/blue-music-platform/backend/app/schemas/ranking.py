@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 TaskStatusValue = Literal["pending", "running", "completed", "failed"]
@@ -28,6 +28,22 @@ class CollectionTaskResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+
+
+class CollectionTaskDeleteRequest(BaseModel):
+    task_ids: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("task_ids")
+    @classmethod
+    def clean_task_ids(cls, task_ids: list[int]) -> list[int]:
+        if any(task_id <= 0 for task_id in task_ids):
+            raise ValueError("任务编号必须是正整数")
+        return list(dict.fromkeys(task_ids))
+
+
+class CollectionTaskDeleteResponse(BaseModel):
+    deleted_count: int
+    deleted_task_ids: list[int]
 
 
 class RankingSnapshotResponse(BaseModel):

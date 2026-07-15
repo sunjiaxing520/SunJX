@@ -512,7 +512,11 @@ export function WorkflowsPage() {
                   <span>
                     {step.task_id
                       ? `任务 #${step.task_id}${step.output_id ? ` · 产出 #${step.output_id}` : ''}`
-                      : STATUS_META[step.status].label}
+                      : step.status === 'completed'
+                        ? step.step_type === 'collection' && step.output_id
+                          ? `运行记录已删除 · 快照 #${step.output_id} 保留`
+                          : '产出已删除'
+                        : STATUS_META[step.status].label}
                   </span>
                   {step.task_id && (
                     <Button type="link" size="small" onClick={() => openStepResult(step)}>

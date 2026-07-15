@@ -7,6 +7,7 @@ import {
   Empty,
   Form,
   Input,
+  Popconfirm,
   Segmented,
   Select,
   Space,
@@ -17,7 +18,7 @@ import {
   Typography,
   type TableProps,
 } from 'antd'
-import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles, Star } from 'lucide-react'
+import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles, Star, Trash2 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { listAnalysisTasks } from '../api/analysis'
@@ -26,6 +27,8 @@ import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { totalTaskTokens } from '../lib/apiUsage'
 import {
+  deleteLyricsTask,
+  deleteLyricsTasks,
   generateLyrics,
   getLyricsTask,
   listLyricsTasks,
@@ -70,6 +73,8 @@ export function LyricsPage() {
   const [generating, setGenerating] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [savingId, setSavingId] = useState<number | null>(null)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
+  const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -161,6 +166,27 @@ export function LyricsPage() {
       next.delete('task_id')
       next.delete('version_id')
       setSearchParams(next, { replace: true })
+    }
+  }
+
+  const removeTasks = async (taskIds: number[]) => {
+    const uniqueIds = [...new Set(taskIds)]
+    if (!uniqueIds.length) return
+    setDeletingTaskIds(uniqueIds)
+    try {
+      if (uniqueIds.length === 1) {
+        await deleteLyricsTask(uniqueIds[0])
+      } else {
+        await deleteLyricsTasks(uniqueIds)
+      }
+      if (activeTask && uniqueIds.includes(activeTask.id)) closeDrawer()
+      setSelectedTaskIds((current) => current.filter((id) => !uniqueIds.includes(id)))
+      message.success(uniqueIds.length === 1 ? '作词记录已删除' : `已删除 ${uniqueIds.length} 条作词记录`)
+      await load()
+    } catch (deleteError) {
+      message.error(errorMessage(deleteError))
+    } finally {
+      setDeletingTaskIds([])
     }
   }
 
@@ -273,10 +299,11 @@ export function LyricsPage() {
     {
       title: '',
       key: 'detail',
-      width: 96,
+      width: 132,
       render: (_, task) => {
         const latestVersion = task.versions.at(-1)
         const isFavorite = latestVersion ? favoritesByTarget.has(latestVersion.id) : false
+        const isActive = task.status === 'pending' || task.status === 'running'
         return (
           <Space size={0}>
             {latestVersion && (
@@ -292,6 +319,25 @@ export function LyricsPage() {
               </Tooltip>
             )}
             <Button type="text" icon={<Eye size={16} />} aria-label="查看歌词" onClick={() => openTask(task)} />
+            <Popconfirm
+              title="删除这条作词记录？"
+              description="任务下的全部歌词版本和收藏会一并删除，且无法恢复。"
+              okText="删除"
+              cancelText="取消"
+              disabled={isActive}
+              onConfirm={() => void removeTasks([task.id])}
+            >
+              <Tooltip title={isActive ? '运行中的任务不能删除' : '删除产出'}>
+                <Button
+                  type="text"
+                  danger
+                  icon={<Trash2 size={16} />}
+                  loading={deletingTaskIds.includes(task.id)}
+                  disabled={isActive}
+                  aria-label={`删除作词任务 ${task.id}`}
+                />
+              </Tooltip>
+            </Popconfirm>
           </Space>
         )
       },
@@ -366,10 +412,44 @@ export function LyricsPage() {
       </section>
 
       <section className="content-section">
-        <div className="section-title-row"><div><Typography.Title level={2}>作词记录</Typography.Title><Typography.Text type="secondary">最近 15 个任务，默认显示最新 3 条</Typography.Text></div></div>
+        <div className="section-title-row">
+          <div><Typography.Title level={2}>作词记录</Typography.Title><Typography.Text type="secondary">最近 15 个任务，默认显示最新 3 条</Typography.Text></div>
+          {selectedTaskIds.length > 0 && (
+            <Popconfirm
+              title={`删除所选 ${selectedTaskIds.length} 条记录？`}
+              description="所选任务下的全部歌词版本和收藏会一并删除，且无法恢复。"
+              okText="批量删除"
+              cancelText="取消"
+              onConfirm={() => void removeTasks(selectedTaskIds)}
+            >
+              <Button
+                danger
+                icon={<Trash2 size={16} />}
+                loading={selectedTaskIds.every((id) => deletingTaskIds.includes(id))}
+              >
+                删除所选 ({selectedTaskIds.length})
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
         <CollapsibleList items={tasks} previewCount={3}>
           {(visibleTasks) => (
-            <Table<LyricsTask> rowKey="id" columns={columns} dataSource={visibleTasks} loading={loading} pagination={false} scroll={{ x: 700 }} className="data-table" />
+            <Table<LyricsTask>
+              rowKey="id"
+              columns={columns}
+              dataSource={visibleTasks}
+              loading={loading}
+              pagination={false}
+              rowSelection={{
+                selectedRowKeys: selectedTaskIds,
+                onChange: (keys) => setSelectedTaskIds(keys.map(Number)),
+                getCheckboxProps: (task) => ({
+                  disabled: task.status === 'pending' || task.status === 'running',
+                }),
+              }}
+              scroll={{ x: 760 }}
+              className="data-table"
+            />
           )}
         </CollapsibleList>
       </section>

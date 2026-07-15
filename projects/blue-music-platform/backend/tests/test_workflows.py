@@ -108,6 +108,7 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     assert second.status_code == 201
     assert rerun.status_code == 201
     assert rerun.json()["status"] == "completed"
+    assert rerun.json()["snapshot_id"] == second.json()["snapshot_id"]
     snapshots = workflow_context.client.get(
         "/api/v1/rankings/snapshots", headers=_headers(workflow_context)
     )
@@ -418,3 +419,320 @@ def test_workflow_rejects_lyrics_without_analysis(
     )
 
     assert response.status_code == 422
+
+
+def test_delete_lyrics_task_cleans_outputs_and_preserves_usage_audit(
+    workflow_context: WorkflowContext,
+) -> None:
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "待删除产出流程",
+            "steps": ["collection", "analysis", "lyrics"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+                "lyrics": {"direction_index": 0, "theme": "测试删除歌词产出"},
+            },
+        },
+    )
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    run_id = started.json()["id"]
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    lyrics_step = run["steps"][-1]
+    lyrics_task_id = lyrics_step["task_id"]
+    lyrics_version_id = lyrics_step["output_id"]
+
+    favorite = workflow_context.client.post(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        json={"item_type": "lyrics", "target_id": lyrics_version_id},
+    )
+    assert favorite.status_code == 201
+
+    deleted = workflow_context.client.delete(
+        f"/api/v1/lyrics/tasks/{lyrics_task_id}",
+        headers=_headers(workflow_context),
+    )
+
+    assert deleted.status_code == 204
+    missing = workflow_context.client.get(
+        f"/api/v1/lyrics/tasks/{lyrics_task_id}",
+        headers=_headers(workflow_context),
+    )
+    assert missing.status_code == 404
+    favorites = workflow_context.client.get(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        params={"item_type": "lyrics"},
+    )
+    assert favorites.json()["total"] == 0
+
+    updated_run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    deleted_step = updated_run["steps"][-1]
+    assert deleted_step["status"] == "completed"
+    assert deleted_step["task_id"] is None
+    assert deleted_step["output_id"] is None
+
+    dashboard = workflow_context.client.get(
+        "/api/v1/dashboard",
+        headers=_headers(workflow_context),
+    ).json()
+    assert any(
+        record["task_type"] == "lyrics" and record["task_id"] == lyrics_task_id
+        for record in dashboard["api_usage"]["recent_calls"]
+    )
+
+
+def test_bulk_delete_lyrics_tasks_deduplicates_ids(
+    workflow_context: WorkflowContext,
+) -> None:
+    task_ids = []
+    for theme in ("第一条待删除歌词", "第二条待删除歌词"):
+        created = workflow_context.client.post(
+            "/api/v1/lyrics/tasks",
+            headers=_headers(workflow_context),
+            json={"theme": theme},
+        )
+        assert created.status_code == 201
+        task_ids.append(created.json()["id"])
+
+    deleted = workflow_context.client.request(
+        "DELETE",
+        "/api/v1/lyrics/tasks",
+        headers=_headers(workflow_context),
+        json={"task_ids": [task_ids[0], task_ids[0], task_ids[1]]},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {
+        "deleted_count": 2,
+        "deleted_task_ids": task_ids,
+    }
+    history = workflow_context.client.get(
+        "/api/v1/lyrics/tasks",
+        headers=_headers(workflow_context),
+    )
+    assert history.json()["total"] == 0
+
+    missing = workflow_context.client.delete(
+        f"/api/v1/lyrics/tasks/{task_ids[0]}",
+        headers=_headers(workflow_context),
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "LYRICS_TASK_NOT_FOUND"
+
+
+def test_bulk_delete_analysis_cleans_report_links_and_preserves_lyrics(
+    workflow_context: WorkflowContext,
+) -> None:
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "待删除分析流程",
+            "steps": ["collection", "analysis"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+            },
+        },
+    )
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    run_id = started.json()["id"]
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    analysis_step = run["steps"][-1]
+    first_task_id = analysis_step["task_id"]
+    first_report_id = analysis_step["output_id"]
+
+    favorite = workflow_context.client.post(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        json={"item_type": "analysis", "target_id": first_report_id},
+    )
+    lyrics = workflow_context.client.post(
+        "/api/v1/lyrics/tasks",
+        headers=_headers(workflow_context),
+        json={
+            "analysis_report_id": first_report_id,
+            "direction_index": 0,
+            "theme": "保留歌词但删除来源分析",
+        },
+    )
+    second = workflow_context.client.post(
+        "/api/v1/analysis/tasks",
+        headers=_headers(workflow_context),
+        json={"entry_ids": [], "window_days": 7},
+    )
+    assert favorite.status_code == 201
+    assert lyrics.status_code == 201
+    assert second.status_code == 201
+    second_task_id = second.json()["id"]
+
+    deleted = workflow_context.client.request(
+        "DELETE",
+        "/api/v1/analysis/tasks",
+        headers=_headers(workflow_context),
+        json={"task_ids": [first_task_id, first_task_id, second_task_id]},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {
+        "deleted_count": 2,
+        "deleted_task_ids": [first_task_id, second_task_id],
+    }
+    history = workflow_context.client.get(
+        "/api/v1/analysis/tasks",
+        headers=_headers(workflow_context),
+    )
+    assert history.json()["total"] == 0
+    favorites = workflow_context.client.get(
+        "/api/v1/favorites",
+        headers=_headers(workflow_context),
+        params={"item_type": "analysis"},
+    )
+    assert favorites.json()["total"] == 0
+
+    preserved_lyrics = workflow_context.client.get(
+        f"/api/v1/lyrics/tasks/{lyrics.json()['id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert preserved_lyrics["analysis_report_id"] is None
+    assert preserved_lyrics["direction_index"] is None
+    assert preserved_lyrics["versions"]
+
+    updated_run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    deleted_step = updated_run["steps"][-1]
+    assert deleted_step["status"] == "completed"
+    assert deleted_step["task_id"] is None
+    assert deleted_step["output_id"] is None
+
+    dashboard = workflow_context.client.get(
+        "/api/v1/dashboard",
+        headers=_headers(workflow_context),
+    ).json()
+    usage_task_ids = {
+        record["task_id"]
+        for record in dashboard["api_usage"]["recent_calls"]
+        if record["task_type"] == "analysis"
+    }
+    assert {first_task_id, second_task_id}.issubset(usage_task_ids)
+
+    missing = workflow_context.client.delete(
+        f"/api/v1/analysis/tasks/{first_task_id}",
+        headers=_headers(workflow_context),
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "ANALYSIS_TASK_NOT_FOUND"
+
+
+def test_delete_collection_records_keeps_single_daily_snapshot(
+    workflow_context: WorkflowContext,
+) -> None:
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "仅采集待删除记录",
+            "steps": ["collection"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15}
+            },
+        },
+    )
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    run_id = started.json()["id"]
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    collection_step = run["steps"][0]
+    first_task_id = collection_step["task_id"]
+    snapshot_id = collection_step["output_id"]
+
+    before = workflow_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=_headers(workflow_context),
+    ).json()
+    second = _collect_sample(workflow_context, date.today())
+    assert second.status_code == 201
+    assert second.json()["snapshot_id"] == snapshot_id
+    second_task_id = second.json()["id"]
+    after = workflow_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=_headers(workflow_context),
+    ).json()
+    assert len(before) == len(after) == 1
+    assert after[0]["id"] == snapshot_id
+    assert after[0]["collected_at"] >= before[0]["collected_at"]
+
+    deleted = workflow_context.client.request(
+        "DELETE",
+        "/api/v1/rankings/collections",
+        headers=_headers(workflow_context),
+        json={"task_ids": [first_task_id, first_task_id, second_task_id]},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {
+        "deleted_count": 2,
+        "deleted_task_ids": [first_task_id, second_task_id],
+    }
+    history = workflow_context.client.get(
+        "/api/v1/rankings/collections",
+        headers=_headers(workflow_context),
+    )
+    assert history.json() == []
+    snapshots = workflow_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=_headers(workflow_context),
+    )
+    assert [item["id"] for item in snapshots.json()] == [snapshot_id]
+    entries = workflow_context.client.get(
+        "/api/v1/rankings/entries",
+        headers=_headers(workflow_context),
+        params={"snapshot_id": snapshot_id, "page_size": 100},
+    )
+    assert entries.json()["total"] == 15
+
+    updated_run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    preserved_step = updated_run["steps"][0]
+    assert preserved_step["status"] == "completed"
+    assert preserved_step["task_id"] is None
+    assert preserved_step["output_id"] == snapshot_id
+
+    third = _collect_sample(workflow_context, date.today())
+    single_deleted = workflow_context.client.delete(
+        f"/api/v1/rankings/collections/{third.json()['id']}",
+        headers=_headers(workflow_context),
+    )
+    assert single_deleted.status_code == 204
+    assert workflow_context.client.get(
+        "/api/v1/rankings/collections",
+        headers=_headers(workflow_context),
+    ).json() == []

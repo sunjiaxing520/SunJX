@@ -1,17 +1,21 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.dependencies import CurrentUser, DatabaseSession, require_agent_permission
 from app.models import AgentType, User
 from app.schemas.ranking import (
     CollectionCreateRequest,
+    CollectionTaskDeleteRequest,
+    CollectionTaskDeleteResponse,
     CollectionTaskResponse,
     RankingEntryPage,
     RankingSnapshotResponse,
 )
 from app.services.rankings import (
     create_collection,
+    delete_collection_task,
+    delete_collection_tasks,
     list_collection_tasks,
     list_ranking_entries,
     list_snapshots,
@@ -42,6 +46,25 @@ def collection_history(
     limit: int = Query(default=15, ge=1, le=100),
 ) -> list[CollectionTaskResponse]:
     return list_collection_tasks(db, limit)
+
+
+@router.delete("/collections", response_model=CollectionTaskDeleteResponse)
+def collection_bulk_delete(
+    payload: CollectionTaskDeleteRequest,
+    db: DatabaseSession,
+    user: CrawlerUser,
+) -> CollectionTaskDeleteResponse:
+    return delete_collection_tasks(db, payload.task_ids)
+
+
+@router.delete("/collections/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def collection_delete(
+    task_id: int,
+    db: DatabaseSession,
+    user: CrawlerUser,
+) -> Response:
+    delete_collection_task(db, task_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/snapshots", response_model=list[RankingSnapshotResponse])

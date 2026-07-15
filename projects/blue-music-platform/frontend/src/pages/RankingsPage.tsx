@@ -7,6 +7,7 @@ import {
   Dropdown,
   Empty,
   Input,
+  Popconfirm,
   Skeleton,
   Space,
   Table,
@@ -16,9 +17,11 @@ import {
   type MenuProps,
   type TableProps,
 } from 'antd'
-import { ChevronDown, ExternalLink, Play, RefreshCw } from 'lucide-react'
+import { ChevronDown, ExternalLink, Play, RefreshCw, Trash2 } from 'lucide-react'
 
 import {
+  deleteCollectionTask,
+  deleteCollectionTasks,
   listCollectionTasks,
   listRankingEntries,
   listRankingSnapshots,
@@ -61,6 +64,8 @@ export function RankingsPage() {
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [running, setRunning] = useState(false)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
+  const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
   const detailRequestId = useRef(0)
@@ -143,6 +148,26 @@ export function RankingsPage() {
     setDetailError(null)
   }
 
+  const removeTasks = async (taskIds: number[]) => {
+    const uniqueIds = [...new Set(taskIds)]
+    if (!uniqueIds.length) return
+    setDeletingTaskIds(uniqueIds)
+    try {
+      if (uniqueIds.length === 1) {
+        await deleteCollectionTask(uniqueIds[0])
+      } else {
+        await deleteCollectionTasks(uniqueIds)
+      }
+      setSelectedTaskIds((current) => current.filter((id) => !uniqueIds.includes(id)))
+      message.success(uniqueIds.length === 1 ? '采集运行记录已删除' : `已删除 ${uniqueIds.length} 条采集运行记录`)
+      await loadOverview()
+    } catch (deleteError) {
+      message.error(errorMessage(deleteError))
+    } finally {
+      setDeletingTaskIds([])
+    }
+  }
+
   const fallbackMenu: MenuProps = {
     items: [{ key: 'sample', label: '载入固定样例' }],
     onClick: () => void run('sample'),
@@ -220,6 +245,36 @@ export function RankingsPage() {
       key: 'result',
       render: (_, task) => task.error_message ?? (task.status === 'completed' ? '快照已保存' : '-'),
     },
+    {
+      title: '',
+      key: 'actions',
+      width: 58,
+      fixed: 'right',
+      render: (_, task) => {
+        const isActive = task.status === 'pending' || task.status === 'running'
+        return (
+          <Popconfirm
+            title="删除这条运行记录？"
+            description="只删除本次执行记录，每日榜单快照仍会保留。"
+            okText="删除"
+            cancelText="取消"
+            disabled={isActive}
+            onConfirm={() => void removeTasks([task.id])}
+          >
+            <Tooltip title={isActive ? '运行中的任务不能删除' : '删除运行记录'}>
+              <Button
+                type="text"
+                danger
+                icon={<Trash2 size={16} />}
+                loading={deletingTaskIds.includes(task.id)}
+                disabled={isActive}
+                aria-label={`删除采集任务 ${task.id}`}
+              />
+            </Tooltip>
+          </Popconfirm>
+        )
+      },
+    },
   ]
 
   return (
@@ -250,7 +305,7 @@ export function RankingsPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>采集结果</Typography.Title>
-            <Typography.Text type="secondary">数据库保留 30 天，列表展示最近 15 个每日快照</Typography.Text>
+            <Typography.Text type="secondary">每天保留一份；当天再次采集会覆盖榜单并更新采集完成时间</Typography.Text>
           </div>
           <Tooltip title="刷新采集结果">
             <Button icon={<RefreshCw size={16} />} loading={loading} onClick={loadOverview} />
@@ -350,6 +405,23 @@ export function RankingsPage() {
             <Typography.Title level={2}>运行记录</Typography.Title>
             <Typography.Text type="secondary">最近 15 次执行状态，默认显示最新 5 条</Typography.Text>
           </div>
+          {selectedTaskIds.length > 0 && (
+            <Popconfirm
+              title={`删除所选 ${selectedTaskIds.length} 条运行记录？`}
+              description="只删除执行记录，每日榜单快照仍会保留。"
+              okText="批量删除"
+              cancelText="取消"
+              onConfirm={() => void removeTasks(selectedTaskIds)}
+            >
+              <Button
+                danger
+                icon={<Trash2 size={16} />}
+                loading={selectedTaskIds.every((id) => deletingTaskIds.includes(id))}
+              >
+                删除所选 ({selectedTaskIds.length})
+              </Button>
+            </Popconfirm>
+          )}
         </div>
         <CollapsibleList items={tasks}>
           {(visibleTasks) => (
@@ -359,7 +431,14 @@ export function RankingsPage() {
               dataSource={visibleTasks}
               loading={loading}
               pagination={false}
-              scroll={{ x: 790 }}
+              rowSelection={{
+                selectedRowKeys: selectedTaskIds,
+                onChange: (keys) => setSelectedTaskIds(keys.map(Number)),
+                getCheckboxProps: (task) => ({
+                  disabled: task.status === 'pending' || task.status === 'running',
+                }),
+              }}
+              scroll={{ x: 850 }}
               className="data-table"
             />
           )}

@@ -74,3 +74,19 @@ class AnalysisTaskResponse(BaseModel):
 class AnalysisTaskListResponse(BaseModel):
     items: list[AnalysisTaskResponse]
     total: int
+
+
+class AnalysisTaskDeleteRequest(BaseModel):
+    task_ids: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("task_ids")
+    @classmethod
+    def clean_task_ids(cls, task_ids: list[int]) -> list[int]:
+        if any(task_id <= 0 for task_id in task_ids):
+            raise ValueError("任务编号必须是正整数")
+        return list(dict.fromkeys(task_ids))
+
+
+class AnalysisTaskDeleteResponse(BaseModel):
+    deleted_count: int
+    deleted_task_ids: list[int]

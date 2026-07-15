@@ -4,6 +4,7 @@ import type {
   LyricsTask,
   LyricsTaskList,
   LyricsVersion,
+  TaskDeleteResult,
 } from '../types/api'
 import { apiRequest } from './client'
 
@@ -20,6 +21,17 @@ export function listLyricsTasks(): Promise<LyricsTaskList> {
 
 export function getLyricsTask(taskId: number): Promise<LyricsTask> {
   return apiRequest<LyricsTask>(`/lyrics/tasks/${taskId}`)
+}
+
+export function deleteLyricsTask(taskId: number): Promise<void> {
+  return apiRequest<void>(`/lyrics/tasks/${taskId}`, { method: 'DELETE' })
+}
+
+export function deleteLyricsTasks(taskIds: number[]): Promise<TaskDeleteResult> {
+  return apiRequest<TaskDeleteResult>('/lyrics/tasks', {
+    method: 'DELETE',
+    body: JSON.stringify({ task_ids: taskIds }),
+  })
 }
 
 export function regenerateLyrics(taskId: number): Promise<LyricsTask> {

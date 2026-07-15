@@ -1,7 +1,7 @@
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.kugou import (
@@ -16,9 +16,17 @@ from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logging import LOGGER_NAME
 from app.core.time import app_today, utc_now
-from app.models import CollectionTask, RankingEntry, RankingSnapshot, TaskStatus
+from app.models import (
+    CollectionTask,
+    RankingEntry,
+    RankingSnapshot,
+    TaskStatus,
+    WorkflowRunStep,
+    WorkflowStepType,
+)
 from app.schemas.ranking import (
     CollectionCreateRequest,
+    CollectionTaskDeleteResponse,
     CollectionTaskResponse,
     RankingEntryPage,
     RankingEntryResponse,
@@ -214,8 +222,19 @@ def _replace_daily_snapshot(
 
 def _delete_expired_rankings(db: Session, reference_date: date) -> None:
     cutoff = reference_date - timedelta(days=max(1, settings.RANKING_RETENTION_DAYS) - 1)
+    expired_task_ids = select(CollectionTask.id).where(
+        CollectionTask.snapshot_date < cutoff
+    )
     expired_snapshot_ids = select(RankingSnapshot.id).where(
         RankingSnapshot.snapshot_date < cutoff
+    )
+    db.execute(
+        update(WorkflowRunStep)
+        .where(
+            WorkflowRunStep.step_type == WorkflowStepType.COLLECTION.value,
+            WorkflowRunStep.task_id.in_(expired_task_ids),
+        )
+        .values(task_id=None, output_id=None)
     )
     db.execute(
         delete(CollectionTask).where(CollectionTask.snapshot_date < cutoff)
@@ -248,6 +267,60 @@ def list_collection_tasks(db: Session, limit: int = 15) -> list[CollectionTaskRe
         .limit(limit)
     ).all()
     return [collection_task_response(task) for task in tasks]
+
+
+def delete_collection_task(db: Session, task_id: int) -> None:
+    delete_collection_tasks(db, [task_id])
+
+
+def delete_collection_tasks(
+    db: Session,
+    task_ids: list[int],
+) -> CollectionTaskDeleteResponse:
+    ordered_ids = list(dict.fromkeys(task_ids))
+    tasks = db.scalars(
+        select(CollectionTask)
+        .where(CollectionTask.id.in_(ordered_ids))
+        .with_for_update()
+    ).all()
+    tasks_by_id = {task.id: task for task in tasks}
+    missing_ids = [task_id for task_id in ordered_ids if task_id not in tasks_by_id]
+    if missing_ids:
+        raise AppException(
+            code="CRAWLER_TASK_NOT_FOUND",
+            message="部分采集运行记录不存在或已经被删除",
+            status_code=404,
+            detail={"missing_task_ids": missing_ids},
+        )
+
+    active_ids = [
+        task.id
+        for task in tasks
+        if task.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+    ]
+    if active_ids:
+        raise AppException(
+            code="CRAWLER_TASK_DELETE_CONFLICT",
+            message="运行中的采集任务不能删除，请等待任务结束后重试",
+            status_code=409,
+            detail={"active_task_ids": active_ids},
+        )
+
+    db.execute(
+        update(WorkflowRunStep)
+        .where(
+            WorkflowRunStep.step_type == WorkflowStepType.COLLECTION.value,
+            WorkflowRunStep.task_id.in_(ordered_ids),
+        )
+        .values(task_id=None)
+    )
+    for task_id in ordered_ids:
+        db.delete(tasks_by_id[task_id])
+    db.commit()
+    return CollectionTaskDeleteResponse(
+        deleted_count=len(ordered_ids),
+        deleted_task_ids=ordered_ids,
+    )
 
 
 def list_snapshots(db: Session, limit: int = 15) -> list[RankingSnapshotResponse]:

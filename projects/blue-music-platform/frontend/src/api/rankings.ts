@@ -2,6 +2,7 @@ import type {
   CollectionTask,
   RankingEntryPage,
   RankingSnapshot,
+  TaskDeleteResult,
 } from '../types/api'
 import { apiRequest } from './client'
 
@@ -17,6 +18,17 @@ export function runRankingCollection(
 
 export function listCollectionTasks(): Promise<CollectionTask[]> {
   return apiRequest<CollectionTask[]>('/rankings/collections?limit=15')
+}
+
+export function deleteCollectionTask(taskId: number): Promise<void> {
+  return apiRequest<void>(`/rankings/collections/${taskId}`, { method: 'DELETE' })
+}
+
+export function deleteCollectionTasks(taskIds: number[]): Promise<TaskDeleteResult> {
+  return apiRequest<TaskDeleteResult>('/rankings/collections', {
+    method: 'DELETE',
+    body: JSON.stringify({ task_ids: taskIds }),
+  })
 }
 
 export function listRankingSnapshots(): Promise<RankingSnapshot[]> {

@@ -1,4 +1,4 @@
-import type { AnalysisTask, AnalysisTaskList } from '../types/api'
+import type { AnalysisTask, AnalysisTaskList, TaskDeleteResult } from '../types/api'
 import { apiRequest } from './client'
 
 export function runAnalysis(entryIds: number[], windowDays = 7): Promise<AnalysisTask> {
@@ -14,4 +14,15 @@ export function listAnalysisTasks(): Promise<AnalysisTaskList> {
 
 export function getAnalysisTask(taskId: number): Promise<AnalysisTask> {
   return apiRequest<AnalysisTask>(`/analysis/tasks/${taskId}`)
+}
+
+export function deleteAnalysisTask(taskId: number): Promise<void> {
+  return apiRequest<void>(`/analysis/tasks/${taskId}`, { method: 'DELETE' })
+}
+
+export function deleteAnalysisTasks(taskIds: number[]): Promise<TaskDeleteResult> {
+  return apiRequest<TaskDeleteResult>('/analysis/tasks', {
+    method: 'DELETE',
+    body: JSON.stringify({ task_ids: taskIds }),
+  })
 }
