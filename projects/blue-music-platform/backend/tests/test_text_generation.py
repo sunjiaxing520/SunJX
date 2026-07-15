@@ -113,7 +113,7 @@ def test_provider_config_controls_json_and_token_parameter(
     assert "response_format" not in captured_request
 
 
-def test_provider_timeout_records_precise_reason_and_attempts(
+def test_provider_read_timeout_does_not_duplicate_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
@@ -140,13 +140,13 @@ def test_provider_timeout_records_precise_reason_and_attempts(
     with pytest.raises(TextProviderError) as error:
         provider.test_connection()
 
-    assert str(error.value) == "AI 接口请求超时（单次等待上限 12 秒）；已尝试 2 次"
+    assert str(error.value) == "AI 接口请求超时（单次等待上限 12 秒）"
     assert error.value.call is not None
-    assert error.value.call.attempt_count == 2
-    assert calls == 2
+    assert error.value.call.attempt_count == 1
+    assert calls == 1
 
 
-def test_provider_http_error_preserves_safe_status_and_request_id(
+def test_provider_rate_limit_without_retry_after_stops_immediately(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
@@ -177,11 +177,58 @@ def test_provider_http_error_preserves_safe_status_and_request_id(
     with pytest.raises(TextProviderError) as error:
         provider.test_connection()
 
-    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限）；已尝试 2 次"
+    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限）"
     assert error.value.call is not None
-    assert error.value.call.attempt_count == 2
+    assert error.value.call.attempt_count == 1
     assert error.value.call.request_id == "provider-rate-limit-123"
+    assert calls == 1
+
+
+def test_provider_rate_limit_respects_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    delays: list[float] = []
+
+    def fake_post(url, **kwargs):
+        nonlocal calls
+        calls += 1
+        request = httpx.Request("POST", url)
+        if calls == 1:
+            return httpx.Response(
+                429,
+                headers={"retry-after": "3"},
+                json={"error": {"code": "1302", "message": "请稍后重试"}},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "provider-recovered-123",
+                "choices": [{"message": {"content": '{"status":"ok"}'}}],
+            },
+            request=request,
+        )
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    monkeypatch.setattr(text_generation.time, "sleep", delays.append)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="bigmodel",
+            protocol="openai_compatible",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="test-key",
+            model="glm-4.7-flash",
+            max_retries=2,
+        )
+    )
+
+    result = provider.test_connection()
+
+    assert result.output == {"status": "ok"}
+    assert result.call.attempt_count == 2
     assert calls == 2
+    assert delays == [3.0]
 
 
 def test_provider_non_retryable_error_stops_and_redacts_message(

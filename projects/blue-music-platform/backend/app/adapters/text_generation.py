@@ -58,7 +58,7 @@ class TextProviderConfig:
     model: str
     supports_json_mode: bool = True
     max_tokens_parameter: str = "max_tokens"
-    request_timeout_seconds: float = 60
+    request_timeout_seconds: float = 180
     max_retries: int = 2
     analysis_max_output_tokens: int = 2500
     lyrics_max_output_tokens: int = 3500
@@ -692,19 +692,30 @@ def _provider_status_code(error: Exception) -> int | None:
 def _should_retry_provider_error(error: Exception) -> bool:
     if isinstance(error, httpx.HTTPStatusError):
         status_code = error.response.status_code
-        return status_code in {408, 409, 425, 429} or status_code >= 500
+        if status_code == 429:
+            return _provider_retry_after_seconds(error.response) is not None
+        return status_code in {408, 409, 425} or status_code >= 500
+    if isinstance(error, httpx.ReadTimeout):
+        # The provider may still be generating after our connection stops waiting.
+        # Retrying immediately can duplicate a paid call and consume its concurrency.
+        return False
     return True
 
 
 def _provider_retry_delay(error: Exception, attempt: int) -> float:
     if isinstance(error, httpx.HTTPStatusError):
-        retry_after = error.response.headers.get("retry-after")
-        try:
-            if retry_after is not None:
-                return min(5.0, max(0.0, float(retry_after)))
-        except ValueError:
-            pass
+        retry_after = _provider_retry_after_seconds(error.response)
+        if retry_after is not None:
+            return min(60.0, retry_after)
     return min(2.0, 0.5 * (2 ** max(0, attempt - 1)))
+
+
+def _provider_retry_after_seconds(response: httpx.Response) -> float | None:
+    retry_after = response.headers.get("retry-after")
+    try:
+        return max(0.0, float(retry_after)) if retry_after is not None else None
+    except ValueError:
+        return None
 
 
 def _format_seconds(value: float) -> str:

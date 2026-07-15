@@ -53,7 +53,7 @@ class Settings:
         os.getenv("AI_CONFIG_ENCRYPTION_KEY") or SECRET_KEY
     )
     AI_REQUEST_TIMEOUT_SECONDS = float(
-        os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "60")
+        os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")
     )
     AI_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "2"))
     AI_ANALYSIS_MAX_OUTPUT_TOKENS = int(

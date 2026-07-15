@@ -32,7 +32,7 @@ class AiProviderCreateRequest(BaseModel):
     api_key: SecretStr | None = Field(default=None, min_length=4, max_length=1000)
     supports_json_mode: bool | None = None
     max_tokens_parameter: MaxTokensParameter | None = None
-    request_timeout_seconds: float = Field(default=60, ge=5, le=600)
+    request_timeout_seconds: float = Field(default=180, ge=5, le=600)
     max_retries: int = Field(default=2, ge=1, le=5)
     analysis_max_output_tokens: int = Field(default=2500, ge=128, le=100000)
     lyrics_max_output_tokens: int = Field(default=3500, ge=128, le=100000)

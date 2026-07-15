@@ -148,7 +148,7 @@ export function AiProvidersPage() {
       api_key: '',
       supports_json_mode: template?.supports_json_mode ?? true,
       max_tokens_parameter: template?.max_tokens_parameter ?? 'max_tokens',
-      request_timeout_seconds: 60,
+      request_timeout_seconds: 180,
       max_retries: 2,
       analysis_max_output_tokens: 2500,
       lyrics_max_output_tokens: 3500,
