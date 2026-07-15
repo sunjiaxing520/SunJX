@@ -359,6 +359,21 @@ input {
   border-top: 1px solid var(--line);
 }
 
+.result-table .ant-table-tbody > tr {
+  cursor: pointer;
+}
+
+.ranking-detail-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ranking-detail-search {
+  width: min(100%, 320px);
+}
+
 .section-title-row {
   margin-bottom: 20px;
 }
