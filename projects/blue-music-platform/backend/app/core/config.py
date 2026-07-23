@@ -62,6 +62,27 @@ class Settings:
     AI_LYRICS_MAX_OUTPUT_TOKENS = int(
         os.getenv("AI_LYRICS_MAX_OUTPUT_TOKENS", "3500")
     )
+    SUNO_API_BASE_URL = os.getenv("SUNO_API_BASE_URL", "").rstrip("/")
+    SUNO_API_KEY = os.getenv("SUNO_API_KEY", "")
+    SUNO_MODEL = os.getenv("SUNO_MODEL", "")
+    SUNO_REQUEST_TIMEOUT_SECONDS = float(
+        os.getenv("SUNO_REQUEST_TIMEOUT_SECONDS", "120")
+    )
+    SUNO_GENERATION_TIMEOUT_SECONDS = float(
+        os.getenv("SUNO_GENERATION_TIMEOUT_SECONDS", "900")
+    )
+    SUNO_POLL_INTERVAL_SECONDS = float(
+        os.getenv("SUNO_POLL_INTERVAL_SECONDS", "10")
+    )
+    SUNO_DOWNLOAD_TIMEOUT_SECONDS = float(
+        os.getenv("SUNO_DOWNLOAD_TIMEOUT_SECONDS", "120")
+    )
+    SUNO_MAX_AUDIO_BYTES = int(
+        os.getenv("SUNO_MAX_AUDIO_BYTES", str(100 * 1024 * 1024))
+    )
+    MUSIC_STORAGE_DIR = os.getenv(
+        "MUSIC_STORAGE_DIR", str(PROJECT_ROOT / "backend" / "storage" / "music")
+    )
     WORKFLOW_STEP_DELAY_SECONDS = float(
         os.getenv("WORKFLOW_STEP_DELAY_SECONDS", "15")
     )

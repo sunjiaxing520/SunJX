@@ -13,6 +13,7 @@ from app.core.database import Base, get_db
 from app.core.security import hash_password
 from app.main import create_app
 from app.models import User, UserRole
+from tests.fakes import FakeSunoProvider
 
 
 class WorkflowContext(NamedTuple):
@@ -376,6 +377,59 @@ def test_configurable_workflow_runs_collection_analysis_and_lyrics(
     assert lyrics.json()["analysis_report_id"] == analysis_step["output_id"]
     assert lyrics.json()["versions"]
     assert lyrics.json()["versions"][0]["id"] == lyrics_step["output_id"]
+
+
+def test_workflow_passes_lyrics_output_into_suno_music(
+    workflow_context: WorkflowContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = FakeSunoProvider()
+    monkeypatch.setattr("app.services.music.get_music_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.services.music._download_audio",
+        lambda *_args, **_kwargs: None,
+    )
+    created = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "Suno 完整创作流程",
+            "steps": ["collection", "analysis", "lyrics", "music"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+                "lyrics": {"direction_index": 0, "theme": "夏夜归途"},
+                "music": {"title": "夏夜归途", "style_prompt": "温暖流行"},
+            },
+        },
+    )
+    assert created.status_code == 201
+
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{created.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{started.json()['id']}",
+        headers=_headers(workflow_context),
+    ).json()
+
+    assert run["status"] == "completed"
+    assert [step["step_type"] for step in run["steps"]] == [
+        "collection",
+        "analysis",
+        "lyrics",
+        "music",
+    ]
+    lyrics_step = run["steps"][2]
+    music_step = run["steps"][3]
+    music = workflow_context.client.get(
+        f"/api/v1/music/tasks/{music_step['task_id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert music["lyrics_version_id"] == lyrics_step["output_id"]
+    assert music["results"][0]["id"] == music_step["output_id"]
+    assert provider.generated[0].lyrics == music["lyrics"]
 
 
 def test_workflow_stops_on_failed_step(

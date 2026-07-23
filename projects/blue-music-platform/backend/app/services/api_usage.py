@@ -292,12 +292,16 @@ def _provider_identity(provider: str, endpoint: str) -> tuple[str, str | None]:
         return "阿里百炼 Qwen", "https://bailian.console.aliyun.com/"
     if provider == "minimax":
         return "MiniMax", "https://platform.minimaxi.com/"
+    if provider == "suno":
+        return "Suno", "https://platform.suno.com/"
     if hostname.endswith("bigmodel.cn"):
         return "智谱 BigModel", "https://bigmodel.cn/"
     if hostname.endswith("mureka.ai"):
         return "Mureka", "https://platform.mureka.ai/"
     if hostname.endswith("minimaxi.com"):
         return "MiniMax", "https://platform.minimaxi.com/"
+    if hostname.endswith("suno.com"):
+        return "Suno", "https://platform.suno.com/"
     return provider, None
 
 
@@ -313,6 +317,8 @@ def _canonical_provider(provider: str, endpoint: str) -> str:
         return "qwen"
     if hostname.endswith("minimaxi.com"):
         return "minimax"
+    if hostname.endswith("suno.com"):
+        return "suno"
     return provider
 
 

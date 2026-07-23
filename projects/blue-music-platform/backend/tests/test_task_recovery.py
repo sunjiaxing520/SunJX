@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -6,8 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import Base
+from app.core.exceptions import AppException
 from app.core.time import utc_now
-from app.models import LyricsTask, TaskStatus
+from app.models import AnalysisTask, LyricsTask, TaskStatus
+from app.schemas.analysis import AnalysisCreateRequest
+from app.services.analysis import create_analysis
 from app.services.lyrics import list_lyrics_tasks
 
 
@@ -64,6 +67,40 @@ def test_listing_lyrics_recovers_only_tasks_past_runtime_limit(
         assert tasks_by_id[fresh_running.id].status == TaskStatus.RUNNING.value
         assert stale_running.completed_at is not None
         assert fresh_running.completed_at is None
+
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+def test_analysis_rejects_a_second_active_task() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = utc_now()
+
+    with Session(engine) as db:
+        active = AnalysisTask(
+            status=TaskStatus.RUNNING.value,
+            provider="bigmodel",
+            model="glm-4.7-flash",
+            window_days=7,
+            window_start=date.today() - timedelta(days=6),
+            window_end=date.today(),
+            started_at=now,
+            created_at=now,
+        )
+        db.add(active)
+        db.commit()
+
+        with pytest.raises(AppException) as captured:
+            create_analysis(
+                db,
+                AnalysisCreateRequest(entry_ids=[], window_days=7),
+                user_id=1,
+            )
+
+        assert captured.value.code == "ANALYSIS_TASK_ALREADY_RUNNING"
+        assert captured.value.status_code == 409
+        assert captured.value.detail == {"active_task_id": active.id}
 
     Base.metadata.drop_all(bind=engine)
     engine.dispose()

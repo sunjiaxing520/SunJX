@@ -71,6 +71,25 @@ def create_analysis(
     payload: AnalysisCreateRequest,
     user_id: int,
 ) -> AnalysisTaskResponse:
+    recover_stale_text_tasks(db)
+    active_task_id = db.scalar(
+        select(AnalysisTask.id)
+        .where(
+            AnalysisTask.status.in_(
+                (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+            )
+        )
+        .order_by(AnalysisTask.created_at.desc(), AnalysisTask.id.desc())
+        .limit(1)
+    )
+    if active_task_id is not None:
+        raise AppException(
+            code="ANALYSIS_TASK_ALREADY_RUNNING",
+            message="已有分析任务正在运行，请等待其结束后再试",
+            status_code=409,
+            detail={"active_task_id": active_task_id},
+        )
+
     selected_entries = _resolve_selected_entries(db, payload.entry_ids)
     latest_snapshot = db.get(RankingSnapshot, selected_entries[0].snapshot_id)
     if latest_snapshot is None:

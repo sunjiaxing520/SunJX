@@ -28,6 +28,7 @@ class WorkflowStepType(str, PythonEnum):
     COLLECTION = "collection"
     ANALYSIS = "analysis"
     LYRICS = "lyrics"
+    MUSIC = "music"
 
 
 class WorkflowTemplate(Base):

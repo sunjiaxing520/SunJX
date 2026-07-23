@@ -53,9 +53,18 @@ export function AnalysisPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const updateTaskHistory = useCallback((items: AnalysisTask[]) => {
+    setTasks(items)
+    setActiveTask((current) => current
+      ? items.find((item) => item.id === current.id) ?? current
+      : null)
+  }, [])
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const [ranking, history, favoriteHistory] = await Promise.all([
         listRankingEntries({ pageSize: 100 }),
@@ -63,21 +72,35 @@ export function AnalysisPage() {
         listFavorites('analysis'),
       ])
       setEntries(ranking.items)
-      setTasks(history.items)
+      updateTaskHistory(history.items)
       setFavorites(favoriteHistory.items)
-      setActiveTask((current) => current
-        ? history.items.find((item) => item.id === current.id) ?? current
-        : null)
     } catch (loadError) {
       setError(errorMessage(loadError))
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }, [])
+  }, [updateTaskHistory])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const hasActiveTask = tasks.some(
+    (task) => task.status === 'pending' || task.status === 'running',
+  )
+
+  useEffect(() => {
+    if (!hasActiveTask) return
+    const timer = window.setInterval(async () => {
+      try {
+        const history = await listAnalysisTasks()
+        updateTaskHistory(history.items)
+      } catch (pollError) {
+        setError(errorMessage(pollError))
+      }
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [hasActiveTask, updateTaskHistory])
 
   useEffect(() => {
     const requestedTaskId = Number(searchParams.get('task_id'))
@@ -271,7 +294,7 @@ export function AnalysisPage() {
           <Typography.Title level={1}>内容分析</Typography.Title>
           <Typography.Text type="secondary">从连续榜单中整理可供作词和音乐生成使用的创作方向</Typography.Text>
         </div>
-        <Button icon={<RefreshCw size={16} />} loading={loading} onClick={load}>刷新</Button>
+        <Button icon={<RefreshCw size={16} />} loading={loading} onClick={() => void load()}>刷新</Button>
       </div>
 
       {error && <Alert type="error" showIcon title={error} />}
@@ -290,8 +313,18 @@ export function AnalysisPage() {
               options={[{ label: '7 天', value: 7 }, { label: '15 天', value: 15 }, { label: '30 天', value: 30 }]}
               onChange={(value) => setWindowDays(Number(value))}
             />
-            <Button type="primary" icon={<Play size={16} />} loading={running} disabled={!entries.length} onClick={submit}>
-              {selectedIds.length ? `分析所选 ${selectedIds.length} 首` : '分析最新前 30 首'}
+            <Button
+              type="primary"
+              icon={<Play size={16} />}
+              loading={running || hasActiveTask}
+              disabled={!entries.length || hasActiveTask}
+              onClick={submit}
+            >
+              {hasActiveTask
+                ? '分析任务运行中'
+                : selectedIds.length
+                  ? `分析所选 ${selectedIds.length} 首`
+                  : '分析最新前 30 首'}
             </Button>
           </Space>
         </div>

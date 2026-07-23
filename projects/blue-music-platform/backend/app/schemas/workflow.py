@@ -6,11 +6,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.ranking import TaskStatusValue
 
 
-WorkflowStepValue = Literal["collection", "analysis", "lyrics"]
+WorkflowStepValue = Literal["collection", "analysis", "lyrics", "music"]
 STEP_ORDER: tuple[WorkflowStepValue, ...] = (
     "collection",
     "analysis",
     "lyrics",
+    "music",
 )
 
 
@@ -31,17 +32,25 @@ class WorkflowLyricsConfig(BaseModel):
     requirements: str | None = Field(default=None, max_length=2000)
 
 
+class WorkflowMusicConfig(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    style_prompt: str | None = Field(default=None, max_length=3000)
+    instrumental: bool = False
+    requirements: str | None = Field(default=None, max_length=2000)
+
+
 class WorkflowConfiguration(BaseModel):
     collection: WorkflowCollectionConfig = Field(
         default_factory=WorkflowCollectionConfig
     )
     analysis: WorkflowAnalysisConfig = Field(default_factory=WorkflowAnalysisConfig)
     lyrics: WorkflowLyricsConfig = Field(default_factory=WorkflowLyricsConfig)
+    music: WorkflowMusicConfig = Field(default_factory=WorkflowMusicConfig)
 
 
 class WorkflowTemplateWrite(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    steps: list[WorkflowStepValue] = Field(min_length=1, max_length=3)
+    steps: list[WorkflowStepValue] = Field(min_length=1, max_length=4)
     configuration: WorkflowConfiguration = Field(
         default_factory=WorkflowConfiguration
     )
@@ -57,9 +66,11 @@ class WorkflowTemplateWrite(BaseModel):
             raise ValueError("流程步骤不能重复")
         expected = [step for step in STEP_ORDER if step in self.steps]
         if self.steps != expected:
-            raise ValueError("流程步骤必须按采集、分析、作词的依赖顺序排列")
+            raise ValueError("流程步骤必须按采集、分析、作词、音乐创作的依赖顺序排列")
         if "lyrics" in self.steps and "analysis" not in self.steps:
             raise ValueError("自动作词步骤必须接在内容分析步骤之后")
+        if "music" in self.steps and "lyrics" not in self.steps:
+            raise ValueError("音乐创作步骤必须接在歌词创作步骤之后")
         return self
 
 

@@ -21,4 +21,23 @@ describe('toggleWorkflowStep', () => {
       ),
     ).toEqual(['collection'])
   })
+
+  it('adds all required upstream steps before music', () => {
+    expect(toggleWorkflowStep(['collection'], 'music', true)).toEqual([
+      'collection',
+      'analysis',
+      'lyrics',
+      'music',
+    ])
+  })
+
+  it('removes music when lyrics is removed', () => {
+    expect(
+      toggleWorkflowStep(
+        ['collection', 'analysis', 'lyrics', 'music'],
+        'lyrics',
+        false,
+      ),
+    ).toEqual(['collection', 'analysis'])
+  })
 })

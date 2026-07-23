@@ -207,7 +207,7 @@ export interface ApiErrorBody {
 }
 
 export type WorkflowTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
-export type WorkflowStepType = 'collection' | 'analysis' | 'lyrics'
+export type WorkflowStepType = 'collection' | 'analysis' | 'lyrics' | 'music'
 
 export interface WorkflowConfiguration {
   collection: {
@@ -222,6 +222,12 @@ export interface WorkflowConfiguration {
     title_hint: string | null
     theme: string | null
     language: string
+    requirements: string | null
+  }
+  music: {
+    title: string | null
+    style_prompt: string | null
+    instrumental: boolean
     requirements: string | null
   }
 }
@@ -462,6 +468,83 @@ export interface CreationBrief {
   negative_constraints: string[]
   source_analysis_report_id: number | null
   source_lyrics_version_id: number
+}
+
+export type MusicOperation = 'generate' | 'extend'
+
+export interface MusicResult {
+  id: number
+  task_id: number
+  external_id: string
+  title: string
+  media_type: string
+  duration_seconds: number | null
+  image_url: string | null
+  provider_page_url: string | null
+  storage_error: string | null
+  audio_ready: boolean
+  audio_path: string
+  download_path: string
+  created_at: string
+}
+
+export interface MusicTask {
+  id: number
+  status: WorkflowTaskStatus
+  operation: MusicOperation
+  provider: 'suno'
+  model: string | null
+  lyrics_version_id: number | null
+  source_result_id: number | null
+  title: string
+  lyrics: string
+  style_prompt: string
+  instrumental: boolean
+  negative_tags: string[]
+  requirements: string | null
+  external_task_id: string | null
+  provider_status: string | null
+  error_code: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  api_usage: ApiUsageRecord[]
+  results: MusicResult[]
+}
+
+export interface MusicTaskList {
+  items: MusicTask[]
+  total: number
+}
+
+export interface MusicResultList {
+  items: MusicResult[]
+  total: number
+}
+
+export interface MusicCreatePayload {
+  lyrics_version_id: number
+  title?: string
+  style_prompt?: string
+  instrumental?: boolean
+  negative_tags?: string[]
+  requirements?: string
+}
+
+export interface MusicExtendPayload {
+  title?: string
+  lyrics?: string
+  style_prompt?: string
+  requirements?: string
+}
+
+export interface SunoProviderStatus {
+  provider: 'suno'
+  configured: boolean
+  integration_status: 'waiting_access' | 'contract_pending'
+  message: string
+  platform_url: string
 }
 
 export type FavoriteItemType = 'analysis' | 'lyrics'

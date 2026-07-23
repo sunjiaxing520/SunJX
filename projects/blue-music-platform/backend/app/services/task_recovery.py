@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import LOGGER_NAME
 from app.core.time import utc_now
-from app.models import AiProviderConfig, AnalysisTask, LyricsTask, TaskStatus
+from app.models import (
+    AiProviderConfig,
+    AnalysisTask,
+    LyricsTask,
+    MusicTask,
+    TaskStatus,
+)
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -97,3 +103,45 @@ def _text_task_max_runtime_seconds(db: Session) -> float:
         + retry_delay_seconds
         + TEXT_TASK_GRACE_SECONDS
     )
+
+
+def recover_stale_music_tasks(db: Session) -> int:
+    now = utc_now()
+    max_runtime_seconds = max(
+        60.0,
+        float(settings.SUNO_GENERATION_TIMEOUT_SECONDS) + 60.0,
+    )
+    cutoff = now - timedelta(seconds=max_runtime_seconds)
+    tasks = db.scalars(
+        select(MusicTask).where(
+            MusicTask.status.in_(
+                (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+            ),
+            func.coalesce(MusicTask.started_at, MusicTask.created_at) < cutoff,
+        )
+    ).all()
+    for task in tasks:
+        task.status = TaskStatus.FAILED.value
+        task.error_code = "MUSIC_TASK_INTERRUPTED"
+        task.error_message = (
+            "音乐任务超过最长运行时间，可能因后端重启或 Suno 请求中断而停止，请重新运行"
+        )
+        task.error_detail = {
+            "reason": "task_runtime_exceeded",
+            "max_runtime_seconds": round(max_runtime_seconds),
+        }
+        task.completed_at = now
+    if not tasks:
+        return 0
+    db.commit()
+    for task in tasks:
+        task_logger.warning(
+            "stale_music_task_recovered",
+            extra={
+                "task_id": str(task.id),
+                "task_type": "music",
+                "error_code": "MUSIC_TASK_INTERRUPTED",
+                "max_runtime_seconds": round(max_runtime_seconds),
+            },
+        )
+    return len(tasks)

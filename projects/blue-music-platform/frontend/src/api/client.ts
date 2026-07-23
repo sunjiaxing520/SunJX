@@ -105,3 +105,56 @@ export async function apiRequest<T>(
   }
   throw error
 }
+
+export async function apiBlobRequest(path: string): Promise<Blob> {
+  const headers = new Headers()
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { headers })
+  } catch {
+    const error = new ApiError({
+      message: '无法连接后端服务，请确认服务是否已经启动',
+      status: 0,
+      code: 'NETWORK_ERROR',
+    })
+    recordDiagnostic({
+      source: 'api',
+      message: error.message,
+      method: 'GET',
+      path,
+      status: 0,
+      code: error.code,
+    })
+    throw error
+  }
+
+  if (response.ok) return response.blob()
+  const body = await readResponseBody(response)
+  const apiBody = body as ApiErrorBody
+  const error = new ApiError({
+    message: apiBody?.error?.message ?? `请求失败 (${response.status})`,
+    status: response.status,
+    code: apiBody?.error?.code ?? 'UNKNOWN_ERROR',
+    requestId:
+      apiBody?.error?.request_id ??
+      response.headers.get('x-request-id') ??
+      undefined,
+    detail: apiBody?.error?.detail,
+  })
+  recordDiagnostic({
+    source: 'api',
+    message: error.message,
+    method: 'GET',
+    path,
+    status: error.status,
+    code: error.code,
+    request_id: error.requestId,
+  })
+  if (AUTH_FAILURE_CODES.has(error.code)) {
+    window.dispatchEvent(new Event('blue-music:auth-failed'))
+  }
+  throw error
+}

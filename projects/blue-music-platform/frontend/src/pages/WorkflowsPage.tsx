@@ -14,6 +14,7 @@ import {
   Skeleton,
   Space,
   Steps,
+  Switch,
   Table,
   Tag,
   Tooltip,
@@ -74,12 +75,17 @@ interface WorkflowFormValues {
   title_hint?: string
   theme?: string
   requirements?: string
+  music_title?: string
+  music_style_prompt?: string
+  music_instrumental: boolean
+  music_requirements?: string
 }
 
 const STEP_AGENT: Record<WorkflowStepType, AgentType> = {
   collection: 'crawler',
   analysis: 'analysis',
   lyrics: 'lyrics',
+  music: 'music',
 }
 
 const STEP_META = {
@@ -94,6 +100,10 @@ const STEP_META = {
   lyrics: {
     icon: FileMusic,
     description: '输入分析报告，输出歌词版本',
+  },
+  music: {
+    icon: Music2,
+    description: '输入歌词版本，输出 Suno 音频',
   },
 } as const
 
@@ -161,14 +171,6 @@ function WorkflowStepSelector({
           </div>
         )
       })}
-      <div className="workflow-step-option workflow-step-option-disabled">
-        <Checkbox disabled aria-label="音乐创作步骤尚未开放" />
-        <span className="workflow-step-option-icon"><Music2 size={18} /></span>
-        <span className="workflow-step-option-copy">
-          <strong>4. 音乐创作</strong>
-          <small>等待正式音乐生成接口接入</small>
-        </span>
-      </div>
     </div>
   )
 }
@@ -180,6 +182,9 @@ function DataHandoffs({ steps }: { steps: WorkflowStepType[] }) {
       : null,
     steps.includes('analysis') && steps.includes('lyrics')
       ? ['分析报告 + 创作方向', '歌词创作输入']
+      : null,
+    steps.includes('lyrics') && steps.includes('music')
+      ? ['歌词版本 + 创作方案', 'Suno 音乐任务输入']
       : null,
   ].filter((value): value is string[] => value !== null)
 
@@ -223,6 +228,7 @@ export function WorkflowsPage() {
       ),
     )
     if (!values.has('analysis')) values.delete('lyrics')
+    if (!values.has('analysis') || !values.has('lyrics')) values.delete('music')
     return values
   }, [user])
 
@@ -271,6 +277,7 @@ export function WorkflowsPage() {
       collection_limit: 100,
       window_days: 7,
       direction_number: 1,
+      music_instrumental: false,
     })
   }, [defaultSteps, form])
 
@@ -302,6 +309,10 @@ export function WorkflowsPage() {
       title_hint: undefined,
       theme: undefined,
       requirements: undefined,
+      music_title: undefined,
+      music_style_prompt: undefined,
+      music_instrumental: false,
+      music_requirements: undefined,
     })
   }
 
@@ -320,6 +331,12 @@ export function WorkflowsPage() {
         theme: optionalText(values.theme),
         language: '中文',
         requirements: optionalText(values.requirements),
+      },
+      music: {
+        title: optionalText(values.music_title),
+        style_prompt: optionalText(values.music_style_prompt),
+        instrumental: values.music_instrumental,
+        requirements: optionalText(values.music_requirements),
       },
     },
   })
@@ -362,6 +379,10 @@ export function WorkflowsPage() {
       title_hint: template.configuration.lyrics.title_hint ?? undefined,
       theme: template.configuration.lyrics.theme ?? undefined,
       requirements: template.configuration.lyrics.requirements ?? undefined,
+      music_title: template.configuration.music.title ?? undefined,
+      music_style_prompt: template.configuration.music.style_prompt ?? undefined,
+      music_instrumental: template.configuration.music.instrumental,
+      music_requirements: template.configuration.music.requirements ?? undefined,
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -518,6 +539,7 @@ export function WorkflowsPage() {
     if (step.step_type === 'collection') navigate('/rankings')
     if (step.step_type === 'analysis') navigate(`/analysis?task_id=${step.task_id}`)
     if (step.step_type === 'lyrics') navigate(`/lyrics?task_id=${step.task_id}`)
+    if (step.step_type === 'music') navigate(`/music?task_id=${step.task_id}`)
   }
 
   const runItems = runs.map((run) => {
@@ -609,7 +631,7 @@ export function WorkflowsPage() {
               )}
               <Popconfirm
                 title="删除这条运行记录？"
-                description="只删除自动流程轨迹，已经生成的榜单、分析和歌词会保留。"
+                description="只删除自动流程轨迹，已经生成的榜单、分析、歌词和音乐会保留。"
                 okText="删除"
                 cancelText="取消"
                 disabled={isActive}
@@ -748,6 +770,29 @@ export function WorkflowsPage() {
                 </div>
                 <Form.Item name="requirements" label="补充要求">
                   <Input.TextArea rows={3} maxLength={2000} />
+                </Form.Item>
+              </div>
+            )}
+
+            {selectedSteps.includes('music') && (
+              <div className="workflow-config-band">
+                <div className="workflow-config-heading">
+                  <Music2 size={17} />
+                  <strong>Suno 音乐创作设置</strong>
+                </div>
+                <div className="form-grid">
+                  <Form.Item name="music_title" label="歌曲标题">
+                    <Input maxLength={200} placeholder="可留空使用歌词标题" />
+                  </Form.Item>
+                  <Form.Item name="music_instrumental" label="纯音乐" valuePropName="checked">
+                    <Switch checkedChildren="开启" unCheckedChildren="带人声" />
+                  </Form.Item>
+                </div>
+                <Form.Item name="music_style_prompt" label="风格调整">
+                  <Input.TextArea rows={3} maxLength={3000} placeholder="可留空沿用作词阶段的风格方案" />
+                </Form.Item>
+                <Form.Item name="music_requirements" label="补充要求">
+                  <Input.TextArea rows={2} maxLength={2000} />
                 </Form.Item>
               </div>
             )}

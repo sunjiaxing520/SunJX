@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.schemas.analysis import AnalysisCreateRequest
 from app.schemas.lyrics import LyricsCreateRequest
+from app.schemas.music import MusicCreateRequest
 from app.schemas.ranking import CollectionCreateRequest
 from app.schemas.workflow import (
     WorkflowConfiguration,
@@ -36,6 +37,11 @@ from app.schemas.workflow import (
 )
 from app.services.analysis import create_analysis
 from app.services.lyrics import create_lyrics_task
+from app.services.music import (
+    create_music_task,
+    execute_music_task_in_session,
+    get_music_task,
+)
 from app.services.rankings import create_collection
 
 
@@ -44,6 +50,7 @@ STEP_AGENT = {
     WorkflowStepType.COLLECTION.value: AgentType.CRAWLER,
     WorkflowStepType.ANALYSIS.value: AgentType.ANALYSIS,
     WorkflowStepType.LYRICS.value: AgentType.LYRICS,
+    WorkflowStepType.MUSIC.value: AgentType.MUSIC,
 }
 
 
@@ -361,6 +368,7 @@ def execute_workflow_run(
         configuration = WorkflowConfiguration.model_validate(run.configuration)
         analysis_report_id: int | None = None
         collected_snapshot_id: int | None = None
+        lyrics_version_id: int | None = None
 
         for step in sorted(run.steps, key=lambda value: value.position):
             _mark_step_running(db, run.id, step.id, step.step_type)
@@ -372,6 +380,7 @@ def execute_workflow_run(
                     configuration,
                     collected_snapshot_id=collected_snapshot_id,
                     analysis_report_id=analysis_report_id,
+                    lyrics_version_id=lyrics_version_id,
                 )
             except AppException as exc:
                 _mark_workflow_failed(db, run.id, step.id, exc)
@@ -402,6 +411,8 @@ def execute_workflow_run(
                 collected_snapshot_id = output_id
             elif step.step_type == WorkflowStepType.ANALYSIS.value:
                 analysis_report_id = output_id
+            elif step.step_type == WorkflowStepType.LYRICS.value:
+                lyrics_version_id = output_id
 
         completed_run = db.get(WorkflowRun, run.id)
         if completed_run is None:
@@ -424,6 +435,7 @@ def _execute_step(
     *,
     collected_snapshot_id: int | None,
     analysis_report_id: int | None,
+    lyrics_version_id: int | None,
 ) -> tuple[int, int | None]:
     if run.requested_by_id is None or db.get(User, run.requested_by_id) is None:
         raise AppException(
@@ -510,6 +522,39 @@ def _execute_step(
         )
         output_id = result.versions[-1].id if result.versions else None
         return result.id, output_id
+
+    if step_type == WorkflowStepType.MUSIC.value:
+        if lyrics_version_id is None:
+            raise AppException(
+                code="WORKFLOW_LYRICS_OUTPUT_MISSING",
+                message="作词步骤没有产出歌词版本，无法继续生成音乐",
+                status_code=409,
+            )
+        music_task = create_music_task(
+            db,
+            MusicCreateRequest(
+                lyrics_version_id=lyrics_version_id,
+                title=configuration.music.title,
+                style_prompt=configuration.music.style_prompt,
+                instrumental=configuration.music.instrumental,
+                requirements=configuration.music.requirements,
+            ),
+            run.requested_by_id,
+        )
+        execute_music_task_in_session(db, music_task.id)
+        completed_task = get_music_task(db, music_task.id)
+        if completed_task.status == TaskStatus.FAILED.value:
+            raise AppException(
+                code=completed_task.error_code or "SUNO_PROVIDER_FAILED",
+                message=completed_task.error_message or "Suno 音乐生成失败",
+                status_code=502,
+                detail={
+                    "task_id": completed_task.id,
+                    "provider_status": completed_task.provider_status,
+                },
+            )
+        output_id = completed_task.results[0].id if completed_task.results else None
+        return completed_task.id, output_id
 
     raise AppException(
         code="WORKFLOW_STEP_UNSUPPORTED",

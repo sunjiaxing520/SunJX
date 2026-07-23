@@ -3,11 +3,13 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
     AgentType,
     AnalysisTask,
     CollectionTask,
     LyricsTask,
+    MusicTask,
     RankingSnapshot,
     TaskStatus,
     User,
@@ -21,7 +23,10 @@ from app.schemas.dashboard import (
     DashboardResponse,
 )
 from app.services.api_usage import get_api_usage_dashboard
-from app.services.task_recovery import recover_stale_text_tasks
+from app.services.task_recovery import (
+    recover_stale_music_tasks,
+    recover_stale_text_tasks,
+)
 
 
 AGENT_NAMES = {
@@ -47,6 +52,7 @@ def _available_agents(db: Session, user: User) -> list[AgentType]:
 
 def get_dashboard(db: Session, user: User) -> DashboardResponse:
     recover_stale_text_tasks(db)
+    recover_stale_music_tasks(db)
     agents = [_agent_status(db, agent) for agent in _available_agents(db, user)]
     today = app_today()
 
@@ -62,7 +68,7 @@ def get_dashboard(db: Session, user: User) -> DashboardResponse:
             ),
             analyzed_today=_completed_task_count(db, AnalysisTask, today),
             lyrics_tasks_today=_completed_task_count(db, LyricsTask, today),
-            music_tasks_today=0,
+            music_tasks_today=_completed_task_count(db, MusicTask, today),
         ),
         agents=agents,
         api_usage=get_api_usage_dashboard(
@@ -91,6 +97,7 @@ def _agent_status(db: Session, agent: AgentType) -> DashboardAgentStatus:
         AgentType.CRAWLER: CollectionTask,
         AgentType.ANALYSIS: AnalysisTask,
         AgentType.LYRICS: LyricsTask,
+        AgentType.MUSIC: MusicTask,
     }
     model = model_by_agent.get(agent)
     if model is None:
@@ -99,6 +106,16 @@ def _agent_status(db: Session, agent: AgentType) -> DashboardAgentStatus:
             name=AGENT_NAMES[agent],
             status="not_configured",
             message="等待音乐生成平台选型",
+        )
+
+    if agent == AgentType.MUSIC and not (
+        settings.SUNO_API_BASE_URL and settings.SUNO_API_KEY
+    ):
+        return DashboardAgentStatus(
+            agent=agent,
+            name=AGENT_NAMES[agent],
+            status="not_configured",
+            message="等待配置 Suno 官方 API 访问权限",
         )
 
     latest = db.scalar(select(model).order_by(model.id.desc()).limit(1))
