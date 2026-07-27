@@ -1,75 +1,185 @@
-# P7 Suno 音乐创作维护说明
+# P7 SunoProvider 音乐创作维护说明
 
-更新时间：2026-07-23
+更新时间：2026-07-27
 
 ## 当前状态
 
-首期供应商锁定为 Suno，只接官方 API。平台内部任务、数据库、页面和工作流基础已完成；Suno Platform 的真实 HTTP 请求仍等待正式文档、API Key 和商用权限。
+蓝乐业务层只认识统一的 `suno` Provider，实际实现可通过
+`SUNO_PROVIDER_IMPLEMENTATION` 选择：
 
-未配置时必须返回明确失败：
+- `official`：默认实现。等待 Suno Platform 账号内正式 API 文档、API Key
+  和商用权限；合同未知时明确返回 `SUNO_API_CONTRACT_PENDING`，不猜测路径。
+- `compatibility`：对隔离部署的 `gcui-art/suno-api` 做兼容适配。默认关闭，
+  只允许本机或 Docker 内网地址，不把 Suno Cookie 传给蓝乐或智能体。
 
-- `SUNO_API_NOT_CONFIGURED`：缺少官方地址或 Key。
-- `SUNO_API_CONTRACT_PENDING`：已有配置，但代码尚未按正式文档完成请求与响应映射。
-
-不得通过模拟成功、假音频、非官方套壳、逆向接口或网页自动化绕过该状态。
-
-## 代码路线
+其他 Agent、自动流程和前端始终调用：
 
 ```text
-frontend/src/pages/MusicPage.tsx
--> POST /api/v1/music/tasks
--> routes/music.py
+POST /api/v1/music/tasks
 -> services/music.py
--> adapters/music_generation.py
--> Suno 官方 API
--> music_tasks / music_results / api_usage_records
--> 试听、下载或续写
+-> Redis music queue
+-> app.workers.music
+-> MusicGenerationProvider
+-> official 或 compatibility
 ```
 
-自动流程的数据传递：
+切换实现不需要修改采集、分析、作词、工作流或前端代码。环境配置变化后，
+新任务使用新实现；已经入队的任务继续使用创建时记录的
+`provider_implementation`，避免外部任务编号串线。
+
+## 开源兼容项目审计
+
+审计仓库：`https://github.com/gcui-art/suno-api`
+
+审计提交：
 
 ```text
-ranking snapshot_id
--> analysis report_id
--> lyrics version_id
--> music task_id
--> music result_id
+a2e6a823428903af715d3835d1cb44ffa336021d
 ```
 
-## 已实现能力
+已适配的外部合同：
 
-- 从歌词版本创建完整生成任务。
-- 保存标题、歌词、风格、排除标签、纯音乐选项和补充要求。
-- 保存外部任务编号、供应商状态、错误码和错误详情。
-- 同一任务支持多个独立音乐结果。
-- 音频优先归档到 `backend/storage/music`，归档失败时保留安全错误说明。
-- 独立试听区、鉴权播放、浏览器下载和来源结果续写。
-- 音乐任务单条/批量删除，音乐结果单条删除。
-- Suno 调用进入统一用量账本，计量单位按官方响应保存，不伪造 Token。
-- 工作流支持“采集 -> 分析 -> 作词 -> 音乐创作”四步传参。
+| 能力 | 兼容服务路径 |
+|---|---|
+| 自定义生成 | `POST /api/custom_generate` |
+| 续写 | `POST /api/extend_audio` |
+| 查询结果 | `GET /api/get?ids=...` |
+| 查询额度 | `GET /api/get_limit` |
 
-## 正式联调清单
+兼容层会归一化标题、歌词、风格、排除标签、模型、音频编号、状态、时长、
+封面、额度和错误。它不会把该项目直接暴露给调度智能体，也不会接受前端
+传入 Cookie。
 
-拿到 Suno 官方权限后，按 Platform 文档完成：
+该开源项目是 LGPL-3.0-or-later 的非官方研究项目，内部包含 2Captcha、
+Playwright、浏览器指纹规避和 Cookie 网页接口。蓝乐不复制、不启用这些
+验证码代答或规避机制。检测到 hCaptcha 时：
 
-1. 确认认证请求头、正式 Base URL、生成和续写路径。
-2. 映射提交参数，尤其是歌词、风格、纯音乐和排除标签。
-3. 映射异步任务编号、状态枚举、失败字段和多个结果。
-4. 实现官方建议的轮询或回调，并遵守并发和频率限制。
-5. 验证音频 URL 有效期、最大文件、格式、封面和供应商作品页。
-6. 记录官方计费单位、请求编号、耗时和尝试次数。
-7. 用中文歌词完成生成、失败、超时、续写、下载和删除验收。
+```text
+外部返回 CAPTCHA
+-> SUNO_HUMAN_VERIFICATION_REQUIRED
+-> task.status = failed
+-> provider_status = waiting_human_verification
+-> 管理员在正常 Suno 网页完成人工验证并更新隔离服务会话
+-> POST /music/tasks/{id}/retry
+```
 
-API Key 只能写入本机或服务器 `.env`，禁止进入测试夹具、截图、日志、文档和 Git。
+正常情况下生成、轮询、下载和工作流仍为全自动，只有 Suno 主动要求真人
+验证时才需要人工。
+
+## 可靠任务执行
+
+音乐任务不再由 FastAPI `BackgroundTasks` 直接调用供应商。API 只写数据库
+并入 Redis 队列，独立 worker 负责外部调用：
+
+```powershell
+cd D:\SunJX\projects\blue-music-platform\backend
+D:\DevTools\Venvs\blue-music-backend\Scripts\python.exe -m app.workers.music
+```
+
+可靠性规则：
+
+- Redis 使用待处理、处理中和延迟重试三个队列。
+- worker 启动时恢复处理中断和数据库中的 pending 任务。
+- 全局并发槽由 Redis 锁控制，默认最多 `1` 个 Suno 任务。
+- 新生成或续写任务的全局启动间隔默认 `30` 秒，多个 worker 共享同一限频状态；
+  结果轮询也默认每 `30` 秒一次。
+- 429、5xx、网络超时和生成超时按指数退避重试。
+- 401/403、额度不足、参数错误和 hCaptcha 不盲目自动重试。
+- 外部任务编号一旦获得就持久化；超时重试优先继续查询同一任务。
+- 运行租约覆盖提交、轮询和最多四个结果文件的归档时间，避免归档期间被误判中断。
+- 任务记录 `attempt_count`、`max_attempts`、`next_attempt_at` 和错误详情。
+
+主要错误码：
+
+| 错误码 | 含义 | 自动重试 |
+|---|---|---|
+| `SUNO_API_NOT_CONFIGURED` | 官方地址或 Key 缺失 | 否 |
+| `SUNO_API_CONTRACT_PENDING` | 官方文档尚未完成映射 | 否 |
+| `SUNO_COMPAT_DISABLED` | 兼容实现未显式启用 | 否 |
+| `SUNO_HUMAN_VERIFICATION_REQUIRED` | 需要人工完成 hCaptcha | 否 |
+| `SUNO_SESSION_EXPIRED` | 兼容会话失效 | 否 |
+| `SUNO_QUOTA_EXHAUSTED` | 账户额度不足 | 否 |
+| `SUNO_RATE_LIMITED` | 供应商限频 | 是 |
+| `SUNO_COMPAT_UPSTREAM_ERROR` | 兼容服务或上游 5xx | 是 |
+| `SUNO_GENERATION_TIMEOUT` | 等待结果超时 | 是，继续查询 |
+| `MUSIC_QUEUE_UNAVAILABLE` | Redis 队列不可用 | 手工重试 |
+
+## 额度与对象存储
+
+超级管理员可调用：
+
+```text
+GET  /api/v1/music/provider-status
+POST /api/v1/music/provider-status/refresh
+```
+
+额度快照保存到 `music_provider_quota_snapshots`。兼容实现读取
+`credits_left/monthly_usage/monthly_limit/period`；官方实现等正式文档后映射。
+
+对象存储由 `MUSIC_STORAGE_BACKEND` 选择：
+
+- `local`：默认保存到 `backend/storage/music`。
+- `s3`：支持 AWS S3、MinIO 和其他 S3-compatible 服务，试听和下载使用短期
+  预签名 URL。
+
+下载器只接受 HTTPS 公网音频地址，限制重定向次数、响应类型和最大文件大小，
+并拒绝回环、内网和链路本地地址，降低 SSRF 风险。
+
+## 关键配置
+
+```dotenv
+SUNO_PROVIDER_IMPLEMENTATION=official
+
+SUNO_API_BASE_URL=
+SUNO_API_KEY=
+SUNO_MODEL=
+
+SUNO_COMPAT_ENABLED=false
+SUNO_COMPAT_BASE_URL=http://suno-compat:3000
+SUNO_COMPAT_SHARED_TOKEN=
+SUNO_COMPAT_MODEL=
+SUNO_COMPAT_ALLOW_REMOTE=false
+
+MUSIC_QUEUE_MODE=redis
+MUSIC_MAX_CONCURRENCY=1
+MUSIC_MIN_REQUEST_INTERVAL_SECONDS=30
+SUNO_POLL_INTERVAL_SECONDS=30
+MUSIC_MAX_RETRIES=3
+MUSIC_RETRY_BASE_SECONDS=30
+MUSIC_RETRY_MAX_SECONDS=600
+
+MUSIC_STORAGE_BACKEND=local
+MUSIC_STORAGE_DIR=
+```
+
+兼容服务若需要跨主机访问，必须由内网网关校验
+`SUNO_COMPAT_SHARED_TOKEN`，同时使用 HTTPS。Suno Cookie 只放在隔离兼容服务
+的密钥环境中，禁止进入蓝乐数据库、前端、日志、文档和 Git。
+
+## 官方联调入口
+
+Suno Platform 当前公开页只说明提供 REST API，详细合同登录后才可见。拿到
+权限后只需完成 `SunoOfficialMusicProvider`：
+
+1. 按正式文档映射认证、生成、续写、查询和额度。
+2. 使用官方幂等键、回调或轮询建议。
+3. 映射官方状态、请求编号、计费单位和 Retry-After。
+4. 用中文歌词验收生成、失败、超时、续写、额度和下载。
+
+不得用推测的路径或字段冒充官方联调成功。
 
 ## 测试
 
 ```powershell
+cd D:\SunJX\projects\blue-music-platform\backend
 D:\DevTools\Venvs\blue-music-backend\Scripts\python.exe -m pytest -q
-cd D:\SunJX\projects\blue-music-platform\frontend
+
+cd ..\frontend
 npm.cmd run test
 npm.cmd run lint
 npm.cmd run build
 ```
 
-自动测试使用 `FakeSunoProvider`，只验证平台自身的数据流、状态、归档和删除行为，不冒充真实 Suno 联调。
+当前基线：后端 `70` 个测试，前端 `15` 个测试。兼容适配器测试覆盖生成归一化、
+额度、429、响应级与任务级 hCaptcha、混合结果失败和远程 HTTP 拒绝；平台测试
+覆盖持久重试、人工验证状态、重新入队、试听、下载、删除和工作流传参。

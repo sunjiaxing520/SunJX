@@ -13,6 +13,7 @@ from app.core.database import Base, get_db
 from app.core.security import hash_password
 from app.main import create_app
 from app.models import User, UserRole
+from app.services.music_storage import StoredMusicObject
 from tests.fakes import FakeSunoProvider
 
 
@@ -26,6 +27,8 @@ def workflow_context(monkeypatch: pytest.MonkeyPatch) -> WorkflowContext:
     monkeypatch.setattr(settings, "AI_PROVIDER", "local")
     monkeypatch.setattr(settings, "AI_MODEL", "")
     monkeypatch.setattr(settings, "WORKFLOW_STEP_DELAY_SECONDS", 0)
+    monkeypatch.setattr(settings, "MUSIC_QUEUE_MODE", "inline")
+    monkeypatch.setattr(settings, "SUNO_PROVIDER_IMPLEMENTATION", "official")
     engine = create_engine(
         "sqlite+pysqlite://",
         connect_args={"check_same_thread": False},
@@ -384,10 +387,16 @@ def test_workflow_passes_lyrics_output_into_suno_music(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = FakeSunoProvider()
-    monkeypatch.setattr("app.services.music.get_music_provider", lambda: provider)
     monkeypatch.setattr(
-        "app.services.music._download_audio",
-        lambda *_args, **_kwargs: None,
+        "app.services.music.get_music_provider",
+        lambda *_args, **_kwargs: provider,
+    )
+    monkeypatch.setattr(
+        "app.services.music._archive_audio",
+        lambda *_args, **_kwargs: StoredMusicObject(
+            backend="local",
+            key="workflow/test.mp3",
+        ),
     )
     created = workflow_context.client.post(
         "/api/v1/workflows/templates",

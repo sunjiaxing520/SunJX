@@ -65,6 +65,18 @@ class Settings:
     SUNO_API_BASE_URL = os.getenv("SUNO_API_BASE_URL", "").rstrip("/")
     SUNO_API_KEY = os.getenv("SUNO_API_KEY", "")
     SUNO_MODEL = os.getenv("SUNO_MODEL", "")
+    SUNO_PROVIDER_IMPLEMENTATION = os.getenv(
+        "SUNO_PROVIDER_IMPLEMENTATION", "official"
+    ).lower()
+    SUNO_COMPAT_ENABLED = os.getenv(
+        "SUNO_COMPAT_ENABLED", "false"
+    ).lower() in {"1", "true", "yes", "on"}
+    SUNO_COMPAT_BASE_URL = os.getenv("SUNO_COMPAT_BASE_URL", "").rstrip("/")
+    SUNO_COMPAT_SHARED_TOKEN = os.getenv("SUNO_COMPAT_SHARED_TOKEN", "")
+    SUNO_COMPAT_MODEL = os.getenv("SUNO_COMPAT_MODEL", "")
+    SUNO_COMPAT_ALLOW_REMOTE = os.getenv(
+        "SUNO_COMPAT_ALLOW_REMOTE", "false"
+    ).lower() in {"1", "true", "yes", "on"}
     SUNO_REQUEST_TIMEOUT_SECONDS = float(
         os.getenv("SUNO_REQUEST_TIMEOUT_SECONDS", "120")
     )
@@ -72,7 +84,7 @@ class Settings:
         os.getenv("SUNO_GENERATION_TIMEOUT_SECONDS", "900")
     )
     SUNO_POLL_INTERVAL_SECONDS = float(
-        os.getenv("SUNO_POLL_INTERVAL_SECONDS", "10")
+        os.getenv("SUNO_POLL_INTERVAL_SECONDS", "30")
     )
     SUNO_DOWNLOAD_TIMEOUT_SECONDS = float(
         os.getenv("SUNO_DOWNLOAD_TIMEOUT_SECONDS", "120")
@@ -80,8 +92,41 @@ class Settings:
     SUNO_MAX_AUDIO_BYTES = int(
         os.getenv("SUNO_MAX_AUDIO_BYTES", str(100 * 1024 * 1024))
     )
+    MUSIC_QUEUE_MODE = os.getenv("MUSIC_QUEUE_MODE", "redis").lower()
+    MUSIC_QUEUE_NAME = os.getenv(
+        "MUSIC_QUEUE_NAME", "blue_music:music:queue"
+    )
+    MUSIC_MAX_CONCURRENCY = int(os.getenv("MUSIC_MAX_CONCURRENCY", "1"))
+    MUSIC_MIN_REQUEST_INTERVAL_SECONDS = float(
+        os.getenv("MUSIC_MIN_REQUEST_INTERVAL_SECONDS", "30")
+    )
+    MUSIC_MAX_RETRIES = int(os.getenv("MUSIC_MAX_RETRIES", "3"))
+    MUSIC_RETRY_BASE_SECONDS = float(
+        os.getenv("MUSIC_RETRY_BASE_SECONDS", "30")
+    )
+    MUSIC_RETRY_MAX_SECONDS = float(
+        os.getenv("MUSIC_RETRY_MAX_SECONDS", "600")
+    )
+    MUSIC_WORKER_RESERVE_SECONDS = int(
+        os.getenv("MUSIC_WORKER_RESERVE_SECONDS", "5")
+    )
+    SUNO_QUOTA_REFRESH_INTERVAL_SECONDS = float(
+        os.getenv("SUNO_QUOTA_REFRESH_INTERVAL_SECONDS", "300")
+    )
+    MUSIC_STORAGE_BACKEND = os.getenv(
+        "MUSIC_STORAGE_BACKEND", "local"
+    ).lower()
     MUSIC_STORAGE_DIR = os.getenv(
         "MUSIC_STORAGE_DIR", str(PROJECT_ROOT / "backend" / "storage" / "music")
+    )
+    MUSIC_S3_ENDPOINT_URL = os.getenv("MUSIC_S3_ENDPOINT_URL", "").rstrip("/")
+    MUSIC_S3_BUCKET = os.getenv("MUSIC_S3_BUCKET", "")
+    MUSIC_S3_REGION = os.getenv("MUSIC_S3_REGION", "us-east-1")
+    MUSIC_S3_ACCESS_KEY = os.getenv("MUSIC_S3_ACCESS_KEY", "")
+    MUSIC_S3_SECRET_KEY = os.getenv("MUSIC_S3_SECRET_KEY", "")
+    MUSIC_S3_PREFIX = os.getenv("MUSIC_S3_PREFIX", "blue-music")
+    MUSIC_S3_PRESIGN_SECONDS = int(
+        os.getenv("MUSIC_S3_PRESIGN_SECONDS", "900")
     )
     WORKFLOW_STEP_DELAY_SECONDS = float(
         os.getenv("WORKFLOW_STEP_DELAY_SECONDS", "15")
@@ -101,3 +146,15 @@ class Settings:
 
 
 settings = Settings()
+
+
+def music_execution_timeout_seconds() -> float:
+    """Upper bound for one provider attempt, including result archiving."""
+
+    return max(
+        120.0,
+        settings.SUNO_REQUEST_TIMEOUT_SECONDS
+        + settings.SUNO_GENERATION_TIMEOUT_SECONDS
+        + (settings.SUNO_DOWNLOAD_TIMEOUT_SECONDS * 4)
+        + 300.0,
+    )

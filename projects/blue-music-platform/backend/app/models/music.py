@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     JSON,
@@ -30,6 +31,9 @@ class MusicTask(Base):
     )
     provider: Mapped[str] = mapped_column(
         String(50), default="suno", server_default="suno", nullable=False
+    )
+    provider_implementation: Mapped[str] = mapped_column(
+        String(30), default="official", server_default="official", nullable=False
     )
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     requested_by_id: Mapped[int | None] = mapped_column(
@@ -62,6 +66,18 @@ class MusicTask(Base):
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    max_attempts: Mapped[int] = mapped_column(
+        Integer, default=3, server_default="3", nullable=False
+    )
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    last_queued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -105,6 +121,9 @@ class MusicResult(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     audio_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    storage_backend: Mapped[str] = mapped_column(
+        String(20), default="local", server_default="local", nullable=False
+    )
     media_type: Mapped[str] = mapped_column(
         String(100), default="audio/mpeg", server_default="audio/mpeg", nullable=False
     )
@@ -117,4 +136,30 @@ class MusicResult(Base):
     )
     task: Mapped[MusicTask] = relationship(
         back_populates="results", foreign_keys=[task_id]
+    )
+
+
+class MusicProviderQuotaSnapshot(Base):
+    __tablename__ = "music_provider_quota_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(
+        String(50), default="suno", server_default="suno", nullable=False
+    )
+    provider_implementation: Mapped[str] = mapped_column(
+        String(30), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    credits_remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
+    usage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quota_limit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    period: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_usage: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

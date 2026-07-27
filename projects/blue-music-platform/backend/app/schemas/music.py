@@ -8,6 +8,7 @@ from app.schemas.ranking import TaskStatusValue
 
 
 MusicOperationValue = Literal["generate", "extend"]
+MusicProviderImplementationValue = Literal["official", "compatibility"]
 
 
 class MusicCreateRequest(BaseModel):
@@ -52,6 +53,7 @@ class MusicResultResponse(BaseModel):
     duration_seconds: int | None
     image_url: str | None
     provider_page_url: str | None
+    storage_backend: Literal["local", "s3"]
     storage_error: str | None
     audio_ready: bool
     audio_path: str
@@ -64,6 +66,7 @@ class MusicTaskResponse(BaseModel):
     status: TaskStatusValue
     operation: MusicOperationValue
     provider: Literal["suno"]
+    provider_implementation: MusicProviderImplementationValue
     model: str | None
     lyrics_version_id: int | None
     source_result_id: int | None
@@ -77,6 +80,10 @@ class MusicTaskResponse(BaseModel):
     provider_status: str | None
     error_code: str | None
     error_message: str | None
+    attempt_count: int
+    max_attempts: int
+    next_attempt_at: datetime | None
+    last_queued_at: datetime | None
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
@@ -110,9 +117,36 @@ class MusicTaskDeleteResponse(BaseModel):
     deleted_task_ids: list[int]
 
 
+class MusicTaskRetryResponse(BaseModel):
+    task: MusicTaskResponse
+
+
+class SunoQuotaResponse(BaseModel):
+    status: Literal["available", "error"]
+    provider_implementation: MusicProviderImplementationValue
+    credits_remaining: float | None
+    usage: float | None
+    quota_limit: float | None
+    period: str | None
+    error_code: str | None
+    error_message: str | None
+    checked_at: datetime
+
+
 class SunoProviderStatusResponse(BaseModel):
     provider: Literal["suno"] = "suno"
+    implementation: Literal["official", "compatibility", "invalid"]
     configured: bool
-    integration_status: Literal["waiting_access", "contract_pending"]
+    integration_status: Literal[
+        "waiting_access",
+        "contract_pending",
+        "disabled",
+        "ready",
+        "configuration_error",
+    ]
     message: str
     platform_url: str = "https://platform.suno.com/"
+    queue_mode: Literal["redis", "inline"]
+    max_concurrency: int
+    min_request_interval_seconds: float
+    quota: SunoQuotaResponse | None

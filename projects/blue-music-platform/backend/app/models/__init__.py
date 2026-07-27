@@ -5,7 +5,7 @@ from app.models.analysis import AnalysisReport, AnalysisTask, AnalysisTaskEntry
 from app.models.agent_permission import AgentType, UserAgentPermission
 from app.models.favorite import FavoriteItem
 from app.models.lyrics import LyricsTask, LyricsVersion
-from app.models.music import MusicResult, MusicTask
+from app.models.music import MusicProviderQuotaSnapshot, MusicResult, MusicTask
 from app.models.ranking import CollectionTask, RankingEntry, RankingSnapshot
 from app.models.user import User, UserRole
 from app.models.workflow import (
@@ -28,6 +28,7 @@ __all__ = [
     "LyricsTask",
     "LyricsVersion",
     "MusicResult",
+    "MusicProviderQuotaSnapshot",
     "MusicTask",
     "RankingEntry",
     "RankingSnapshot",

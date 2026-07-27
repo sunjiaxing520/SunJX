@@ -4,6 +4,7 @@ import type {
   MusicResultList,
   MusicTask,
   MusicTaskList,
+  SunoQuota,
   SunoProviderStatus,
   TaskDeleteResult,
 } from '../types/api'
@@ -12,6 +13,12 @@ import { apiBlobRequest, apiRequest } from './client'
 
 export function getSunoProviderStatus() {
   return apiRequest<SunoProviderStatus>('/music/provider-status')
+}
+
+export function refreshSunoQuota() {
+  return apiRequest<SunoQuota>('/music/provider-status/refresh', {
+    method: 'POST',
+  })
 }
 
 export function createMusicTask(payload: MusicCreatePayload) {
@@ -27,6 +34,12 @@ export function listMusicTasks(limit = 15) {
 
 export function getMusicTask(taskId: number) {
   return apiRequest<MusicTask>(`/music/tasks/${taskId}`)
+}
+
+export function retryMusicTask(taskId: number) {
+  return apiRequest<MusicTask>(`/music/tasks/${taskId}/retry`, {
+    method: 'POST',
+  })
 }
 
 export function deleteMusicTask(taskId: number) {

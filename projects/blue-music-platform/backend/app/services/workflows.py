@@ -39,8 +39,8 @@ from app.services.analysis import create_analysis
 from app.services.lyrics import create_lyrics_task
 from app.services.music import (
     create_music_task,
-    execute_music_task_in_session,
-    get_music_task,
+    dispatch_music_task,
+    wait_for_music_task_completion,
 )
 from app.services.rankings import create_collection
 
@@ -541,8 +541,8 @@ def _execute_step(
             ),
             run.requested_by_id,
         )
-        execute_music_task_in_session(db, music_task.id)
-        completed_task = get_music_task(db, music_task.id)
+        dispatch_music_task(db, music_task.id)
+        completed_task = wait_for_music_task_completion(db, music_task.id)
         if completed_task.status == TaskStatus.FAILED.value:
             raise AppException(
                 code=completed_task.error_code or "SUNO_PROVIDER_FAILED",

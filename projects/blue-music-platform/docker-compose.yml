@@ -1,4 +1,36 @@
-version: '3.8'
+x-music-runtime-environment: &music-runtime-environment
+  MUSIC_QUEUE_MODE: ${MUSIC_QUEUE_MODE:-redis}
+  MUSIC_QUEUE_NAME: ${MUSIC_QUEUE_NAME:-blue_music:music:queue}
+  MUSIC_MAX_CONCURRENCY: ${MUSIC_MAX_CONCURRENCY:-1}
+  MUSIC_MIN_REQUEST_INTERVAL_SECONDS: ${MUSIC_MIN_REQUEST_INTERVAL_SECONDS:-30}
+  MUSIC_MAX_RETRIES: ${MUSIC_MAX_RETRIES:-3}
+  MUSIC_RETRY_BASE_SECONDS: ${MUSIC_RETRY_BASE_SECONDS:-30}
+  MUSIC_RETRY_MAX_SECONDS: ${MUSIC_RETRY_MAX_SECONDS:-600}
+  MUSIC_WORKER_RESERVE_SECONDS: ${MUSIC_WORKER_RESERVE_SECONDS:-5}
+  SUNO_PROVIDER_IMPLEMENTATION: ${SUNO_PROVIDER_IMPLEMENTATION:-official}
+  SUNO_API_BASE_URL: ${SUNO_API_BASE_URL:-}
+  SUNO_API_KEY: ${SUNO_API_KEY:-}
+  SUNO_MODEL: ${SUNO_MODEL:-}
+  SUNO_COMPAT_ENABLED: ${SUNO_COMPAT_ENABLED:-false}
+  SUNO_COMPAT_BASE_URL: ${SUNO_COMPAT_BASE_URL:-}
+  SUNO_COMPAT_SHARED_TOKEN: ${SUNO_COMPAT_SHARED_TOKEN:-}
+  SUNO_COMPAT_MODEL: ${SUNO_COMPAT_MODEL:-}
+  SUNO_COMPAT_ALLOW_REMOTE: ${SUNO_COMPAT_ALLOW_REMOTE:-false}
+  SUNO_REQUEST_TIMEOUT_SECONDS: ${SUNO_REQUEST_TIMEOUT_SECONDS:-120}
+  SUNO_GENERATION_TIMEOUT_SECONDS: ${SUNO_GENERATION_TIMEOUT_SECONDS:-900}
+  SUNO_POLL_INTERVAL_SECONDS: ${SUNO_POLL_INTERVAL_SECONDS:-30}
+  SUNO_DOWNLOAD_TIMEOUT_SECONDS: ${SUNO_DOWNLOAD_TIMEOUT_SECONDS:-120}
+  SUNO_MAX_AUDIO_BYTES: ${SUNO_MAX_AUDIO_BYTES:-104857600}
+  SUNO_QUOTA_REFRESH_INTERVAL_SECONDS: ${SUNO_QUOTA_REFRESH_INTERVAL_SECONDS:-300}
+  MUSIC_STORAGE_BACKEND: ${MUSIC_STORAGE_BACKEND:-local}
+  MUSIC_STORAGE_DIR: ${MUSIC_STORAGE_DIR:-/app/storage/music}
+  MUSIC_S3_ENDPOINT_URL: ${MUSIC_S3_ENDPOINT_URL:-}
+  MUSIC_S3_BUCKET: ${MUSIC_S3_BUCKET:-}
+  MUSIC_S3_REGION: ${MUSIC_S3_REGION:-us-east-1}
+  MUSIC_S3_ACCESS_KEY: ${MUSIC_S3_ACCESS_KEY:-}
+  MUSIC_S3_SECRET_KEY: ${MUSIC_S3_SECRET_KEY:-}
+  MUSIC_S3_PREFIX: ${MUSIC_S3_PREFIX:-blue-music}
+  MUSIC_S3_PRESIGN_SECONDS: ${MUSIC_S3_PRESIGN_SECONDS:-900}
 
 services:
   postgres:
@@ -27,6 +59,7 @@ services:
     build: ./backend
     container_name: blue_music_backend
     environment:
+      <<: *music-runtime-environment
       DATABASE_URL: postgresql://blue_music:blue_music_pass@postgres:5432/blue_music_db
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
@@ -39,6 +72,25 @@ services:
     depends_on:
       - postgres
       - redis
+    networks:
+      - blue_music_net
+
+  music-worker:
+    build: ./backend
+    container_name: blue_music_music_worker
+    command: ["python", "-m", "app.workers.music"]
+    environment:
+      <<: *music-runtime-environment
+      DATABASE_URL: postgresql://blue_music:blue_music_pass@postgres:5432/blue_music_db
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
     networks:
       - blue_music_net
 

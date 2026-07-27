@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 
 import { listLyricsTasks } from '../api/lyrics'
+import { useAuth } from '../auth/useAuth'
 import {
   createMusicTask,
   deleteMusicResult,
@@ -42,6 +43,8 @@ import {
   listMusicResults,
   listMusicTasks,
   loadMusicAudio,
+  refreshSunoQuota,
+  retryMusicTask,
 } from '../api/music'
 import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
@@ -89,6 +92,7 @@ const STATUS_COLORS: Record<WorkflowTaskStatus, string> = {
 
 export function MusicPage() {
   const { message } = App.useApp()
+  const { user } = useAuth()
   const [form] = Form.useForm<MusicFormValues>()
   const [extendForm] = Form.useForm<ExtendFormValues>()
   const [providerStatus, setProviderStatus] = useState<SunoProviderStatus | null>(null)
@@ -101,6 +105,8 @@ export function MusicPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [extending, setExtending] = useState(false)
+  const [refreshingQuota, setRefreshingQuota] = useState(false)
+  const [retryingTaskId, setRetryingTaskId] = useState<number | null>(null)
   const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [deletingResultId, setDeletingResultId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -226,6 +232,32 @@ export function MusicPage() {
     }
   }
 
+  const refreshQuota = async () => {
+    setRefreshingQuota(true)
+    try {
+      const quota = await refreshSunoQuota()
+      message.success(quota.status === 'available' ? 'Suno 额度已更新' : '额度查询返回错误')
+      await load(true)
+    } catch (quotaError) {
+      message.error(errorMessage(quotaError))
+    } finally {
+      setRefreshingQuota(false)
+    }
+  }
+
+  const retryTask = async (taskId: number) => {
+    setRetryingTaskId(taskId)
+    try {
+      const task = await retryMusicTask(taskId)
+      message.success(`音乐任务 #${task.id} 已重新进入队列`)
+      await load(true)
+    } catch (retryError) {
+      message.error(errorMessage(retryError))
+    } finally {
+      setRetryingTaskId(null)
+    }
+  }
+
   const columns: TableProps<MusicTask>['columns'] = [
     {
       title: '任务',
@@ -233,7 +265,11 @@ export function MusicPage() {
       render: (_, task) => (
         <button type="button" className="table-link-button" onClick={() => setActiveTask(task)}>
           <strong>#{task.id} · {task.title}</strong>
-          <small>{task.operation === 'extend' ? '续写' : '完整生成'} · Suno{task.model ? ` / ${task.model}` : ''}</small>
+          <small>
+            {task.operation === 'extend' ? '续写' : '完整生成'} ·
+            {task.provider_implementation === 'official' ? ' 官方接口' : ' 兼容接口'} ·
+            尝试 {task.attempt_count}/{task.max_attempts}
+          </small>
         </button>
       ),
     },
@@ -294,25 +330,54 @@ export function MusicPage() {
       </div>
 
       {error && <Alert type="error" showIcon title={error} />}
-      {providerStatus && providerStatus.integration_status !== 'contract_pending' && (
+      {providerStatus && (
         <Alert
-          type="warning"
+          className="music-provider-alert"
+          type={providerStatus.integration_status === 'ready' ? 'success' : providerStatus.integration_status === 'contract_pending' ? 'info' : 'warning'}
           showIcon
-          title="Suno 官方 API 尚未配置"
+          title={`Suno ${
+            providerStatus.implementation === 'official'
+              ? '官方实现'
+              : providerStatus.implementation === 'compatibility'
+                ? '兼容实现'
+                : '配置错误'
+          }`}
           description={providerStatus.message}
           action={
-            <Button
-              href={providerStatus.platform_url}
-              target="_blank"
-              icon={<ExternalLink size={15} />}
-            >
-              打开 Suno Platform
-            </Button>
+            <Space wrap>
+              {user?.role === 'super_admin' && (
+                <Button
+                  icon={<RefreshCw size={15} />}
+                  loading={refreshingQuota}
+                  onClick={() => void refreshQuota()}
+                >
+                  刷新额度
+                </Button>
+              )}
+              <Button
+                href={providerStatus.platform_url}
+                target="_blank"
+                icon={<ExternalLink size={15} />}
+              >
+                Suno Platform
+              </Button>
+            </Space>
           }
         />
       )}
-      {providerStatus?.integration_status === 'contract_pending' && (
-        <Alert type="info" showIcon title="Suno 账号已配置" description={providerStatus.message} />
+      {providerStatus && (
+        <section className="content-section">
+          <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 4 }} bordered>
+            <Descriptions.Item label="任务队列">{providerStatus.queue_mode === 'redis' ? 'Redis 独立队列' : '进程内执行'}</Descriptions.Item>
+            <Descriptions.Item label="最大并发">{providerStatus.max_concurrency}</Descriptions.Item>
+            <Descriptions.Item label="请求间隔">{providerStatus.min_request_interval_seconds} 秒</Descriptions.Item>
+            <Descriptions.Item label="账户额度">
+              {providerStatus.quota?.status === 'available'
+                ? `${providerStatus.quota.credits_remaining ?? '未知'} / ${providerStatus.quota.quota_limit ?? '未知'}`
+                : providerStatus.quota?.error_message ?? '尚未查询'}
+            </Descriptions.Item>
+          </Descriptions>
+        </section>
       )}
 
       <section className="content-section music-create-section">
@@ -457,6 +522,13 @@ export function MusicPage() {
                 <Tag color={STATUS_COLORS[activeTask.status]}>{STATUS_LABELS[activeTask.status]}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="供应商">Suno{activeTask.model ? ` / ${activeTask.model}` : ''}</Descriptions.Item>
+              <Descriptions.Item label="接口实现">
+                {activeTask.provider_implementation === 'official' ? '官方 Suno API' : '隔离兼容服务'}
+              </Descriptions.Item>
+              <Descriptions.Item label="尝试次数">{activeTask.attempt_count} / {activeTask.max_attempts}</Descriptions.Item>
+              <Descriptions.Item label="下次重试">
+                {activeTask.next_attempt_at ? formatDateTime(activeTask.next_attempt_at) : '无'}
+              </Descriptions.Item>
               <Descriptions.Item label="外部任务编号">{activeTask.external_task_id ?? '尚未获得'}</Descriptions.Item>
               <Descriptions.Item label="创作方式">{activeTask.operation === 'extend' ? '续写' : '完整生成'}</Descriptions.Item>
               <Descriptions.Item label="风格要求">{activeTask.style_prompt}</Descriptions.Item>
@@ -467,6 +539,17 @@ export function MusicPage() {
                 showIcon
                 title={activeTask.error_message}
                 description={activeTask.error_code ? `错误码：${activeTask.error_code}` : undefined}
+                action={
+                  activeTask.status === 'failed' ? (
+                    <Button
+                      icon={<RefreshCw size={15} />}
+                      loading={retryingTaskId === activeTask.id}
+                      onClick={() => void retryTask(activeTask.id)}
+                    >
+                      重新入队
+                    </Button>
+                  ) : undefined
+                }
               />
             )}
             <ApiUsageDetails records={activeTask.api_usage} />

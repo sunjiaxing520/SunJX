@@ -4,7 +4,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import music_execution_timeout_seconds, settings
 from app.core.logging import LOGGER_NAME
 from app.core.time import utc_now
 from app.models import (
@@ -107,36 +107,33 @@ def _text_task_max_runtime_seconds(db: Session) -> float:
 
 def recover_stale_music_tasks(db: Session) -> int:
     now = utc_now()
-    max_runtime_seconds = max(
-        60.0,
-        float(settings.SUNO_GENERATION_TIMEOUT_SECONDS) + 60.0,
-    )
+    max_runtime_seconds = music_execution_timeout_seconds()
     cutoff = now - timedelta(seconds=max_runtime_seconds)
     tasks = db.scalars(
         select(MusicTask).where(
-            MusicTask.status.in_(
-                (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
-            ),
-            func.coalesce(MusicTask.started_at, MusicTask.created_at) < cutoff,
+            MusicTask.status == TaskStatus.RUNNING.value,
+            MusicTask.started_at < cutoff,
         )
     ).all()
     for task in tasks:
-        task.status = TaskStatus.FAILED.value
+        task.status = TaskStatus.PENDING.value
+        task.provider_status = "interrupted_requeued"
         task.error_code = "MUSIC_TASK_INTERRUPTED"
         task.error_message = (
-            "音乐任务超过最长运行时间，可能因后端重启或 Suno 请求中断而停止，请重新运行"
+            "音乐 worker 曾中断，任务已恢复到队列；若已有外部任务编号将继续查询而不会重复提交"
         )
         task.error_detail = {
-            "reason": "task_runtime_exceeded",
+            "reason": "worker_interrupted",
             "max_runtime_seconds": round(max_runtime_seconds),
         }
-        task.completed_at = now
+        task.next_attempt_at = now
+        task.completed_at = None
     if not tasks:
         return 0
     db.commit()
     for task in tasks:
         task_logger.warning(
-            "stale_music_task_recovered",
+            "stale_music_task_requeued",
             extra={
                 "task_id": str(task.id),
                 "task_type": "music",

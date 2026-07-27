@@ -7,12 +7,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.adapters.music_generation import SunoOfficialMusicProvider
+from app.adapters.music_generation import MusicProviderError, SunoOfficialMusicProvider
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.security import hash_password
 from app.main import create_app
 from app.models import User, UserRole
+from app.services.music_storage import StoredMusicObject
+from app.services.music import get_music_task
 from tests.fakes import FakeSunoProvider
 
 
@@ -30,24 +32,29 @@ def music_context(
 ) -> MusicContext:
     monkeypatch.setattr(settings, "AI_PROVIDER", "local")
     monkeypatch.setattr(settings, "AI_MODEL", "")
+    monkeypatch.setattr(settings, "MUSIC_QUEUE_MODE", "inline")
+    monkeypatch.setattr(settings, "SUNO_PROVIDER_IMPLEMENTATION", "official")
     storage_root = tmp_path / "music"
     monkeypatch.setattr(settings, "MUSIC_STORAGE_DIR", str(storage_root))
     provider = FakeSunoProvider()
-    monkeypatch.setattr("app.services.music.get_music_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.services.music.get_music_provider",
+        lambda *_args, **_kwargs: provider,
+    )
 
     def archive_audio(
         task_id: int,
         result_id: int,
         _url: str,
         _media_type: str,
-    ) -> str:
+    ) -> StoredMusicObject:
         relative = Path(str(task_id)) / f"{result_id}.mp3"
         target = storage_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"ID3-suno-test-audio")
-        return relative.as_posix()
+        return StoredMusicObject(backend="local", key=relative.as_posix())
 
-    monkeypatch.setattr("app.services.music._download_audio", archive_audio)
+    monkeypatch.setattr("app.services.music._archive_audio", archive_audio)
     engine = create_engine(
         "sqlite+pysqlite://",
         connect_args={"check_same_thread": False},
@@ -221,7 +228,7 @@ def test_unconfigured_official_suno_fails_with_actionable_error(
     monkeypatch.setattr(settings, "SUNO_API_KEY", "")
     monkeypatch.setattr(
         "app.services.music.get_music_provider",
-        lambda: SunoOfficialMusicProvider(),
+        lambda *_args, **_kwargs: SunoOfficialMusicProvider(),
     )
     response = music_context.client.post(
         "/api/v1/music/tasks",
@@ -243,8 +250,8 @@ def test_running_music_task_cannot_be_deleted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "app.api.v1.routes.music.execute_music_task",
-        lambda *_args, **_kwargs: None,
+        "app.api.v1.routes.music.dispatch_music_task",
+        lambda db, task_id: get_music_task(db, task_id),
     )
     response = music_context.client.post(
         "/api/v1/music/tasks",
@@ -258,3 +265,74 @@ def test_running_music_task_cannot_be_deleted(
 
     assert deleted.status_code == 409
     assert deleted.json()["error"]["code"] == "MUSIC_TASK_DELETE_CONFLICT"
+
+
+def test_retryable_music_error_uses_persisted_attempts(
+    music_context: MusicContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_generate = music_context.provider.generate
+    attempts = 0
+
+    def flaky_generate(payload):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise MusicProviderError(
+                "temporary upstream failure",
+                code="SUNO_COMPAT_UPSTREAM_ERROR",
+                retryable=True,
+            )
+        return original_generate(payload)
+
+    monkeypatch.setattr(settings, "MUSIC_RETRY_BASE_SECONDS", 0)
+    monkeypatch.setattr(settings, "MUSIC_RETRY_MAX_SECONDS", 0)
+    monkeypatch.setattr(music_context.provider, "generate", flaky_generate)
+
+    task = _create_music(music_context, "自动重试")
+
+    assert task["status"] == "completed"
+    assert task["attempt_count"] == 2
+    assert task["next_attempt_at"] is None
+
+
+def test_hcaptcha_requires_human_and_supports_manual_requeue(
+    music_context: MusicContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def require_human(_payload):
+        raise MusicProviderError(
+            "human verification required",
+            code="SUNO_HUMAN_VERIFICATION_REQUIRED",
+            requires_human=True,
+        )
+
+    monkeypatch.setattr(music_context.provider, "generate", require_human)
+    task = _create_music(music_context, "人工验证")
+
+    assert task["status"] == "failed"
+    assert task["provider_status"] == "waiting_human_verification"
+    retried = music_context.client.post(
+        f"/api/v1/music/tasks/{task['id']}/retry",
+        headers=_headers(music_context),
+    )
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "failed"
+    assert retried.json()["attempt_count"] == 2
+
+
+def test_provider_status_exposes_queue_and_persisted_quota(
+    music_context: MusicContext,
+) -> None:
+    _create_music(music_context, "额度快照")
+    response = music_context.client.get(
+        "/api/v1/music/provider-status",
+        headers=_headers(music_context),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["implementation"] == "official"
+    assert body["queue_mode"] == "inline"
+    assert body["quota"]["status"] == "available"
+    assert body["quota"]["credits_remaining"] == 80

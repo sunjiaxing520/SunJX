@@ -471,6 +471,7 @@ export interface CreationBrief {
 }
 
 export type MusicOperation = 'generate' | 'extend'
+export type MusicProviderImplementation = 'official' | 'compatibility'
 
 export interface MusicResult {
   id: number
@@ -481,6 +482,7 @@ export interface MusicResult {
   duration_seconds: number | null
   image_url: string | null
   provider_page_url: string | null
+  storage_backend: 'local' | 's3'
   storage_error: string | null
   audio_ready: boolean
   audio_path: string
@@ -493,6 +495,7 @@ export interface MusicTask {
   status: WorkflowTaskStatus
   operation: MusicOperation
   provider: 'suno'
+  provider_implementation: MusicProviderImplementation
   model: string | null
   lyrics_version_id: number | null
   source_result_id: number | null
@@ -506,6 +509,10 @@ export interface MusicTask {
   provider_status: string | null
   error_code: string | null
   error_message: string | null
+  attempt_count: number
+  max_attempts: number
+  next_attempt_at: string | null
+  last_queued_at: string | null
   started_at: string | null
   completed_at: string | null
   created_at: string
@@ -541,10 +548,32 @@ export interface MusicExtendPayload {
 
 export interface SunoProviderStatus {
   provider: 'suno'
+  implementation: MusicProviderImplementation | 'invalid'
   configured: boolean
-  integration_status: 'waiting_access' | 'contract_pending'
+  integration_status:
+    | 'waiting_access'
+    | 'contract_pending'
+    | 'disabled'
+    | 'ready'
+    | 'configuration_error'
   message: string
   platform_url: string
+  queue_mode: 'redis' | 'inline'
+  max_concurrency: number
+  min_request_interval_seconds: number
+  quota: SunoQuota | null
+}
+
+export interface SunoQuota {
+  status: 'available' | 'error'
+  provider_implementation: MusicProviderImplementation
+  credits_remaining: number | null
+  usage: number | null
+  quota_limit: number | null
+  period: string | null
+  error_code: string | null
+  error_message: string | null
+  checked_at: string
 }
 
 export type FavoriteItemType = 'analysis' | 'lyrics'
