@@ -32,6 +32,19 @@ POST /api/v1/music/tasks
 新任务使用新实现；已经入队的任务继续使用创建时记录的
 `provider_implementation`，避免外部任务编号串线。
 
+## 创作参数与任务模型
+
+音乐创作请求可携带多个目标风格标签和多个避免风格标签；服务端拒绝两组标签
+重叠的请求。管理员维护唯一的 `music_provider_settings` 记录，当前活动模型默认
+为 `v4.5`。只有超级管理员可以通过 `PUT /api/v1/music/settings` 修改它，变更只
+影响之后创建的任务；每个任务会保存实际使用的模型与风格标签。
+
+`POST /api/v1/music/tasks/{task_id}/regenerate` 会以来源任务的创作参数创建一个新
+任务，返回 `202`；原任务和已产出的试听/下载结果不被覆盖。授权改编通过
+`POST /api/v1/music/adaptations` 提交，必须明确 `rights_confirmed=true`，并保存
+来源标题、作者/来源链接和权利说明以供内部追溯。该入口不等同于对未授权作品的
+复制或模仿承诺。
+
 ## 开源兼容项目审计
 
 审计仓库：`https://github.com/gcui-art/suno-api`

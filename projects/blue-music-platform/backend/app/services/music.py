@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import Connection, Engine, func, select
+from sqlalchemy import Connection, Engine, delete, func, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from app.adapters.music_generation import (
@@ -21,7 +21,9 @@ from app.core.logging import LOGGER_NAME
 from app.core.time import utc_now
 from app.models import (
     LyricsVersion,
+    FavoriteItem,
     MusicProviderQuotaSnapshot,
+    MusicProviderSettings,
     MusicResult,
     MusicTask,
     TaskStatus,
@@ -30,7 +32,10 @@ from app.models import (
 )
 from app.schemas.music import (
     MusicCreateRequest,
+    MusicAdaptRequest,
     MusicExtendRequest,
+    MusicProviderSettingsResponse,
+    MusicProviderSettingsUpdate,
     MusicResultListResponse,
     MusicResultResponse,
     MusicTaskDeleteResponse,
@@ -58,6 +63,7 @@ class MusicTaskExecutionOutcome:
 
 
 def music_result_response(result: MusicResult) -> MusicResultResponse:
+    task = result.task
     return MusicResultResponse(
         id=result.id,
         task_id=result.task_id,
@@ -72,6 +78,10 @@ def music_result_response(result: MusicResult) -> MusicResultResponse:
         audio_ready=bool(result.storage_key or result.audio_url),
         audio_path=f"/music/results/{result.id}/audio",
         download_path=f"/music/results/{result.id}/download",
+        task_operation=task.operation,
+        task_model=task.model,
+        style_tags=list(task.style_tags),
+        negative_tags=list(task.negative_tags),
         created_at=result.created_at,
     )
 
@@ -89,9 +99,16 @@ def music_task_response(db: Session, task: MusicTask) -> MusicTaskResponse:
         title=task.title,
         lyrics=task.lyrics,
         style_prompt=task.style_prompt,
+        style_tags=list(task.style_tags),
         instrumental=task.instrumental,
         negative_tags=task.negative_tags,
         requirements=task.requirements,
+        adaptation_mode=task.adaptation_mode,
+        source_title=task.source_title,
+        source_artist=task.source_artist,
+        source_url=task.source_url,
+        rights_confirmed=task.rights_confirmed,
+        rights_note=task.rights_note,
         external_task_id=task.external_task_id,
         provider_status=task.provider_status,
         error_code=task.error_code,
@@ -128,12 +145,13 @@ def create_music_task(
         operation="generate",
         provider="suno",
         provider_implementation=_selected_provider_implementation(),
-        model=settings.SUNO_MODEL or None,
+        model=_selected_music_model(db),
         requested_by_id=requested_by_id,
         lyrics_version_id=lyrics_version.id,
         title=(payload.title or lyrics_version.title).strip(),
         lyrics="" if payload.instrumental else lyrics_version.content,
         style_prompt=(payload.style_prompt or lyrics_version.style_prompt).strip(),
+        style_tags=list(payload.style_tags),
         instrumental=payload.instrumental,
         negative_tags=payload.negative_tags,
         requirements=_clean_optional_text(payload.requirements),
@@ -159,7 +177,7 @@ def create_extension_task(
         operation="extend",
         provider="suno",
         provider_implementation=_selected_provider_implementation(),
-        model=source_task.model or settings.SUNO_MODEL or None,
+        model=_selected_music_model(db),
         requested_by_id=requested_by_id,
         lyrics_version_id=source_task.lyrics_version_id,
         source_result_id=source.id,
@@ -170,6 +188,7 @@ def create_extension_task(
             if payload.style_prompt is not None
             else source_task.style_prompt
         ).strip(),
+        style_tags=list(source_task.style_tags),
         instrumental=source_task.instrumental,
         negative_tags=list(source_task.negative_tags),
         requirements=_clean_optional_text(
@@ -177,6 +196,53 @@ def create_extension_task(
             if payload.requirements is not None
             else source_task.requirements
         ),
+        max_attempts=max(1, settings.MUSIC_MAX_RETRIES),
+        provider_status="created",
+    )
+    db.add(task)
+    db.commit()
+    return get_music_task(db, task.id)
+
+
+def create_adaptation_task(
+    db: Session,
+    result_id: int,
+    payload: MusicAdaptRequest,
+    requested_by_id: int,
+) -> MusicTaskResponse:
+    source = _get_result(db, result_id)
+    source_task = _get_task_model(db, source.task_id)
+    _consume_music_task_quota(db, requested_by_id)
+    task = MusicTask(
+        status=TaskStatus.PENDING.value,
+        operation="adapt",
+        provider="suno",
+        provider_implementation=_selected_provider_implementation(),
+        model=_selected_music_model(db),
+        requested_by_id=requested_by_id,
+        lyrics_version_id=source_task.lyrics_version_id,
+        source_result_id=source.id,
+        title=(payload.title or f"{source.title} · 授权改编").strip(),
+        lyrics=(payload.lyrics if payload.lyrics is not None else source_task.lyrics),
+        style_prompt=(
+            payload.style_prompt
+            if payload.style_prompt is not None
+            else source_task.style_prompt
+        ).strip(),
+        style_tags=(list(payload.style_tags) or list(source_task.style_tags)),
+        instrumental=source_task.instrumental,
+        negative_tags=(list(payload.negative_tags) or list(source_task.negative_tags)),
+        requirements=_clean_optional_text(
+            payload.requirements
+            if payload.requirements is not None
+            else source_task.requirements
+        ),
+        adaptation_mode=payload.adaptation_mode,
+        source_title=source.title,
+        source_artist=_clean_optional_text(payload.source_artist),
+        source_url=_clean_optional_text(payload.source_url),
+        rights_confirmed=True,
+        rights_note=_clean_optional_text(payload.rights_note),
         max_attempts=max(1, settings.MUSIC_MAX_RETRIES),
         provider_status="created",
     )
@@ -232,6 +298,87 @@ def retry_music_task(db: Session, task_id: int) -> MusicTaskResponse:
         )
     task.status = TaskStatus.PENDING.value
     task.provider_status = "retry_requested"
+    task.max_attempts = max(
+        task.max_attempts,
+        task.attempt_count + max(1, settings.MUSIC_MAX_RETRIES),
+    )
+    task.next_attempt_at = None
+    task.completed_at = None
+    task.error_code = None
+    task.error_message = None
+    task.error_detail = None
+    db.commit()
+    return dispatch_music_task(db, task.id)
+
+
+def regenerate_music_task(
+    db: Session,
+    task_id: int,
+    requested_by_id: int,
+) -> MusicTaskResponse:
+    source = _get_task_model(db, task_id)
+    if source.status != TaskStatus.COMPLETED.value:
+        raise AppException(
+            code="MUSIC_TASK_REGENERATE_CONFLICT",
+            message="只有已完成的音乐任务可以再次生成",
+            status_code=409,
+        )
+    _consume_music_task_quota(db, requested_by_id)
+    task = MusicTask(
+        status=TaskStatus.PENDING.value,
+        operation=source.operation,
+        provider="suno",
+        provider_implementation=_selected_provider_implementation(),
+        model=_selected_music_model(db),
+        requested_by_id=requested_by_id,
+        lyrics_version_id=source.lyrics_version_id,
+        source_result_id=source.source_result_id,
+        title=source.title,
+        lyrics=source.lyrics,
+        style_prompt=source.style_prompt,
+        style_tags=list(source.style_tags),
+        instrumental=source.instrumental,
+        negative_tags=list(source.negative_tags),
+        requirements=source.requirements,
+        adaptation_mode=source.adaptation_mode,
+        source_title=source.source_title,
+        source_artist=source.source_artist,
+        source_url=source.source_url,
+        rights_confirmed=source.rights_confirmed,
+        rights_note=source.rights_note,
+        max_attempts=max(1, settings.MUSIC_MAX_RETRIES),
+        provider_status="created",
+    )
+    db.add(task)
+    db.commit()
+    return get_music_task(db, task.id)
+
+
+def resume_after_human_verification(
+    db: Session,
+    task_id: int,
+) -> MusicTaskResponse:
+    task = _get_task_model(db, task_id)
+    if not (
+        task.status == TaskStatus.FAILED.value
+        and (
+            task.provider_status == "waiting_human_verification"
+            or task.error_code == "SUNO_HUMAN_VERIFICATION_REQUIRED"
+        )
+    ):
+        raise AppException(
+            code="MUSIC_TASK_HUMAN_VERIFICATION_CONFLICT",
+            message="只有等待人机验证的失败任务可以在管理员验证后恢复",
+            status_code=409,
+            detail={
+                "task_status": task.status,
+                "provider_status": task.provider_status,
+                "error_code": task.error_code,
+            },
+        )
+
+    task.status = TaskStatus.PENDING.value
+    task.provider_status = "human_verification_completed"
     task.max_attempts = max(
         task.max_attempts,
         task.attempt_count + max(1, settings.MUSIC_MAX_RETRIES),
@@ -314,13 +461,14 @@ def execute_music_task_in_session(
     try:
         provider = get_music_provider(
             task.provider_implementation,
+            model=task.model,
             on_submitted=lambda external_task_id: _persist_external_task_id(
                 db,
                 task,
                 external_task_id,
             ),
         )
-        task.model = provider.model
+        task.model = provider.model or task.model
         source_external_id = None
         if task.source_result_id is not None:
             source = db.get(MusicResult, task.source_result_id)
@@ -338,6 +486,7 @@ def execute_music_task_in_session(
             instrumental=task.instrumental,
             negative_tags=list(task.negative_tags),
             requirements=task.requirements,
+            style_tags=list(task.style_tags),
             source_external_id=source_external_id,
         )
         if task.external_task_id:
@@ -346,6 +495,7 @@ def execute_music_task_in_session(
             output = (
                 provider.extend(provider_payload)
                 if task.operation == "extend"
+                or (task.operation == "adapt" and task.adaptation_mode == "extend")
                 else provider.generate(provider_payload)
             )
         _complete_music_task(db, task, output)
@@ -403,6 +553,7 @@ def list_music_tasks(db: Session, limit: int = 15) -> MusicTaskListResponse:
 def list_music_results(db: Session, limit: int = 30) -> MusicResultListResponse:
     results = db.scalars(
         select(MusicResult)
+        .options(selectinload(MusicResult.task))
         .order_by(MusicResult.created_at.desc(), MusicResult.id.desc())
         .limit(limit)
     ).all()
@@ -454,6 +605,14 @@ def delete_music_tasks(
         task = tasks_by_id[task_id]
         for result in task.results:
             _delete_storage_file(result.storage_key, result.storage_backend)
+        result_ids = [result.id for result in task.results]
+        if result_ids:
+            db.execute(
+                delete(FavoriteItem).where(
+                    FavoriteItem.item_type == "music",
+                    FavoriteItem.target_id.in_(result_ids),
+                )
+            )
         db.delete(task)
     db.commit()
     return MusicTaskDeleteResponse(
@@ -478,6 +637,12 @@ def delete_music_result(db: Session, result_id: int) -> None:
             detail={"active_task_id": active_extension},
         )
     _delete_storage_file(result.storage_key, result.storage_backend)
+    db.execute(
+        delete(FavoriteItem).where(
+            FavoriteItem.item_type == "music",
+            FavoriteItem.target_id == result.id,
+        )
+    )
     db.delete(result)
     db.commit()
 
@@ -783,6 +948,33 @@ def latest_music_quota(
     return _quota_response(snapshot) if snapshot else None
 
 
+def music_provider_settings_response(
+    settings_row: MusicProviderSettings,
+) -> MusicProviderSettingsResponse:
+    return MusicProviderSettingsResponse(
+        active_model=settings_row.active_model,
+        updated_by_id=settings_row.updated_by_id,
+        updated_at=settings_row.updated_at,
+    )
+
+
+def get_music_provider_settings(db: Session) -> MusicProviderSettingsResponse:
+    return music_provider_settings_response(_get_or_create_music_settings(db))
+
+
+def update_music_provider_settings(
+    db: Session,
+    payload: MusicProviderSettingsUpdate,
+    user_id: int,
+) -> MusicProviderSettingsResponse:
+    settings_row = _get_or_create_music_settings(db)
+    settings_row.active_model = payload.active_model
+    settings_row.updated_by_id = user_id
+    db.commit()
+    db.refresh(settings_row)
+    return music_provider_settings_response(settings_row)
+
+
 def refresh_music_quota(
     db: Session,
     implementation: str | None = None,
@@ -877,6 +1069,24 @@ def _selected_provider_implementation() -> str:
             detail={"allowed": ["official", "compatibility"]},
         )
     return selected
+
+
+def _selected_music_model(db: Session) -> str:
+    return _get_or_create_music_settings(db).active_model
+
+
+def _get_or_create_music_settings(db: Session) -> MusicProviderSettings:
+    settings_row = db.get(MusicProviderSettings, 1)
+    if settings_row is not None:
+        return settings_row
+    settings_row = MusicProviderSettings(
+        id=1,
+        active_model=(settings.SUNO_MODEL or "v4.5").strip() or "v4.5",
+    )
+    db.add(settings_row)
+    db.commit()
+    db.refresh(settings_row)
+    return settings_row
 
 
 def _consume_music_task_quota(db: Session, user_id: int) -> None:

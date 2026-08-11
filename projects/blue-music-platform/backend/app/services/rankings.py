@@ -5,8 +5,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.kugou import (
-    KUGOU_CHART_CODE,
-    KUGOU_CHART_NAME,
+    KUGOU_CHARTS,
     KugouAdapterError,
     KugouRankingAdapter,
     RankingFetchResult,
@@ -103,10 +102,11 @@ def create_collection(
             message="样例快照日期只能选择最近 30 天",
             status_code=422,
         )
+    chart_code, chart_name = KUGOU_CHARTS[payload.chart]
     task = CollectionTask(
         platform="kugou",
-        chart_code=KUGOU_CHART_CODE,
-        chart_name=KUGOU_CHART_NAME,
+        chart_code=chart_code,
+        chart_name=chart_name,
         source_mode=payload.source_mode,
         snapshot_date=snapshot_date,
         status=TaskStatus.PENDING.value,
@@ -165,12 +165,17 @@ def create_collection(
 
 
 def _fetch_ranking(payload: CollectionCreateRequest) -> RankingFetchResult:
+    chart_code, chart_name = KUGOU_CHARTS[payload.chart]
     if payload.source_mode == "sample":
-        return sample_ranking(payload.limit)
+        return sample_ranking(
+            payload.limit,
+            chart_code=chart_code,
+            chart_name=chart_name,
+        )
     return KugouRankingAdapter(
         timeout_seconds=settings.KUGOU_REQUEST_TIMEOUT_SECONDS,
         max_retries=settings.KUGOU_MAX_RETRIES,
-    ).fetch(payload.limit)
+    ).fetch(payload.limit, chart_code=chart_code, chart_name=chart_name)
 
 
 def _replace_daily_snapshot(

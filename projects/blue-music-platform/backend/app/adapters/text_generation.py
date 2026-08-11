@@ -127,6 +127,30 @@ class GeneratedLyrics(BaseModel):
         )
 
 
+class GeneratedReviewDimension(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    score: int = Field(ge=0, le=100)
+    feedback: str = Field(min_length=1, max_length=1000)
+
+
+class GeneratedLyricsReview(BaseModel):
+    overall_score: int = Field(ge=0, le=100)
+    summary: str = Field(min_length=1, max_length=2000)
+    dimensions: list[GeneratedReviewDimension] = Field(min_length=1, max_length=12)
+    strengths: list[str] = Field(default_factory=list, max_length=12)
+    revision_suggestions: list[str] = Field(default_factory=list, max_length=12)
+    risk_notes: list[str] = Field(default_factory=list, max_length=12)
+
+
+class GeneratedReviewMemory(BaseModel):
+    summary: str = Field(min_length=1, max_length=2000)
+    detail: dict[str, Any]
+
+
+class GeneratedReviewAgentInitialization(GeneratedReviewMemory):
+    reply: str = Field(min_length=1, max_length=2000)
+
+
 class TextGenerationProvider(Protocol):
     name: str
     model: str | None
@@ -138,6 +162,26 @@ class TextGenerationProvider(Protocol):
         context: dict[str, Any],
         variation: int,
     ) -> ProviderResult[GeneratedLyrics]: ...
+
+    def revise_lyrics(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyrics]: ...
+
+    def initialize_review_agent(
+        self,
+        messages: list[dict[str, str]],
+    ) -> ProviderResult[GeneratedReviewAgentInitialization]: ...
+
+    def review_lyrics(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyricsReview]: ...
+
+    def summarize_review_memory(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedReviewMemory]: ...
 
     def test_connection(self) -> ProviderResult[dict[str, Any]]: ...
 
@@ -348,6 +392,110 @@ class LocalTextProvider:
             call=_local_call("lyrics"),
         )
 
+    def revise_lyrics(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyrics]:
+        original = dict(context.get("original") or {})
+        task_context = dict(context.get("task") or {})
+        instruction = str(context.get("instruction") or "调整表达").strip()
+        generated = self.generate_lyrics(
+            {
+                **task_context,
+                "title_hint": original.get("title") or task_context.get("title_hint"),
+                "requirements": "；".join(
+                    value
+                    for value in [
+                        str(task_context.get("requirements") or "").strip(),
+                        instruction,
+                    ]
+                    if value
+                ),
+            },
+            variation=int(context.get("variation") or 1),
+        ).output
+        return ProviderResult(output=generated, call=_local_call("lyrics-assistant"))
+
+    def initialize_review_agent(
+        self,
+        messages: list[dict[str, str]],
+    ) -> ProviderResult[GeneratedReviewAgentInitialization]:
+        user_notes = [
+            str(message.get("content") or "").strip()
+            for message in messages
+            if message.get("role") == "user"
+        ]
+        joined = "\n".join(note for note in user_notes if note)
+        detail = {
+            "persona": "歌词审核助手",
+            "scoring_criteria": ["韵律", "押韵", "结构", "可唱性", "表达"],
+            "forbidden_items": ["不得把推断写成音乐事实", "不得建议复刻具体作品"],
+            "output_format": ["总分", "维度评分", "优点", "可执行修改建议"],
+            "initialization_notes": joined,
+        }
+        return ProviderResult(
+            output=GeneratedReviewAgentInitialization(
+                reply="我已整理出可执行的歌词审核框架。继续补充评分偏好，或直接创建这个审核智能体。",
+                summary="按韵律、押韵、结构、可唱性与表达进行歌词审核，并输出明确的修改建议。",
+                detail=detail,
+            ),
+            call=_local_call("review-agent-initialize"),
+        )
+
+    def review_lyrics(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyricsReview]:
+        lyrics = str(context.get("lyrics") or "")
+        line_count = len([line for line in lyrics.splitlines() if line.strip()])
+        structure_score = 82 if "[" in lyrics and "]" in lyrics else 68
+        singability = 78 if line_count >= 12 else 70
+        return ProviderResult(
+            output=GeneratedLyricsReview(
+                overall_score=78,
+                summary="基于当前审核记忆完成了歌词文本审核。评分仅评价文本表现，不代表成品音频效果。",
+                dimensions=[
+                    GeneratedReviewDimension(
+                        name="结构", score=structure_score,
+                        feedback="段落标记清楚，建议让副歌核心句保持更高的重复辨识度。",
+                    ),
+                    GeneratedReviewDimension(
+                        name="韵律与可唱性", score=singability,
+                        feedback="可继续压缩个别长句，使主歌每行的口语节奏更均衡。",
+                    ),
+                    GeneratedReviewDimension(
+                        name="情绪表达", score=80,
+                        feedback="主题表达连贯，副歌可加入一个更具体的画面来增强记忆点。",
+                    ),
+                ],
+                strengths=["主题线索完整", "段落推进清晰"],
+                revision_suggestions=["把副歌核心句压缩为更短的可重复表达", "检查主歌长句的断句位置"],
+                risk_notes=["审核依据为歌词文本，不代表最终演唱和编曲表现"],
+            ),
+            call=_local_call("lyrics-review"),
+        )
+
+    def summarize_review_memory(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedReviewMemory]:
+        existing = dict(context.get("existing_memory") or {})
+        content = str(context.get("content") or "").strip()
+        notes = list(existing.get("memory_notes") or [])
+        if content and content not in notes:
+            notes.append(content)
+        detail = {
+            **existing,
+            "memory_notes": notes[-20:],
+        }
+        summary = str(existing.get("summary") or "歌词审核标准已建立").strip()
+        if content:
+            summary = f"{summary} 已补充 {content[:80]}"[:2000]
+        return ProviderResult(
+            output=GeneratedReviewMemory(summary=summary, detail=detail),
+            call=_local_call("review-memory"),
+        )
+
     def test_connection(self) -> ProviderResult[dict[str, Any]]:
         return ProviderResult(
             output={"status": "ok"},
@@ -433,6 +581,120 @@ class OpenAICompatibleTextProvider:
         except ValidationError as exc:
             raise TextProviderError(
                 f"AI 歌词结果字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
+
+    def revise_lyrics(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyrics]:
+        schema = json.dumps(
+            GeneratedLyrics.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        response = self._chat_json(
+            system=(
+                "你是中文原创歌词修改助手。你会收到正式歌词、创作上下文、此前预览和用户的修改要求。"
+                "只根据用户明确要求进行原创性修改，不得复写或近似改写任何外部歌曲。"
+                "返回纯 JSON，字段 title、style_prompt、sections；sections 每项包含 name 和 content。"
+                f"必须严格匹配以下 JSON Schema：{schema}"
+            ),
+            user=json.dumps(context, ensure_ascii=False),
+            max_tokens=self.config.lyrics_max_output_tokens,
+            temperature=0.55,
+        )
+        try:
+            output = GeneratedLyrics.model_validate(response.output)
+        except ValidationError as exc:
+            raise TextProviderError(
+                f"AI 助手预览字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
+
+    def initialize_review_agent(
+        self,
+        messages: list[dict[str, str]],
+    ) -> ProviderResult[GeneratedReviewAgentInitialization]:
+        schema = json.dumps(
+            GeneratedReviewAgentInitialization.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        response = self._chat_json(
+            system=(
+                "你是审核智能体初始化助手。根据管理员的对话，整理歌词审核智能体的人设、评分标准、"
+                "禁止项和输出格式。不要自动承诺保存记忆；只返回可由系统保存的结构化草稿。"
+                f"必须严格匹配以下 JSON Schema：{schema}"
+            ),
+            user=json.dumps({"messages": messages}, ensure_ascii=False),
+            max_tokens=self.config.analysis_max_output_tokens,
+            temperature=0.25,
+        )
+        try:
+            output = GeneratedReviewAgentInitialization.model_validate(response.output)
+        except ValidationError as exc:
+            raise TextProviderError(
+                f"审核智能体初始化结果字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
+
+    def review_lyrics(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyricsReview]:
+        schema = json.dumps(
+            GeneratedLyricsReview.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        response = self._chat_json(
+            system=(
+                "你是歌词审核智能体。严格使用提供的审核记忆评价歌词文本的韵律、押韵、结构、"
+                "可唱性与表达，或管理员额外定义的维度。不要声称听过音频，也不要建议复刻具体歌曲。"
+                "结论必须具体、可执行且尊重原创。"
+                f"必须严格匹配以下 JSON Schema：{schema}"
+            ),
+            user=json.dumps(context, ensure_ascii=False),
+            max_tokens=self.config.analysis_max_output_tokens,
+            temperature=0.25,
+        )
+        try:
+            output = GeneratedLyricsReview.model_validate(response.output)
+        except ValidationError as exc:
+            raise TextProviderError(
+                f"歌词审核结果字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
+
+    def summarize_review_memory(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedReviewMemory]:
+        schema = json.dumps(
+            GeneratedReviewMemory.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        response = self._chat_json(
+            system=(
+                "你是审核智能体记忆整理助手。把管理员或成员明确要求保存的内容，与已有长期记忆"
+                "去重、归纳、结构化。不要保存无关对话，不要改变已确定的审核原则。"
+                f"必须严格匹配以下 JSON Schema：{schema}"
+            ),
+            user=json.dumps(context, ensure_ascii=False),
+            max_tokens=self.config.analysis_max_output_tokens,
+            temperature=0.2,
+        )
+        try:
+            output = GeneratedReviewMemory.model_validate(response.output)
+        except ValidationError as exc:
+            raise TextProviderError(
+                f"审核智能体记忆结果字段不完整或类型不正确：{_validation_summary(exc)}",
                 call=response.call,
             ) from exc
         return ProviderResult(output=output, call=response.call)

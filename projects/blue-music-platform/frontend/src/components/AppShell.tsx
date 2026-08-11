@@ -25,6 +25,7 @@ import {
   Menu as MenuIcon,
   Music2,
   Network,
+  ShieldCheck,
   Settings,
   Users,
   Workflow as WorkflowIcon,
@@ -74,6 +75,7 @@ const NAVIGATION: NavigationItem[] = [
     agent: 'music',
   },
   { key: '/favorites', label: '收藏夹', icon: <FolderHeart size={18} /> },
+  { key: '/review-agents', label: '审核智能体', icon: <ShieldCheck size={18} /> },
   { key: '/agents', label: 'Agent 状态', icon: <Bot size={18} /> },
   {
     key: '/admin/ai-providers',

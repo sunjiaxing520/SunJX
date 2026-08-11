@@ -1,6 +1,8 @@
 import type {
   MusicCreatePayload,
+  MusicAdaptPayload,
   MusicExtendPayload,
+  MusicProviderSettings,
   MusicResultList,
   MusicTask,
   MusicTaskList,
@@ -28,6 +30,17 @@ export function createMusicTask(payload: MusicCreatePayload) {
   })
 }
 
+export function getMusicProviderSettings() {
+  return apiRequest<MusicProviderSettings>('/music/settings')
+}
+
+export function updateMusicProviderSettings(activeModel: string) {
+  return apiRequest<MusicProviderSettings>('/music/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ active_model: activeModel }),
+  })
+}
+
 export function listMusicTasks(limit = 15) {
   return apiRequest<MusicTaskList>(`/music/tasks?limit=${limit}`)
 }
@@ -38,6 +51,18 @@ export function getMusicTask(taskId: number) {
 
 export function retryMusicTask(taskId: number) {
   return apiRequest<MusicTask>(`/music/tasks/${taskId}/retry`, {
+    method: 'POST',
+  })
+}
+
+export function regenerateMusicTask(taskId: number) {
+  return apiRequest<MusicTask>(`/music/tasks/${taskId}/regenerate`, {
+    method: 'POST',
+  })
+}
+
+export function completeMusicHumanVerification(taskId: number) {
+  return apiRequest<MusicTask>(`/music/tasks/${taskId}/human-verification-complete`, {
     method: 'POST',
   })
 }
@@ -59,6 +84,13 @@ export function listMusicResults(limit = 30) {
 
 export function extendMusicResult(resultId: number, payload: MusicExtendPayload) {
   return apiRequest<MusicTask>(`/music/results/${resultId}/extend`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function adaptMusicResult(resultId: number, payload: MusicAdaptPayload) {
+  return apiRequest<MusicTask>(`/music/results/${resultId}/adapt`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })

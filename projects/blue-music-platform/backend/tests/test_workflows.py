@@ -71,13 +71,20 @@ def _headers(context: WorkflowContext) -> dict[str, str]:
     return {"Authorization": f"Bearer {context.token}"}
 
 
-def _collect_sample(context: WorkflowContext, snapshot_date: date):
+def _collect_sample(
+    context: WorkflowContext,
+    snapshot_date: date,
+    *,
+    chart: str = "top500",
+    limit: int = 15,
+):
     return context.client.post(
         "/api/v1/rankings/collections",
         headers=_headers(context),
         json={
             "source_mode": "sample",
-            "limit": 15,
+            "chart": chart,
+            "limit": limit,
             "snapshot_date": snapshot_date.isoformat(),
         },
     )
@@ -98,6 +105,84 @@ def test_kugou_page_parser_reads_structured_script_data() -> None:
     assert result.items[0].title == "歌名"
     assert result.items[0].artist == "歌手"
     assert result.items[0].source_url == "https://www.kugou.com/mixsong/xyz.html"
+
+
+def test_rising_chart_history_is_isolated_from_top500(
+    workflow_context: WorkflowContext,
+) -> None:
+    yesterday = date.today() - timedelta(days=1)
+    assert _collect_sample(workflow_context, yesterday, chart="top500").status_code == 201
+    assert _collect_sample(workflow_context, date.today(), chart="top500").status_code == 201
+    rising = _collect_sample(
+        workflow_context,
+        date.today(),
+        chart="rising",
+        limit=10,
+    )
+    assert rising.status_code == 201
+    assert rising.json()["chart_code"] == "6666"
+
+    snapshots = workflow_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=_headers(workflow_context),
+    ).json()
+    rising_snapshot = next(
+        snapshot for snapshot in snapshots if snapshot["id"] == rising.json()["snapshot_id"]
+    )
+    assert rising_snapshot["chart_name"]
+    assert rising_snapshot["chart_code"] == "6666"
+
+    entries = workflow_context.client.get(
+        "/api/v1/rankings/entries",
+        headers=_headers(workflow_context),
+        params={"snapshot_id": rising_snapshot["id"], "page_size": 100},
+    )
+    assert entries.status_code == 200
+    assert entries.json()["total"] == 10
+
+    analysis = workflow_context.client.post(
+        "/api/v1/analysis/tasks",
+        headers=_headers(workflow_context),
+        json={"entry_ids": [entries.json()["items"][0]["id"]], "window_days": 7},
+    )
+    assert analysis.status_code == 201
+    assert analysis.json()["report"]["evidence"]["chart_code"] == "6666"
+    assert analysis.json()["report"]["trend_metrics"]["available_days"] == 1
+
+
+def test_workflow_can_collect_rising_chart(
+    workflow_context: WorkflowContext,
+) -> None:
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "Rising chart collection",
+            "steps": ["collection"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "chart": "rising", "limit": 10}
+            },
+        },
+    )
+    assert template.status_code == 201
+    assert template.json()["configuration"]["collection"]["chart"] == "rising"
+
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    assert started.status_code == 202
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{started.json()['id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    collection_task_id = run["steps"][0]["task_id"]
+    collection_tasks = workflow_context.client.get(
+        "/api/v1/rankings/collections",
+        headers=_headers(workflow_context),
+    ).json()
+    collection_task = next(task for task in collection_tasks if task["id"] == collection_task_id)
+    assert collection_task["chart_code"] == "6666"
 
 
 def test_daily_snapshots_analysis_and_lyrics_flow(

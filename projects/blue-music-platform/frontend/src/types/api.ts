@@ -219,6 +219,7 @@ export type WorkflowStepType = 'collection' | 'analysis' | 'lyrics' | 'music'
 export interface WorkflowConfiguration {
   collection: {
     source_mode: 'live' | 'sample'
+    chart: 'top500' | 'rising'
     limit: number
   }
   analysis: {
@@ -403,6 +404,29 @@ export interface LyricsVersion {
   created_at: string
 }
 
+export interface LyricsAssistantPreview {
+  title: string
+  content: string
+  style_prompt: string
+  sections: { name: string; content: string }[]
+}
+
+export interface LyricsAssistantMessage {
+  id: number
+  task_id: number
+  source_version_id: number
+  role: 'user' | 'assistant'
+  content: string
+  preview: LyricsAssistantPreview | null
+  provider: string | null
+  model: string | null
+  created_at: string
+}
+
+export interface LyricsAssistantHistory {
+  items: LyricsAssistantMessage[]
+}
+
 export interface LyricsTask {
   id: number
   status: WorkflowTaskStatus
@@ -477,7 +501,7 @@ export interface CreationBrief {
   source_lyrics_version_id: number
 }
 
-export type MusicOperation = 'generate' | 'extend'
+export type MusicOperation = 'generate' | 'extend' | 'adapt'
 export type MusicProviderImplementation = 'official' | 'compatibility'
 
 export interface MusicResult {
@@ -494,6 +518,10 @@ export interface MusicResult {
   audio_ready: boolean
   audio_path: string
   download_path: string
+  task_operation: MusicOperation
+  task_model: string | null
+  style_tags: string[]
+  negative_tags: string[]
   created_at: string
 }
 
@@ -509,9 +537,16 @@ export interface MusicTask {
   title: string
   lyrics: string
   style_prompt: string
+  style_tags: string[]
   instrumental: boolean
   negative_tags: string[]
   requirements: string | null
+  adaptation_mode: 'extend' | 'recreate' | null
+  source_title: string | null
+  source_artist: string | null
+  source_url: string | null
+  rights_confirmed: boolean
+  rights_note: string | null
   external_task_id: string | null
   provider_status: string | null
   error_code: string | null
@@ -541,6 +576,7 @@ export interface MusicCreatePayload {
   lyrics_version_id: number
   title?: string
   style_prompt?: string
+  style_tags?: string[]
   instrumental?: boolean
   negative_tags?: string[]
   requirements?: string
@@ -551,6 +587,26 @@ export interface MusicExtendPayload {
   lyrics?: string
   style_prompt?: string
   requirements?: string
+}
+
+export interface MusicAdaptPayload {
+  title?: string
+  lyrics?: string
+  style_prompt?: string
+  style_tags?: string[]
+  negative_tags?: string[]
+  requirements?: string
+  adaptation_mode?: 'extend' | 'recreate'
+  source_artist?: string
+  source_url?: string
+  rights_confirmed: boolean
+  rights_note?: string
+}
+
+export interface MusicProviderSettings {
+  active_model: string
+  updated_by_id: number | null
+  updated_at: string
 }
 
 export interface SunoProviderStatus {
@@ -567,9 +623,15 @@ export interface SunoProviderStatus {
     | 'configuration_error'
   message: string
   platform_url: string
+  runtime_status: string | null
+  captcha_mode: string | null
+  cookie_configured: boolean | null
+  compat_routes: string[]
   queue_mode: 'redis' | 'inline'
   max_concurrency: number
   min_request_interval_seconds: number
+  active_model: string
+  active_model_updated_at: string | null
   user_quota: MusicTaskQuota
   quota: SunoQuota | null
 }
@@ -586,7 +648,8 @@ export interface SunoQuota {
   checked_at: string
 }
 
-export type FavoriteItemType = 'analysis' | 'lyrics'
+export type FavoriteItemType = 'analysis' | 'lyrics' | 'music'
+export type FavoriteCategory = 'unclassified' | 'S' | 'A' | 'B' | 'C' | 'D'
 
 export interface FavoriteItem {
   id: number
@@ -601,6 +664,7 @@ export interface FavoriteItem {
   total_tokens: number
   source_created_at: string
   metadata: Record<string, unknown>
+  category: FavoriteCategory
   note: string | null
   created_by_id: number | null
   created_by_username: string | null
@@ -610,5 +674,61 @@ export interface FavoriteItem {
 
 export interface FavoriteList {
   items: FavoriteItem[]
+  total: number
+}
+
+export interface ReviewChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ReviewMemory {
+  summary: string
+  detail: Record<string, unknown>
+}
+
+export interface ReviewAgentInitializationPreview extends ReviewMemory {
+  reply: string
+}
+
+export interface ReviewAgentMember {
+  id: number
+  username: string
+}
+
+export interface ReviewAgent {
+  id: number
+  name: string
+  initialization_notes: string | null
+  memory_summary: string
+  memory_detail: Record<string, unknown> | null
+  created_by_id: number | null
+  members: ReviewAgentMember[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ReviewLyricsOption {
+  id: number
+  task_id: number
+  version_number: number
+  title: string
+  created_at: string
+}
+
+export interface ReviewResult {
+  id: number
+  agent_id: number
+  lyrics_version_id: number | null
+  requested_by_id: number | null
+  instruction: string | null
+  provider: string
+  model: string | null
+  result: Record<string, unknown>
+  created_at: string
+}
+
+export interface ReviewList {
+  items: ReviewResult[]
   total: number
 }

@@ -6,16 +6,19 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.ranking import TaskStatusValue
 
 
-FavoriteItemType = Literal["analysis", "lyrics"]
+FavoriteItemType = Literal["analysis", "lyrics", "music"]
+FavoriteCategory = Literal["unclassified", "S", "A", "B", "C", "D"]
 
 
 class FavoriteCreateRequest(BaseModel):
     item_type: FavoriteItemType
     target_id: int = Field(ge=1)
+    category: FavoriteCategory = "unclassified"
 
 
-class FavoriteNoteUpdate(BaseModel):
+class FavoriteUpdateRequest(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
+    category: FavoriteCategory | None = None
 
     @field_validator("note")
     @classmethod
@@ -39,6 +42,7 @@ class FavoriteItemResponse(BaseModel):
     total_tokens: int
     source_created_at: datetime
     metadata: dict[str, object]
+    category: FavoriteCategory
     note: str | None
     created_by_id: int | None
     created_by_username: str | None

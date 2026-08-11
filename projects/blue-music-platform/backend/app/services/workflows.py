@@ -449,6 +449,7 @@ def _execute_step(
             db,
             CollectionCreateRequest(
                 source_mode=configuration.collection.source_mode,
+                chart=configuration.collection.chart,
                 limit=configuration.collection.limit,
             ),
             run.requested_by_id,

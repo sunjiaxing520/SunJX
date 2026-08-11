@@ -46,6 +46,41 @@ class LyricsVersionResponse(BaseModel):
     created_at: datetime
 
 
+class LyricsAssistantPreviewResponse(BaseModel):
+    title: str
+    content: str
+    style_prompt: str
+    sections: list[dict[str, str]]
+
+
+class LyricsAssistantMessageRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("instruction")
+    @classmethod
+    def clean_instruction(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("请输入修改要求")
+        return cleaned
+
+
+class LyricsAssistantMessageResponse(BaseModel):
+    id: int
+    task_id: int
+    source_version_id: int
+    role: Literal["user", "assistant"]
+    content: str
+    preview: LyricsAssistantPreviewResponse | None
+    provider: str | None
+    model: str | None
+    created_at: datetime
+
+
+class LyricsAssistantHistoryResponse(BaseModel):
+    items: list[LyricsAssistantMessageResponse]
+
+
 class LyricsTaskResponse(BaseModel):
     id: int
     status: TaskStatusValue

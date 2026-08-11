@@ -5,10 +5,12 @@ from pydantic import BaseModel, Field, field_validator
 
 
 TaskStatusValue = Literal["pending", "running", "completed", "failed"]
+RankingChartValue = Literal["top500", "rising"]
 
 
 class CollectionCreateRequest(BaseModel):
     source_mode: Literal["live", "sample"] = "live"
+    chart: RankingChartValue = "top500"
     limit: int = Field(default=100, ge=1, le=500)
     snapshot_date: date | None = None
 

@@ -15,7 +15,10 @@ from app.core.exceptions import AppException
 from app.models import AgentType, User, UserRole
 from app.schemas.music import (
     MusicCreateRequest,
+    MusicAdaptRequest,
     MusicExtendRequest,
+    MusicProviderSettingsResponse,
+    MusicProviderSettingsUpdate,
     MusicResultListResponse,
     MusicTaskDeleteRequest,
     MusicTaskDeleteResponse,
@@ -25,7 +28,9 @@ from app.schemas.music import (
     SunoProviderStatusResponse,
 )
 from app.services.music import (
+    resume_after_human_verification,
     create_extension_task,
+    create_adaptation_task,
     create_music_task,
     delete_music_result,
     delete_music_task,
@@ -34,12 +39,15 @@ from app.services.music import (
     create_storage_download_url,
     get_music_result,
     get_music_task,
+    get_music_provider_settings,
     latest_music_quota,
     list_music_results,
     list_music_tasks,
     refresh_music_quota,
     resolve_storage_path,
     retry_music_task,
+    regenerate_music_task,
+    update_music_provider_settings,
 )
 from app.services.users import music_task_quota_response
 
@@ -55,6 +63,10 @@ def provider_status(
 ) -> SunoProviderStatusResponse:
     raw_implementation = settings.SUNO_PROVIDER_IMPLEMENTATION
     implementation = raw_implementation
+    runtime_status: str | None = None
+    captcha_mode: str | None = None
+    cookie_configured: bool | None = None
+    compat_routes: list[str] = []
     if implementation == "compat":
         implementation = "compatibility"
     if implementation == "official":
@@ -76,13 +88,27 @@ def provider_status(
             message = "Suno 兼容实现已安装但默认关闭"
         elif configured:
             try:
-                runtime_status = (
+                runtime = (
                     SunoCompatibilityMusicProvider().get_runtime_status()
-                ).get("status")
+                )
             except MusicProviderError as exc:
                 integration_status = "unavailable"
                 message = f"Suno 兼容服务暂时不可用（{exc.code}）"
             else:
+                runtime_status = _optional_response_string(runtime.get("status"))
+                captcha_mode = _optional_response_string(runtime.get("captcha_mode"))
+                if "cookie_configured" in runtime:
+                    cookie_configured = bool(runtime.get("cookie_configured"))
+                raw_routes = runtime.get("routes")
+                if isinstance(raw_routes, list):
+                    compat_routes = [
+                        route
+                        for route in (
+                            _optional_response_string(item)
+                            for item in raw_routes
+                        )
+                        if route
+                    ]
                 if runtime_status == "ready":
                     integration_status = "ready"
                     message = "Suno 兼容实现已连接，会话可用；人机验证需要管理员处理"
@@ -100,16 +126,23 @@ def provider_status(
         configured = False
         integration_status = "configuration_error"
         message = f"不支持的 Suno Provider 实现：{raw_implementation}"
+    provider_settings = get_music_provider_settings(db)
     return SunoProviderStatusResponse(
         implementation=implementation,
         configured=configured,
         integration_status=integration_status,
         message=message,
+        runtime_status=runtime_status,
+        captcha_mode=captcha_mode,
+        cookie_configured=cookie_configured,
+        compat_routes=compat_routes,
         queue_mode=settings.MUSIC_QUEUE_MODE,
         max_concurrency=max(1, settings.MUSIC_MAX_CONCURRENCY),
         min_request_interval_seconds=max(
             0.0, settings.MUSIC_MIN_REQUEST_INTERVAL_SECONDS
         ),
+        active_model=provider_settings.active_model,
+        active_model_updated_at=provider_settings.updated_at,
         user_quota=music_task_quota_response(user),
         quota=(
             latest_music_quota(db, implementation)
@@ -125,6 +158,23 @@ def provider_quota_refresh(
     admin: SuperAdmin,
 ) -> SunoQuotaResponse:
     return refresh_music_quota(db)
+
+
+@router.get("/settings", response_model=MusicProviderSettingsResponse)
+def music_settings(
+    db: DatabaseSession,
+    user: MusicUser,
+) -> MusicProviderSettingsResponse:
+    return get_music_provider_settings(db)
+
+
+@router.put("/settings", response_model=MusicProviderSettingsResponse)
+def music_settings_update(
+    payload: MusicProviderSettingsUpdate,
+    db: DatabaseSession,
+    admin: SuperAdmin,
+) -> MusicProviderSettingsResponse:
+    return update_music_provider_settings(db, payload, admin.id)
 
 
 @router.post(
@@ -188,6 +238,32 @@ def music_retry(
 
 
 @router.post(
+    "/tasks/{task_id}/regenerate",
+    response_model=MusicTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def music_regenerate(
+    task_id: int,
+    db: DatabaseSession,
+    user: MusicUser,
+) -> MusicTaskResponse:
+    task = regenerate_music_task(db, task_id, user.id)
+    return dispatch_music_task(db, task.id)
+
+
+@router.post(
+    "/tasks/{task_id}/human-verification-complete",
+    response_model=MusicTaskResponse,
+)
+def music_human_verification_complete(
+    task_id: int,
+    db: DatabaseSession,
+    admin: SuperAdmin,
+) -> MusicTaskResponse:
+    return resume_after_human_verification(db, task_id)
+
+
+@router.post(
     "/results/{result_id}/extend",
     response_model=MusicTaskResponse,
     status_code=status.HTTP_202_ACCEPTED,
@@ -199,6 +275,21 @@ def music_extend(
     user: MusicUser,
 ) -> MusicTaskResponse:
     task = create_extension_task(db, result_id, payload, user.id)
+    return dispatch_music_task(db, task.id)
+
+
+@router.post(
+    "/results/{result_id}/adapt",
+    response_model=MusicTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def music_adapt(
+    result_id: int,
+    payload: MusicAdaptRequest,
+    db: DatabaseSession,
+    user: MusicUser,
+) -> MusicTaskResponse:
+    task = create_adaptation_task(db, result_id, payload, user.id)
     return dispatch_music_task(db, task.id)
 
 
@@ -285,3 +376,10 @@ def music_download(
 def _download_filename(title: str, path: Path) -> str:
     safe_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", title).strip(" ._")
     return f"{safe_title or 'suno-track'}{path.suffix.lower()}"
+
+
+def _optional_response_string(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

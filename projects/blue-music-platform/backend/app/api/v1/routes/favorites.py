@@ -7,16 +7,17 @@ from app.core.logging import LOGGER_NAME
 from app.core.request_context import get_request_id
 from app.schemas.favorite import (
     FavoriteCreateRequest,
+    FavoriteCategory,
     FavoriteItemResponse,
     FavoriteItemType,
     FavoriteListResponse,
-    FavoriteNoteUpdate,
+    FavoriteUpdateRequest,
 )
 from app.services.favorites import (
     create_favorite,
     delete_favorite,
     list_favorites,
-    update_favorite_note,
+    update_favorite,
 )
 
 
@@ -29,9 +30,10 @@ def favorite_history(
     db: DatabaseSession,
     user: CurrentUser,
     item_type: FavoriteItemType | None = Query(default=None),
+    category: FavoriteCategory | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=100),
 ) -> FavoriteListResponse:
-    return list_favorites(db, item_type, limit)
+    return list_favorites(db, item_type, category, limit)
 
 
 @router.post(
@@ -54,12 +56,12 @@ def add_favorite(
 def edit_favorite_note(
     request: Request,
     favorite_id: int,
-    payload: FavoriteNoteUpdate,
+    payload: FavoriteUpdateRequest,
     db: DatabaseSession,
     user: CurrentUser,
 ) -> FavoriteItemResponse:
-    favorite = update_favorite_note(db, favorite_id, payload)
-    _audit(request, user.id, "favorite_note_updated", favorite.id, favorite.item_type)
+    favorite = update_favorite(db, favorite_id, payload)
+    _audit(request, user.id, "favorite_updated", favorite.id, favorite.item_type)
     return favorite
 
 

@@ -6,6 +6,9 @@ from app.api.dependencies import DatabaseSession, require_agent_permission
 from app.models import AgentType, User
 from app.schemas.lyrics import (
     CreationBriefResponse,
+    LyricsAssistantHistoryResponse,
+    LyricsAssistantMessageRequest,
+    LyricsAssistantMessageResponse,
     LyricsCreateRequest,
     LyricsTaskDeleteRequest,
     LyricsTaskDeleteResponse,
@@ -15,11 +18,14 @@ from app.schemas.lyrics import (
 )
 from app.services.lyrics import (
     create_lyrics_task,
+    confirm_lyrics_assistant_preview,
+    create_lyrics_assistant_preview,
     delete_lyrics_task,
     delete_lyrics_tasks,
     get_creation_brief,
     get_lyrics_task,
     list_lyrics_tasks,
+    list_lyrics_assistant_messages,
     regenerate_lyrics,
     save_lyrics_version,
 )
@@ -101,6 +107,43 @@ def lyrics_save(
     user: LyricsUser,
 ) -> LyricsVersionResponse:
     return save_lyrics_version(db, version_id)
+
+
+@router.get(
+    "/versions/{version_id}/assistant",
+    response_model=LyricsAssistantHistoryResponse,
+)
+def lyrics_assistant_history(
+    version_id: int,
+    db: DatabaseSession,
+    user: LyricsUser,
+) -> LyricsAssistantHistoryResponse:
+    return list_lyrics_assistant_messages(db, version_id)
+
+
+@router.post(
+    "/versions/{version_id}/assistant",
+    response_model=LyricsAssistantMessageResponse,
+)
+def lyrics_assistant_preview(
+    version_id: int,
+    payload: LyricsAssistantMessageRequest,
+    db: DatabaseSession,
+    user: LyricsUser,
+) -> LyricsAssistantMessageResponse:
+    return create_lyrics_assistant_preview(db, version_id, payload, user.id)
+
+
+@router.post(
+    "/assistant-previews/{message_id}/confirm",
+    response_model=LyricsVersionResponse,
+)
+def lyrics_assistant_confirm(
+    message_id: int,
+    db: DatabaseSession,
+    user: LyricsUser,
+) -> LyricsVersionResponse:
+    return confirm_lyrics_assistant_preview(db, message_id)
 
 
 @router.get(

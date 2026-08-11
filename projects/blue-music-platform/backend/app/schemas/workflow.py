@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.schemas.ranking import TaskStatusValue
+from app.schemas.ranking import RankingChartValue, TaskStatusValue
 
 
 WorkflowStepValue = Literal["collection", "analysis", "lyrics", "music"]
@@ -17,6 +17,7 @@ STEP_ORDER: tuple[WorkflowStepValue, ...] = (
 
 class WorkflowCollectionConfig(BaseModel):
     source_mode: Literal["live", "sample"] = "live"
+    chart: RankingChartValue = "top500"
     limit: int = Field(default=100, ge=1, le=500)
 
 

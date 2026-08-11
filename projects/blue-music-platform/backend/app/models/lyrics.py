@@ -103,3 +103,34 @@ class LyricsVersion(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     task: Mapped[LyricsTask] = relationship(back_populates="versions")
+
+
+class LyricsAssistantMessage(Base):
+    __tablename__ = "lyrics_assistant_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("lyrics_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_version_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("lyrics_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    preview: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

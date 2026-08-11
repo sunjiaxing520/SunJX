@@ -18,7 +18,19 @@ import {
   Typography,
   type TableProps,
 } from 'antd'
-import { BookmarkCheck, Copy, Eye, RefreshCw, RotateCw, Sparkles, Star, Trash2 } from 'lucide-react'
+import {
+  BookmarkCheck,
+  Check,
+  Copy,
+  Eye,
+  MessageCircleMore,
+  RefreshCw,
+  RotateCw,
+  Send,
+  Sparkles,
+  Star,
+  Trash2,
+} from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { listAnalysisTasks } from '../api/analysis'
@@ -29,16 +41,21 @@ import { totalTaskTokens } from '../lib/apiUsage'
 import {
   deleteLyricsTask,
   deleteLyricsTasks,
+  confirmLyricsAssistantPreview,
   generateLyrics,
   getLyricsTask,
+  listLyricsAssistantMessages,
   listLyricsTasks,
   regenerateLyrics,
+  requestLyricsAssistantPreview,
   saveLyricsVersion,
 } from '../api/lyrics'
 import { errorMessage } from '../lib/errors'
 import type {
   AnalysisTask,
+  CreationDirection,
   FavoriteItem,
+  LyricsAssistantMessage,
   LyricsCreatePayload,
   LyricsTask,
   LyricsVersion,
@@ -68,6 +85,7 @@ export function LyricsPage() {
   const [activeTask, setActiveTask] = useState<LyricsTask | null>(null)
   const [activeVersionId, setActiveVersionId] = useState<number | null>(null)
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
+  const [analysisFavorites, setAnalysisFavorites] = useState<FavoriteItem[]>([])
   const [favoriteTargetId, setFavoriteTargetId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -76,19 +94,25 @@ export function LyricsPage() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [assistantMessages, setAssistantMessages] = useState<LyricsAssistantMessage[]>([])
+  const [assistantInstruction, setAssistantInstruction] = useState('')
+  const [assistantLoading, setAssistantLoading] = useState(false)
+  const [confirmingPreviewId, setConfirmingPreviewId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [analyses, lyrics, favoriteHistory] = await Promise.all([
+      const [analyses, lyrics, favoriteHistory, analysisFavoriteHistory] = await Promise.all([
         listAnalysisTasks(),
         listLyricsTasks(),
         listFavorites('lyrics'),
+        listFavorites('analysis'),
       ])
       setAnalysisTasks(analyses.items)
       setTasks(lyrics.items)
       setFavorites(favoriteHistory.items)
+      setAnalysisFavorites(analysisFavoriteHistory.items)
       setActiveTask((current) => current ? lyrics.items.find((item) => item.id === current.id) ?? current : null)
     } catch (loadError) {
       setError(errorMessage(loadError))
@@ -96,6 +120,25 @@ export function LyricsPage() {
       setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (!activeVersionId) {
+      setAssistantMessages([])
+      setAssistantInstruction('')
+      return
+    }
+    let cancelled = false
+    void listLyricsAssistantMessages(activeVersionId)
+      .then((history) => {
+        if (!cancelled) setAssistantMessages(history.items)
+      })
+      .catch((assistantError) => {
+        if (!cancelled) message.error(errorMessage(assistantError))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeVersionId, message])
 
   useEffect(() => {
     void load()
@@ -190,13 +233,31 @@ export function LyricsPage() {
     }
   }
 
-  const directions = useMemo(() => analysisTasks.flatMap((task) =>
-    (task.report?.creation_directions ?? []).map((direction, index) => ({
-      task,
-      direction,
-      index,
-      value: `${task.report?.id}:${index}`,
-    }))), [analysisTasks])
+  const directions = useMemo(() => {
+    const recent = analysisTasks
+      .filter((task) => task.report)
+      .slice(0, 2)
+      .flatMap((task) => (task.report?.creation_directions ?? []).map((direction, index) => ({
+        task,
+        direction,
+        index,
+        value: `${task.report?.id}:${index}`,
+        group: '最近分析',
+      })))
+    const recentReportIds = new Set(recent.map((item) => item.task.report?.id))
+    const favorites = analysisFavorites.flatMap((favorite) => {
+      const rawDirections = favorite.metadata.creation_directions
+      if (!Array.isArray(rawDirections) || recentReportIds.has(favorite.target_id)) return []
+      return rawDirections.map((rawDirection, index) => ({
+        task: { id: favorite.source_task_id, report: { id: favorite.target_id } } as AnalysisTask,
+        direction: rawDirection as CreationDirection,
+        index,
+        value: `${favorite.target_id}:${index}`,
+        group: '收藏分析',
+      }))
+    })
+    return [...recent, ...favorites]
+  }, [analysisFavorites, analysisTasks])
 
   const chooseDirection = (value?: string) => {
     if (!value) return
@@ -265,6 +326,37 @@ export function LyricsPage() {
       message.error(errorMessage(saveError))
     } finally {
       setSavingId(null)
+    }
+  }
+
+  const sendAssistantInstruction = async () => {
+    if (!activeVersionId || !assistantInstruction.trim()) return
+    setAssistantLoading(true)
+    try {
+      await requestLyricsAssistantPreview(activeVersionId, assistantInstruction.trim())
+      const history = await listLyricsAssistantMessages(activeVersionId)
+      setAssistantMessages(history.items)
+      setAssistantInstruction('')
+      message.success('AI 助手已生成预览')
+      await load()
+    } catch (assistantError) {
+      message.error(errorMessage(assistantError))
+    } finally {
+      setAssistantLoading(false)
+    }
+  }
+
+  const confirmAssistantPreview = async (messageId: number) => {
+    setConfirmingPreviewId(messageId)
+    try {
+      const version = await confirmLyricsAssistantPreview(messageId)
+      message.success(`已保存为第 ${version.version_number} 版正式歌词`)
+      await load()
+      setActiveVersionId(version.id)
+    } catch (confirmError) {
+      message.error(errorMessage(confirmError))
+    } finally {
+      setConfirmingPreviewId(null)
     }
   }
 
@@ -368,11 +460,16 @@ export function LyricsPage() {
             <Form.Item name="analysis_direction" label="引用分析方向">
               <Select
                 allowClear
-                placeholder="可选"
-                options={directions.map((item) => ({
-                  value: item.value,
-                  label: `报告 #${item.task.report?.id} · ${item.direction.name}`,
-                }))}
+                placeholder="最近分析或收藏分析"
+                options={['最近分析', '收藏分析'].map((group) => ({
+                  label: group,
+                  options: directions
+                    .filter((item) => item.group === group)
+                    .map((item) => ({
+                      value: item.value,
+                      label: `报告 #${item.task.report?.id} · ${item.direction.name}`,
+                    })),
+                })).filter((group) => group.options.length)}
                 onChange={chooseDirection}
               />
             </Form.Item>
@@ -474,14 +571,27 @@ export function LyricsPage() {
                   key: String(version.id),
                   label: `第 ${version.version_number} 版${version.is_saved ? ' · 已保存' : ''}`,
                   children: (
-                    <LyricsVersionView
-                      version={version}
-                      saving={savingId === version.id}
-                      favoriting={favoriteTargetId === version.id}
-                      isFavorite={favoritesByTarget.has(version.id)}
-                      onSave={() => save(version)}
-                      onFavorite={() => void toggleFavorite(version)}
-                    />
+                    <>
+                      <LyricsVersionView
+                        version={version}
+                        saving={savingId === version.id}
+                        favoriting={favoriteTargetId === version.id}
+                        isFavorite={favoritesByTarget.has(version.id)}
+                        onSave={() => save(version)}
+                        onFavorite={() => void toggleFavorite(version)}
+                      />
+                      {version.id === activeVersionId && (
+                        <LyricsAssistantPanel
+                          messages={assistantMessages}
+                          instruction={assistantInstruction}
+                          loading={assistantLoading}
+                          confirmingPreviewId={confirmingPreviewId}
+                          onInstructionChange={setAssistantInstruction}
+                          onSend={() => void sendAssistantInstruction()}
+                          onConfirmPreview={(messageId) => void confirmAssistantPreview(messageId)}
+                        />
+                      )}
+                    </>
                   ),
                 }))}
               />
@@ -533,5 +643,86 @@ function LyricsVersionView({
       </div>
       <pre>{version.content}</pre>
     </div>
+  )
+}
+
+function LyricsAssistantPanel({
+  messages,
+  instruction,
+  loading,
+  confirmingPreviewId,
+  onInstructionChange,
+  onSend,
+  onConfirmPreview,
+}: {
+  messages: LyricsAssistantMessage[]
+  instruction: string
+  loading: boolean
+  confirmingPreviewId: number | null
+  onInstructionChange: (value: string) => void
+  onSend: () => void
+  onConfirmPreview: (messageId: number) => void
+}) {
+  return (
+    <section className="lyrics-assistant-panel">
+      <div className="section-title-row">
+        <div>
+          <Typography.Title level={3}>AI 助手</Typography.Title>
+          <Typography.Text type="secondary">每次修改先生成预览，确认后才会写入正式版本</Typography.Text>
+        </div>
+        <MessageCircleMore size={19} />
+      </div>
+      <div className="lyrics-assistant-history">
+        {messages.length ? messages.map((message) => (
+          <div className={`lyrics-assistant-message ${message.role}`} key={message.id}>
+            <Typography.Text strong>{message.role === 'user' ? '你的修改要求' : 'AI 预览'}</Typography.Text>
+            <Typography.Paragraph>{message.content}</Typography.Paragraph>
+            {message.preview && (
+              <div className="lyrics-assistant-preview">
+                <div className="lyrics-output-heading">
+                  <div>
+                    <strong>{message.preview.title}</strong>
+                    <Typography.Text type="secondary">{message.preview.style_prompt}</Typography.Text>
+                  </div>
+                  <Button
+                    type="primary"
+                    icon={<Check size={16} />}
+                    loading={confirmingPreviewId === message.id}
+                    onClick={() => onConfirmPreview(message.id)}
+                  >
+                    确认保存为新版本
+                  </Button>
+                </div>
+                <pre>{message.preview.content}</pre>
+              </div>
+            )}
+          </div>
+        )) : (
+          <Typography.Text type="secondary">输入具体修改要求后，AI 会在这里给出可继续讨论的预览。</Typography.Text>
+        )}
+      </div>
+      <Space.Compact block className="lyrics-assistant-input">
+        <Input.TextArea
+          value={instruction}
+          autoSize={{ minRows: 2, maxRows: 5 }}
+          maxLength={2000}
+          placeholder="例如：把副歌改得更有记忆点，主歌保持克制的叙事感"
+          onChange={(event) => onInstructionChange(event.target.value)}
+          onPressEnter={(event) => {
+            if (event.shiftKey) return
+            event.preventDefault()
+            if (instruction.trim() && !loading) onSend()
+          }}
+        />
+        <Button
+          type="primary"
+          icon={<Send size={16} />}
+          loading={loading}
+          disabled={!instruction.trim()}
+          aria-label="发送歌词修改要求"
+          onClick={onSend}
+        />
+      </Space.Compact>
+    </section>
   )
 }

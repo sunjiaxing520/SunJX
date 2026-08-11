@@ -9,10 +9,11 @@ import { apiRequest } from './client'
 export function runRankingCollection(
   sourceMode: 'live' | 'sample' = 'live',
   limit = 100,
+  chart: 'top500' | 'rising' = 'top500',
 ): Promise<CollectionTask> {
   return apiRequest<CollectionTask>('/rankings/collections', {
     method: 'POST',
-    body: JSON.stringify({ source_mode: sourceMode, limit }),
+    body: JSON.stringify({ source_mode: sourceMode, limit, chart }),
   })
 }
 

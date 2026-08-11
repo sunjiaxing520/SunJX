@@ -18,6 +18,7 @@ import {
   type TableProps,
 } from 'antd'
 import { ChevronDown, ExternalLink, Play, RefreshCw, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 import {
   deleteCollectionTask,
@@ -54,6 +55,7 @@ function formatDuration(seconds: number | null) {
 
 export function RankingsPage() {
   const { message } = App.useApp()
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState<CollectionTask[]>([])
   const [snapshots, setSnapshots] = useState<RankingSnapshot[]>([])
   const [activeSnapshotId, setActiveSnapshotId] = useState<number | null>(null)
@@ -121,10 +123,17 @@ export function RankingsPage() {
     void loadEntries()
   }, [loadEntries])
 
-  const run = async (sourceMode: 'live' | 'sample') => {
+  const run = async (
+    sourceMode: 'live' | 'sample',
+    chart: 'top500' | 'rising' = 'top500',
+  ) => {
     setRunning(true)
     try {
-      const task = await runRankingCollection(sourceMode)
+      const task = await runRankingCollection(
+        sourceMode,
+        chart === 'rising' ? 20 : 100,
+        chart,
+      )
       message.success(`采集完成，共保存 ${task.item_count} 首`)
       await loadOverview()
     } catch (runError) {
@@ -169,9 +178,15 @@ export function RankingsPage() {
   }
 
   const fallbackMenu: MenuProps = {
-    items: [{ key: 'sample', label: '载入固定样例' }],
-    onClick: () => void run('sample'),
+    items: [
+      { key: 'sample-top500', label: '载入 TOP500 固定样例' },
+      { key: 'sample-rising', label: '载入飙升榜固定样例' },
+    ],
+    onClick: ({ key }) => void run('sample', key === 'sample-rising' ? 'rising' : 'top500'),
   }
+
+  const activeSnapshot = snapshots.find((snapshot) => snapshot.id === activeSnapshotId) ?? null
+  const canAnalyzeIndividualSong = activeSnapshot?.chart_code === '6666'
 
   const entryColumns: TableProps<RankingEntry>['columns'] = [
     { title: '排名', dataIndex: 'rank', width: 74, fixed: 'left' },
@@ -214,10 +229,26 @@ export function RankingsPage() {
         </Tooltip>
       ),
     },
+    ...(canAnalyzeIndividualSong ? [{
+      title: '',
+      key: 'analysis',
+      width: 108,
+      fixed: 'right' as const,
+      render: (_: unknown, entry: RankingEntry) => (
+        <Button
+          type="link"
+          size="small"
+          onClick={() => navigate(`/analysis?snapshot_id=${entry.snapshot_id}&entry_id=${entry.id}`)}
+        >
+          分析单曲
+        </Button>
+      ),
+    }] : []),
   ]
 
   const taskColumns: TableProps<CollectionTask>['columns'] = [
     { title: '任务', dataIndex: 'id', width: 78, render: (id: number) => `#${id}` },
+    { title: '榜单', dataIndex: 'chart_name', width: 130 },
     {
       title: '来源',
       dataIndex: 'source_mode',
@@ -282,16 +313,23 @@ export function RankingsPage() {
       <div className="page-heading-row">
         <div>
           <Typography.Title level={1}>榜单采集</Typography.Title>
-          <Typography.Text type="secondary">酷狗 TOP500 每日快照与运行记录</Typography.Text>
+          <Typography.Text type="secondary">酷狗 TOP500 趋势数据与飙升榜单曲分析</Typography.Text>
         </div>
         <Space.Compact>
           <Button
             type="primary"
             icon={<Play size={16} />}
             loading={running}
-            onClick={() => void run('live')}
+            onClick={() => void run('live', 'top500')}
           >
-            采集实时榜单
+            采集 TOP500
+          </Button>
+          <Button
+            icon={<Play size={16} />}
+            loading={running}
+            onClick={() => void run('live', 'rising')}
+          >
+            采集飙升榜前 20
           </Button>
           <Dropdown menu={fallbackMenu} disabled={running}>
             <Button icon={<ChevronDown size={16} />} aria-label="采集选项" />
@@ -305,7 +343,7 @@ export function RankingsPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>采集结果</Typography.Title>
-            <Typography.Text type="secondary">每天保留一份；当天再次采集会覆盖榜单并更新采集完成时间</Typography.Text>
+            <Typography.Text type="secondary">每个榜单每天保留一份；当天再次采集会覆盖同榜单快照并更新采集完成时间</Typography.Text>
           </div>
           <Tooltip title="刷新采集结果">
             <Button icon={<RefreshCw size={16} />} loading={loading} onClick={loadOverview} />
@@ -355,7 +393,9 @@ export function RankingsPage() {
                 <div className="ranking-detail-stack">
                   <div className="ranking-detail-toolbar">
                     <Typography.Text type="secondary">
-                      当前快照共 {snapshot.item_count} 首，展开时加载歌曲详情
+                      {snapshot.chart_code === '6666'
+                        ? '飙升榜可直接选择任意歌曲进入内容分析'
+                        : `当前快照共 ${snapshot.item_count} 首，展开时加载歌曲详情`}
                     </Typography.Text>
                     <Input.Search
                       allowClear

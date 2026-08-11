@@ -137,7 +137,11 @@ def create_analysis(
 
     try:
         context, metrics, evidence = _build_analysis_context(
-            db, selected_entries, window_start, window_end
+            db,
+            selected_entries,
+            window_start,
+            window_end,
+            chart_code=latest_snapshot.chart_code,
         )
         generated_result = provider.analyze(context)
         generated = generated_result.output
@@ -252,6 +256,8 @@ def _build_analysis_context(
     selected_entries: list[RankingEntry],
     window_start,
     window_end,
+    *,
+    chart_code: str,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
     source_ids = {entry.source_song_id for entry in selected_entries}
     history = list(
@@ -260,6 +266,7 @@ def _build_analysis_context(
             .join(RankingSnapshot, RankingSnapshot.id == RankingEntry.snapshot_id)
             .where(
                 RankingEntry.source_song_id.in_(source_ids),
+                RankingSnapshot.chart_code == chart_code,
                 RankingSnapshot.snapshot_date >= window_start,
                 RankingSnapshot.snapshot_date <= window_end,
             )
@@ -270,6 +277,7 @@ def _build_analysis_context(
         db.scalars(
             select(RankingSnapshot.snapshot_date)
             .where(
+                RankingSnapshot.chart_code == chart_code,
                 RankingSnapshot.snapshot_date >= window_start,
                 RankingSnapshot.snapshot_date <= window_end,
             )
@@ -325,6 +333,7 @@ def _build_analysis_context(
     }
     confidence = "high" if len(available_dates) >= 7 else "medium" if len(available_dates) >= 3 else "low"
     evidence: dict[str, object] = {
+        "chart_code": chart_code,
         "window_start": window_start.isoformat(),
         "window_end": window_end.isoformat(),
         "snapshot_dates": [value.isoformat() for value in available_dates],

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   App,
   Button,
+  Checkbox,
   Descriptions,
   Drawer,
   Empty,
@@ -24,15 +25,21 @@ import {
   ExternalLink,
   FileAudio,
   ListMusic,
+  Mic2,
   Play,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
+  Star,
   Trash2,
 } from 'lucide-react'
 
 import { listLyricsTasks } from '../api/lyrics'
 import { useAuth } from '../auth/useAuth'
+import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import {
+  completeMusicHumanVerification,
+  adaptMusicResult,
   createMusicTask,
   deleteMusicResult,
   deleteMusicTask,
@@ -45,12 +52,16 @@ import {
   loadMusicAudio,
   refreshSunoQuota,
   retryMusicTask,
+  regenerateMusicTask,
+  updateMusicProviderSettings,
 } from '../api/music'
 import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { errorMessage } from '../lib/errors'
 import type {
   LyricsVersion,
+  FavoriteItem,
+  MusicAdaptPayload,
   MusicCreatePayload,
   MusicExtendPayload,
   MusicResult,
@@ -64,9 +75,24 @@ interface MusicFormValues {
   lyrics_version_id: number
   title?: string
   style_prompt?: string
+  style_tags?: string[]
   instrumental: boolean
   negative_tags?: string[]
   requirements?: string
+}
+
+interface AdaptFormValues {
+  title?: string
+  lyrics?: string
+  style_prompt?: string
+  style_tags?: string[]
+  negative_tags?: string[]
+  requirements?: string
+  adaptation_mode: 'extend' | 'recreate'
+  source_artist?: string
+  source_url?: string
+  rights_confirmed: boolean
+  rights_note?: string
 }
 
 interface ExtendFormValues {
@@ -95,37 +121,47 @@ export function MusicPage() {
   const { user } = useAuth()
   const [form] = Form.useForm<MusicFormValues>()
   const [extendForm] = Form.useForm<ExtendFormValues>()
+  const [adaptForm] = Form.useForm<AdaptFormValues>()
   const [providerStatus, setProviderStatus] = useState<SunoProviderStatus | null>(null)
   const [lyricsVersions, setLyricsVersions] = useState<LyricsVersion[]>([])
   const [tasks, setTasks] = useState<MusicTask[]>([])
   const [results, setResults] = useState<MusicResult[]>([])
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([])
   const [activeTask, setActiveTask] = useState<MusicTask | null>(null)
   const [extendSource, setExtendSource] = useState<MusicResult | null>(null)
+  const [adaptSource, setAdaptSource] = useState<MusicResult | null>(null)
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [extending, setExtending] = useState(false)
+  const [adapting, setAdapting] = useState(false)
   const [refreshingQuota, setRefreshingQuota] = useState(false)
   const [retryingTaskId, setRetryingTaskId] = useState<number | null>(null)
+  const [confirmingHumanTaskId, setConfirmingHumanTaskId] = useState<number | null>(null)
   const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [deletingResultId, setDeletingResultId] = useState<number | null>(null)
+  const [favoriteResultId, setFavoriteResultId] = useState<number | null>(null)
+  const [regeneratingTaskId, setRegeneratingTaskId] = useState<number | null>(null)
+  const [updatingModel, setUpdatingModel] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [provider, lyrics, taskHistory, resultHistory] = await Promise.all([
+      const [provider, lyrics, taskHistory, resultHistory, favoriteHistory] = await Promise.all([
         getSunoProviderStatus(),
         listLyricsTasks(),
         listMusicTasks(),
         listMusicResults(),
+        listFavorites('music'),
       ])
       const versions = lyrics.items.flatMap((task) => task.versions).sort((a, b) => b.id - a.id)
       setProviderStatus(provider)
       setLyricsVersions(versions)
       setTasks(taskHistory.items)
       setResults(resultHistory.items)
+      setFavorites(favoriteHistory.items)
       setActiveTask((current) =>
         current ? taskHistory.items.find((task) => task.id === current.id) ?? current : null,
       )
@@ -161,12 +197,19 @@ export function MusicPage() {
     })
   }
 
+  const removeOverlappingTags = (field: 'style_tags' | 'negative_tags', values: string[]) => {
+    const otherField = field === 'style_tags' ? 'negative_tags' : 'style_tags'
+    const otherValues = (form.getFieldValue(otherField) ?? []) as string[]
+    form.setFieldValue(otherField, otherValues.filter((value) => !values.includes(value)))
+  }
+
   const submit = async () => {
     const values = await form.validateFields()
     setCreating(true)
     try {
       const payload: MusicCreatePayload = {
         ...values,
+        style_tags: values.style_tags ?? [],
         negative_tags: values.negative_tags ?? [],
       }
       const task = await createMusicTask(payload)
@@ -218,6 +261,17 @@ export function MusicPage() {
     extendForm.setFieldsValue({ title: `${result.title} · 续写` })
   }
 
+  const openAdapt = (result: MusicResult) => {
+    setAdaptSource(result)
+    adaptForm.setFieldsValue({
+      title: `${result.title} · 授权改编`,
+      style_tags: result.style_tags,
+      negative_tags: result.negative_tags,
+      adaptation_mode: 'extend',
+      rights_confirmed: false,
+    })
+  }
+
   const submitExtension = async () => {
     if (!extendSource) return
     const values = await extendForm.validateFields()
@@ -236,6 +290,80 @@ export function MusicPage() {
       setExtending(false)
     }
   }
+
+  const submitAdaptation = async () => {
+    if (!adaptSource) return
+    const values = await adaptForm.validateFields()
+    setAdapting(true)
+    try {
+      const payload: MusicAdaptPayload = {
+        ...values,
+        style_tags: values.style_tags ?? [],
+        negative_tags: values.negative_tags ?? [],
+      }
+      const task = await adaptMusicResult(adaptSource.id, payload)
+      message.success(`授权改编任务 #${task.id} 已进入队列`)
+      setAdaptSource(null)
+      adaptForm.resetFields()
+      await load()
+    } catch (adaptError) {
+      message.error(errorMessage(adaptError))
+      await load(true)
+    } finally {
+      setAdapting(false)
+    }
+  }
+
+  const toggleFavorite = async (result: MusicResult) => {
+    const existing = favorites.find((favorite) => favorite.target_id === result.id)
+    setFavoriteResultId(result.id)
+    try {
+      if (existing) {
+        await deleteFavorite(existing.id)
+        setFavorites((current) => current.filter((favorite) => favorite.id !== existing.id))
+        message.success('已从收藏夹移除')
+      } else {
+        const favorite = await createFavorite('music', result.id)
+        setFavorites((current) => [favorite, ...current])
+        message.success('音乐结果已加入收藏夹，当前为待分类')
+      }
+    } catch (favoriteError) {
+      message.error(errorMessage(favoriteError))
+    } finally {
+      setFavoriteResultId(null)
+    }
+  }
+
+  const regenerate = async (taskId: number) => {
+    setRegeneratingTaskId(taskId)
+    try {
+      const task = await regenerateMusicTask(taskId)
+      message.success(`音乐任务 #${task.id} 已重新进入队列`)
+      await load(true)
+    } catch (regenerateError) {
+      message.error(errorMessage(regenerateError))
+    } finally {
+      setRegeneratingTaskId(null)
+    }
+  }
+
+  const changeActiveModel = async (activeModel: string) => {
+    setUpdatingModel(true)
+    try {
+      await updateMusicProviderSettings(activeModel)
+      message.success(`后续音乐任务将使用 ${activeModel}`)
+      await load(true)
+    } catch (modelError) {
+      message.error(errorMessage(modelError))
+    } finally {
+      setUpdatingModel(false)
+    }
+  }
+
+  const favoritesByResult = useMemo(
+    () => new Map(favorites.map((favorite) => [favorite.target_id, favorite])),
+    [favorites],
+  )
 
   const refreshQuota = async () => {
     setRefreshingQuota(true)
@@ -263,6 +391,19 @@ export function MusicPage() {
     }
   }
 
+  const confirmHumanVerification = async (taskId: number) => {
+    setConfirmingHumanTaskId(taskId)
+    try {
+      const task = await completeMusicHumanVerification(taskId)
+      message.success(`音乐任务 #${task.id} 已在人机验证后重新进入队列`)
+      await load(true)
+    } catch (confirmError) {
+      message.error(errorMessage(confirmError))
+    } finally {
+      setConfirmingHumanTaskId(null)
+    }
+  }
+
   const columns: TableProps<MusicTask>['columns'] = [
     {
       title: '任务',
@@ -282,7 +423,9 @@ export function MusicPage() {
       title: '状态',
       dataIndex: 'status',
       width: 110,
-      render: (value: WorkflowTaskStatus) => <Tag color={STATUS_COLORS[value]}>{STATUS_LABELS[value]}</Tag>,
+      render: (_value: WorkflowTaskStatus, task) => (
+        <Tag color={musicStatusColor(task)}>{musicStatusLabel(task)}</Tag>
+      ),
     },
     {
       title: '产出',
@@ -347,7 +490,17 @@ export function MusicPage() {
                 ? '兼容实现'
                 : '配置错误'
           }`}
-          description={providerStatus.message}
+          description={(
+            <Space orientation="vertical" size={2}>
+              <span>{providerStatus.message}</span>
+              {providerStatus.implementation === 'compatibility' && providerStatus.captcha_mode && (
+                <Typography.Text type="secondary">
+                  验证模式：{providerStatus.captcha_mode === 'human_verification' ? '管理员人工验证' : providerStatus.captcha_mode}
+                  {providerStatus.cookie_configured === false ? ' · 等待本机会话' : ''}
+                </Typography.Text>
+              )}
+            </Space>
+          )}
           action={
             <Space wrap>
               {user?.role === 'super_admin' && (
@@ -360,11 +513,11 @@ export function MusicPage() {
                 </Button>
               )}
               <Button
-                href={providerStatus.platform_url}
+                href={providerStatus.implementation === 'compatibility' ? 'https://suno.com/create' : providerStatus.platform_url}
                 target="_blank"
                 icon={<ExternalLink size={15} />}
               >
-                Suno Platform
+                {providerStatus.implementation === 'compatibility' ? '打开 Suno' : 'Suno Platform'}
               </Button>
             </Space>
           }
@@ -376,6 +529,17 @@ export function MusicPage() {
             <Descriptions.Item label="任务队列">{providerStatus.queue_mode === 'redis' ? 'Redis 独立队列' : '进程内执行'}</Descriptions.Item>
             <Descriptions.Item label="最大并发">{providerStatus.max_concurrency}</Descriptions.Item>
             <Descriptions.Item label="请求间隔">{providerStatus.min_request_interval_seconds} 秒</Descriptions.Item>
+            <Descriptions.Item label="当前音乐模型">
+              {user?.role === 'super_admin' ? (
+                <Select
+                  size="small"
+                  value={providerStatus.active_model}
+                  loading={updatingModel}
+                  options={['v4.5', 'v4', 'v3.5'].map((model) => ({ value: model, label: model }))}
+                  onChange={(model) => void changeActiveModel(model)}
+                />
+              ) : providerStatus.active_model}
+            </Descriptions.Item>
             <Descriptions.Item label="我的任务额度">
               {providerStatus.user_quota.is_unlimited
                 ? '不限额'
@@ -406,7 +570,7 @@ export function MusicPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>创建 Suno 任务</Typography.Title>
-            <Typography.Text type="secondary">选择一个歌词版本，标题和风格会自动带入</Typography.Text>
+            <Typography.Text type="secondary">选择歌词后设置目标风格与排除风格；后续任务使用当前模型 {providerStatus?.active_model ?? 'v4.5'}</Typography.Text>
           </div>
         </div>
         {lyricsVersions.length ? (
@@ -440,8 +604,21 @@ export function MusicPage() {
               <Input.TextArea rows={3} maxLength={3000} placeholder="曲风、情绪、速度、人声和乐器要求" />
             </Form.Item>
             <div className="form-grid">
+              <Form.Item name="style_tags" label="目标风格">
+                <Select
+                  mode="tags"
+                  tokenSeparators={[',', '，']}
+                  placeholder="可多选，例如 流行、R&B、氛围电子"
+                  onChange={(values) => removeOverlappingTags('style_tags', values)}
+                />
+              </Form.Item>
               <Form.Item name="negative_tags" label="排除风格">
-                <Select mode="tags" tokenSeparators={[',', '，']} placeholder="例如：重金属、尖锐高音" />
+                <Select
+                  mode="tags"
+                  tokenSeparators={[',', '，']}
+                  placeholder="可多选，例如 重金属、尖锐高音"
+                  onChange={(values) => removeOverlappingTags('negative_tags', values)}
+                />
               </Form.Item>
               <Form.Item name="instrumental" label="纯音乐" valuePropName="checked">
                 <Switch checkedChildren="开启" unCheckedChildren="带人声" />
@@ -469,23 +646,33 @@ export function MusicPage() {
         <div className="section-title-row">
           <div>
             <Typography.Title level={2}>试听区</Typography.Title>
-            <Typography.Text type="secondary">生成完成的每首音频独立播放、下载和续写</Typography.Text>
+            <Typography.Text type="secondary">每首音频独立试听、下载、收藏、再次生成或授权改编</Typography.Text>
           </div>
           <Tag icon={<ListMusic size={13} />}>{results.length} 首</Tag>
         </div>
         {results.length ? (
-          <div className="music-result-list">
-            {results.map((result) => (
-              <MusicResultItem
-                key={result.id}
-                result={result}
-                deleting={deletingResultId === result.id}
-                canExtend={!quotaExhausted}
-                onExtend={() => openExtend(result)}
-                onDelete={() => void removeResult(result)}
-              />
-            ))}
-          </div>
+          <CollapsibleList items={results} previewCount={6}>
+            {(visibleResults) => (
+              <div className="music-result-list">
+                {visibleResults.map((result) => (
+                  <MusicResultItem
+                    key={result.id}
+                    result={result}
+                    deleting={deletingResultId === result.id}
+                    favorite={favoritesByResult.get(result.id)}
+                    favoriting={favoriteResultId === result.id}
+                    canCreate={!quotaExhausted}
+                    regenerating={regeneratingTaskId === result.task_id}
+                    onRegenerate={() => void regenerate(result.task_id)}
+                    onExtend={() => openExtend(result)}
+                    onAdapt={() => openAdapt(result)}
+                    onFavorite={() => void toggleFavorite(result)}
+                    onDelete={() => void removeResult(result)}
+                  />
+                ))}
+              </div>
+            )}
+          </CollapsibleList>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可试听音乐" />
         )}
@@ -543,7 +730,7 @@ export function MusicPage() {
           <div className="report-stack">
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="状态">
-                <Tag color={STATUS_COLORS[activeTask.status]}>{STATUS_LABELS[activeTask.status]}</Tag>
+                <Tag color={musicStatusColor(activeTask)}>{musicStatusLabel(activeTask)}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="供应商">Suno{activeTask.model ? ` / ${activeTask.model}` : ''}</Descriptions.Item>
               <Descriptions.Item label="接口实现">
@@ -562,9 +749,26 @@ export function MusicPage() {
                 type="error"
                 showIcon
                 title={activeTask.error_message}
-                description={activeTask.error_code ? `错误码：${activeTask.error_code}` : undefined}
+                description={taskErrorDescription(activeTask)}
                 action={
-                  activeTask.status === 'failed' ? (
+                  isWaitingHumanVerification(activeTask) ? (
+                    user?.role === 'super_admin' ? (
+                      <Popconfirm
+                        title="确认已完成人机验证？"
+                        description="请先在正常 Suno 网页完成验证并更新本地兼容服务会话。"
+                        okText="重新入队"
+                        cancelText="取消"
+                        onConfirm={() => void confirmHumanVerification(activeTask.id)}
+                      >
+                        <Button
+                          icon={<ShieldCheck size={15} />}
+                          loading={confirmingHumanTaskId === activeTask.id}
+                        >
+                          验证完成，重新入队
+                        </Button>
+                      </Popconfirm>
+                    ) : undefined
+                  ) : activeTask.status === 'failed' ? (
                     <Button
                       icon={<RefreshCw size={15} />}
                       loading={retryingTaskId === activeTask.id}
@@ -613,6 +817,68 @@ export function MusicPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Modal
+        title={adaptSource ? `授权改编：${adaptSource.title}` : '授权改编'}
+        open={Boolean(adaptSource)}
+        okText="提交授权改编"
+        cancelText="取消"
+        confirmLoading={adapting}
+        okButtonProps={{ disabled: quotaExhausted }}
+        onOk={() => void submitAdaptation()}
+        onCancel={() => {
+          setAdaptSource(null)
+          adaptForm.resetFields()
+        }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          title="仅用于已取得授权的自有或客户作品"
+          description="当前兼容实现可使用已有音乐结果的续写或根据授权创作说明重新生成，不会伪装为未提供的 Cover 或 Remix 接口。"
+        />
+        <Form<AdaptFormValues> form={adaptForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="title" label="新标题">
+            <Input maxLength={200} />
+          </Form.Item>
+          <Form.Item name="adaptation_mode" label="改编方式">
+            <Select options={[
+              { value: 'extend', label: '基于当前结果续写' },
+              { value: 'recreate', label: '根据授权创作说明重新生成' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="lyrics" label="改编歌词">
+            <Input.TextArea rows={4} maxLength={5000} placeholder="留空则沿用原任务歌词" />
+          </Form.Item>
+          <div className="form-grid">
+            <Form.Item name="style_tags" label="目标风格">
+              <Select mode="tags" tokenSeparators={[',', '，']} />
+            </Form.Item>
+            <Form.Item name="negative_tags" label="排除风格">
+              <Select mode="tags" tokenSeparators={[',', '，']} />
+            </Form.Item>
+          </div>
+          <Form.Item name="style_prompt" label="风格调整">
+            <Input.TextArea rows={2} maxLength={3000} />
+          </Form.Item>
+          <Form.Item name="source_artist" label="来源作者或权利方">
+            <Input maxLength={200} placeholder="可选，用于记录授权来源" />
+          </Form.Item>
+          <Form.Item name="source_url" label="来源链接">
+            <Input maxLength={2000} placeholder="可选，用于记录授权来源" />
+          </Form.Item>
+          <Form.Item name="rights_note" label="授权备注">
+            <Input.TextArea rows={2} maxLength={1000} placeholder="授权范围、联系人或内部说明" />
+          </Form.Item>
+          <Form.Item
+            name="rights_confirmed"
+            valuePropName="checked"
+            rules={[{ validator: (_, value) => value ? Promise.resolve() : Promise.reject(new Error('请确认已取得授权')) }]}
+          >
+            <Checkbox>我确认已取得该来源作品的使用或改编授权</Checkbox>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }
@@ -621,14 +887,26 @@ export function MusicPage() {
 function MusicResultItem({
   result,
   deleting,
-  canExtend,
+  favorite,
+  favoriting,
+  canCreate,
+  regenerating,
+  onRegenerate,
   onExtend,
+  onAdapt,
+  onFavorite,
   onDelete,
 }: {
   result: MusicResult
   deleting: boolean
-  canExtend: boolean
+  favorite: FavoriteItem | undefined
+  favoriting: boolean
+  canCreate: boolean
+  regenerating: boolean
+  onRegenerate: () => void
   onExtend: () => void
+  onAdapt: () => void
+  onFavorite: () => void
   onDelete: () => void
 }) {
   const { message } = App.useApp()
@@ -671,8 +949,13 @@ function MusicResultItem({
         {result.image_url ? <img src={result.image_url} alt="" /> : <FileAudio size={28} />}
       </div>
       <div className="music-result-copy">
-        <strong>{result.title}</strong>
-        <span>任务 #{result.task_id} · {formatDateTime(result.created_at)}{result.duration_seconds ? ` · ${formatDuration(result.duration_seconds)}` : ''}</span>
+        <div className="music-result-title-row">
+          <strong>{result.title}</strong>
+          <Tag color={favorite ? 'gold' : 'default'}>{favorite ? favoriteCategoryLabel(favorite.category) : '待分类'}</Tag>
+        </div>
+        <span>任务 #{result.task_id} · {formatDateTime(result.created_at)} · 时长 {formatDuration(result.duration_seconds)}</span>
+        <small>{result.task_operation === 'adapt' ? '授权改编' : result.task_operation === 'extend' ? '续写版本' : '完整生成'} · {result.task_model ?? '默认模型'}</small>
+        {result.style_tags.length > 0 && <small>风格：{result.style_tags.join(' · ')}</small>}
         {result.storage_error && <small>{result.storage_error}，当前将尝试使用供应商地址试听</small>}
       </div>
       <div className="music-result-player">
@@ -690,6 +973,29 @@ function MusicResultItem({
         )}
       </div>
       <Space className="music-result-actions">
+        <Button
+          type="primary"
+          icon={<Sparkles size={16} />}
+          loading={regenerating}
+          disabled={!canCreate}
+          onClick={onRegenerate}
+        >
+          再次生成
+        </Button>
+        <Button disabled={!canCreate} onClick={onAdapt}>授权改编</Button>
+        <Button icon={<Sparkles size={16} />} disabled={!canCreate} onClick={onExtend}>续写</Button>
+        <Tooltip title="需先接入已授权的声音模型库">
+          <Button icon={<Mic2 size={16} />} disabled aria-label="声音模型替换" />
+        </Tooltip>
+        <Tooltip title={favorite ? '取消收藏' : '加入收藏夹'}>
+          <Button
+            icon={<Star size={16} fill={favorite ? 'currentColor' : 'none'} />}
+            className={favorite ? 'favorite-button-active' : undefined}
+            loading={favoriting}
+            aria-label={favorite ? '取消收藏音乐结果' : '收藏音乐结果'}
+            onClick={onFavorite}
+          />
+        </Tooltip>
         <Tooltip title="下载音频">
           <Button
             icon={<Download size={16} />}
@@ -699,7 +1005,6 @@ function MusicResultItem({
             onClick={() => void download()}
           />
         </Tooltip>
-        <Button icon={<Sparkles size={16} />} disabled={!canExtend} onClick={onExtend}>续写</Button>
         {result.provider_page_url && (
           <Tooltip title="在 Suno 查看">
             <Button
@@ -727,6 +1032,33 @@ function MusicResultItem({
 }
 
 
+function isWaitingHumanVerification(task: MusicTask) {
+  return task.provider_status === 'waiting_human_verification'
+    || task.error_code === 'SUNO_HUMAN_VERIFICATION_REQUIRED'
+}
+
+
+function musicStatusLabel(task: MusicTask) {
+  return isWaitingHumanVerification(task) ? '待人机验证' : STATUS_LABELS[task.status]
+}
+
+
+function musicStatusColor(task: MusicTask) {
+  return isWaitingHumanVerification(task) ? 'warning' : STATUS_COLORS[task.status]
+}
+
+
+function taskErrorDescription(task: MusicTask) {
+  const lines = [
+    task.error_code ? `错误码：${task.error_code}` : null,
+    isWaitingHumanVerification(task)
+      ? '请超级管理员在正常 Suno 网页完成人机验证并更新本地兼容服务会话，然后恢复任务。'
+      : null,
+  ].filter(Boolean)
+  return lines.length ? lines.join('\n') : undefined
+}
+
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
@@ -737,8 +1069,14 @@ function formatDateTime(value: string) {
 }
 
 
-function formatDuration(seconds: number) {
+function formatDuration(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) return '—'
   const minutes = Math.floor(seconds / 60)
   const remainder = Math.max(0, Math.round(seconds % 60))
   return `${minutes}:${String(remainder).padStart(2, '0')}`
+}
+
+
+function favoriteCategoryLabel(category: FavoriteItem['category']) {
+  return category === 'unclassified' ? '待分类' : `${category} 级`
 }

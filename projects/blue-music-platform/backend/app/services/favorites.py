@@ -8,13 +8,15 @@ from app.models import (
     ApiUsageRecord,
     FavoriteItem,
     LyricsVersion,
+    MusicResult,
 )
 from app.schemas.favorite import (
+    FavoriteCategory,
     FavoriteCreateRequest,
     FavoriteItemResponse,
     FavoriteItemType,
     FavoriteListResponse,
-    FavoriteNoteUpdate,
+    FavoriteUpdateRequest,
 )
 
 
@@ -31,6 +33,7 @@ def create_favorite(
     favorite = FavoriteItem(
         item_type=payload.item_type,
         target_id=payload.target_id,
+        category=payload.category,
         created_by_id=user_id,
     )
     db.add(favorite)
@@ -49,6 +52,7 @@ def create_favorite(
 def list_favorites(
     db: Session,
     item_type: FavoriteItemType | None = None,
+    category: FavoriteCategory | None = None,
     limit: int = 100,
 ) -> FavoriteListResponse:
     query = select(FavoriteItem).options(selectinload(FavoriteItem.creator))
@@ -56,6 +60,9 @@ def list_favorites(
     if item_type is not None:
         query = query.where(FavoriteItem.item_type == item_type)
         count_query = count_query.where(FavoriteItem.item_type == item_type)
+    if category is not None:
+        query = query.where(FavoriteItem.category == category)
+        count_query = count_query.where(FavoriteItem.category == category)
 
     favorites = db.scalars(
         query.order_by(FavoriteItem.created_at.desc(), FavoriteItem.id.desc()).limit(limit)
@@ -66,13 +73,17 @@ def list_favorites(
     )
 
 
-def update_favorite_note(
+def update_favorite(
     db: Session,
     favorite_id: int,
-    payload: FavoriteNoteUpdate,
+    payload: FavoriteUpdateRequest,
 ) -> FavoriteItemResponse:
     favorite = _get_favorite(db, favorite_id)
-    favorite.note = payload.note
+    fields = payload.model_fields_set
+    if "note" in fields:
+        favorite.note = payload.note
+    if "category" in fields and payload.category is not None:
+        favorite.category = payload.category
     db.commit()
     db.refresh(favorite)
     return favorite_item_response(db, favorite)
@@ -104,6 +115,7 @@ def favorite_item_response(
         ),
         source_created_at=source["source_created_at"],
         metadata=source["metadata"],
+        category=favorite.category,
         note=favorite.note,
         created_by_id=favorite.created_by_id,
         created_by_username=favorite.creator.username if favorite.creator else None,
@@ -139,6 +151,7 @@ def _source_response_data(
                 "window_end": task.window_end.isoformat(),
                 "selected_entry_count": report.trend_metrics.get("selected_count", 0),
                 "direction_count": len(report.creation_directions),
+                "creation_directions": report.creation_directions,
             },
         }
 
@@ -165,6 +178,34 @@ def _source_response_data(
                 "language": task.language,
                 "genre_tags": task.genre_tags,
                 "mood_tags": task.mood_tags,
+            },
+        }
+
+    if item_type == "music":
+        result = db.scalar(
+            select(MusicResult)
+            .options(selectinload(MusicResult.task))
+            .where(MusicResult.id == target_id)
+        )
+        if result is None:
+            _raise_target_not_found(item_type, target_id)
+        task = result.task
+        return {
+            "source_task_id": task.id,
+            "title": result.title,
+            "summary": task.style_prompt or "Suno 音乐产出",
+            "status": task.status,
+            "provider": task.provider,
+            "model": task.model,
+            "source_created_at": result.created_at,
+            "metadata": {
+                "operation": task.operation,
+                "style_tags": task.style_tags,
+                "negative_tags": task.negative_tags,
+                "duration_seconds": result.duration_seconds,
+                "audio_ready": bool(result.storage_key or result.audio_url),
+                "adaptation_mode": task.adaptation_mode,
+                "rights_confirmed": task.rights_confirmed,
             },
         }
 

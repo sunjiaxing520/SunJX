@@ -54,11 +54,28 @@ class MusicTask(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     lyrics: Mapped[str] = mapped_column(Text, nullable=False)
     style_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    style_tags: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        server_default="[]",
+        nullable=False,
+    )
     instrumental: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
     negative_tags: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
+    adaptation_mode: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    source_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source_artist: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rights_confirmed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+    rights_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_task_id: Mapped[str | None] = mapped_column(
         String(200), nullable=True, index=True
     )
@@ -162,4 +179,24 @@ class MusicProviderQuotaSnapshot(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MusicProviderSettings(Base):
+    __tablename__ = "music_provider_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    active_model: Mapped[str] = mapped_column(
+        String(100), default="v4.5", server_default="v4.5", nullable=False
+    )
+    updated_by_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

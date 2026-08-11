@@ -41,6 +41,9 @@ const AiProvidersPage = lazy(() =>
 const WorkflowsPage = lazy(() =>
   import('./pages/WorkflowsPage').then((module) => ({ default: module.WorkflowsPage })),
 )
+const ReviewAgentsPage = lazy(() =>
+  import('./pages/ReviewAgentsPage').then((module) => ({ default: module.ReviewAgentsPage })),
+)
 
 function AgentRoute({ agent }: { agent: AgentType }) {
   const { user } = useAuth()
@@ -80,6 +83,7 @@ export default function AppRoutes() {
               <Route path="music" element={<MusicPage />} />
             </Route>
             <Route path="favorites" element={<FavoritesPage />} />
+            <Route path="review-agents" element={<ReviewAgentsPage />} />
             <Route path="agents" element={<AgentsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="admin/users" element={<UsersPage />} />

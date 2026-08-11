@@ -3,6 +3,8 @@ import type {
   LyricsCreatePayload,
   LyricsTask,
   LyricsTaskList,
+  LyricsAssistantHistory,
+  LyricsAssistantMessage,
   LyricsVersion,
   TaskDeleteResult,
 } from '../types/api'
@@ -48,4 +50,24 @@ export function saveLyricsVersion(versionId: number): Promise<LyricsVersion> {
 
 export function getCreationBrief(versionId: number): Promise<CreationBrief> {
   return apiRequest<CreationBrief>(`/lyrics/versions/${versionId}/creation-brief`)
+}
+
+export function listLyricsAssistantMessages(versionId: number): Promise<LyricsAssistantHistory> {
+  return apiRequest<LyricsAssistantHistory>(`/lyrics/versions/${versionId}/assistant`)
+}
+
+export function requestLyricsAssistantPreview(
+  versionId: number,
+  instruction: string,
+): Promise<LyricsAssistantMessage> {
+  return apiRequest<LyricsAssistantMessage>(`/lyrics/versions/${versionId}/assistant`, {
+    method: 'POST',
+    body: JSON.stringify({ instruction }),
+  })
+}
+
+export function confirmLyricsAssistantPreview(messageId: number): Promise<LyricsVersion> {
+  return apiRequest<LyricsVersion>(`/lyrics/assistant-previews/${messageId}/confirm`, {
+    method: 'POST',
+  })
 }

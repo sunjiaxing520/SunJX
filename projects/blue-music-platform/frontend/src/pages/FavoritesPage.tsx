@@ -6,6 +6,8 @@ import {
   Empty,
   Input,
   Popconfirm,
+  Select,
+  Segmented,
   Space,
   Table,
   Tabs,
@@ -17,17 +19,42 @@ import {
 import { Eye, MessageSquareText, RefreshCw, Save, StarOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
-import { deleteFavorite, listFavorites, updateFavoriteNote } from '../api/favorites'
+import {
+  deleteFavorite,
+  listFavorites,
+  updateFavoriteCategory,
+  updateFavoriteNote,
+} from '../api/favorites'
 import { hasAgentAccess } from '../auth/permissions'
 import { useAuth } from '../auth/useAuth'
 import { errorMessage } from '../lib/errors'
-import type { FavoriteItem, FavoriteItemType } from '../types/api'
+import type { FavoriteCategory, FavoriteItem, FavoriteItemType } from '../types/api'
 
-type FavoriteFilter = 'all' | FavoriteItemType
+type FavoriteTypeFilter = 'all' | FavoriteItemType
+type FavoriteCategoryFilter = 'all' | FavoriteCategory
 
 const CATEGORY_LABELS: Record<FavoriteItemType, string> = {
   analysis: '榜单分析',
   lyrics: '歌词创作',
+  music: '音乐结果',
+}
+
+const CLASSIFICATION_LABELS: Record<FavoriteCategory, string> = {
+  unclassified: '待分类',
+  S: 'S 级',
+  A: 'A 级',
+  B: 'B 级',
+  C: 'C 级',
+  D: 'D 级',
+}
+
+const CLASSIFICATION_COLORS: Record<FavoriteCategory, string> = {
+  unclassified: 'default',
+  S: 'gold',
+  A: 'green',
+  B: 'blue',
+  C: 'orange',
+  D: 'red',
 }
 
 function formatDateTime(value: string): string {
@@ -38,6 +65,9 @@ function sourceLabel(item: FavoriteItem): string {
   if (item.item_type === 'analysis') {
     return `报告 #${item.target_id} · 任务 #${item.source_task_id}`
   }
+  if (item.item_type === 'music') {
+    return `${item.metadata.operation === 'adapt' ? '授权改编' : '音乐生成'} · 任务 #${item.source_task_id}`
+  }
   return `第 ${Number(item.metadata.version_number ?? 1)} 版 · 任务 #${item.source_task_id}`
 }
 
@@ -46,10 +76,12 @@ export function FavoritesPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [items, setItems] = useState<FavoriteItem[]>([])
-  const [activeFilter, setActiveFilter] = useState<FavoriteFilter>('all')
+  const [activeCategory, setActiveCategory] = useState<FavoriteCategoryFilter>('all')
+  const [activeTypeFilter, setActiveTypeFilter] = useState<FavoriteTypeFilter>('all')
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([])
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
+  const [updatingCategoryId, setUpdatingCategoryId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -74,13 +106,25 @@ export function FavoritesPage() {
     all: items.length,
     analysis: items.filter((item) => item.item_type === 'analysis').length,
     lyrics: items.filter((item) => item.item_type === 'lyrics').length,
+    music: items.filter((item) => item.item_type === 'music').length,
+  }), [items])
+
+  const categoryCounts = useMemo(() => ({
+    all: items.length,
+    unclassified: items.filter((item) => item.category === 'unclassified').length,
+    S: items.filter((item) => item.category === 'S').length,
+    A: items.filter((item) => item.category === 'A').length,
+    B: items.filter((item) => item.category === 'B').length,
+    C: items.filter((item) => item.category === 'C').length,
+    D: items.filter((item) => item.category === 'D').length,
   }), [items])
 
   const visibleItems = useMemo(
-    () => activeFilter === 'all'
-      ? items
-      : items.filter((item) => item.item_type === activeFilter),
-    [activeFilter, items],
+    () => items.filter((item) => (
+      (activeCategory === 'all' || item.category === activeCategory)
+      && (activeTypeFilter === 'all' || item.item_type === activeTypeFilter)
+    )),
+    [activeCategory, activeTypeFilter, items],
   )
 
   const canOpenSource = (item: FavoriteItem) => {
@@ -92,6 +136,10 @@ export function FavoritesPage() {
     if (!canOpenSource(item)) return
     if (item.item_type === 'analysis') {
       navigate(`/analysis?task_id=${item.source_task_id}`)
+      return
+    }
+    if (item.item_type === 'music') {
+      navigate(`/music?task_id=${item.source_task_id}&result_id=${item.target_id}`)
       return
     }
     navigate(`/lyrics?task_id=${item.source_task_id}&version_id=${item.target_id}`)
@@ -119,6 +167,19 @@ export function FavoritesPage() {
     }
   }
 
+  const changeCategory = async (item: FavoriteItem, category: FavoriteCategory) => {
+    setUpdatingCategoryId(item.id)
+    try {
+      const updated = await updateFavoriteCategory(item.id, category)
+      setItems((current) => current.map((value) => value.id === updated.id ? updated : value))
+      message.success(`已归类为${CLASSIFICATION_LABELS[category]}`)
+    } catch (categoryError) {
+      message.error(errorMessage(categoryError))
+    } finally {
+      setUpdatingCategoryId(null)
+    }
+  }
+
   const remove = async (item: FavoriteItem) => {
     try {
       await deleteFavorite(item.id)
@@ -143,7 +204,7 @@ export function FavoritesPage() {
       ),
     },
     {
-      title: '分类 / 来源',
+      title: '内容 / 来源',
       key: 'category',
       width: 150,
       render: (_, item) => (
@@ -153,6 +214,24 @@ export function FavoritesPage() {
           </Tag>
           <small>{sourceLabel(item)}</small>
         </div>
+      ),
+    },
+    {
+      title: '收藏分类',
+      key: 'classification',
+      width: 128,
+      render: (_, item) => (
+        <Select
+          value={item.category}
+          size="small"
+          loading={updatingCategoryId === item.id}
+          aria-label={`设置 ${item.title} 的收藏分类`}
+          options={(Object.keys(CLASSIFICATION_LABELS) as FavoriteCategory[]).map((category) => ({
+            value: category,
+            label: <Tag color={CLASSIFICATION_COLORS[category]}>{CLASSIFICATION_LABELS[category]}</Tag>,
+          }))}
+          onChange={(category) => void changeCategory(item, category as FavoriteCategory)}
+        />
       ),
     },
     {
@@ -212,7 +291,7 @@ export function FavoritesPage() {
             </Tooltip>
             <Popconfirm
               title="移出收藏夹"
-              description="原始分析或歌词记录不会被删除。"
+              description="原始分析、歌词或音乐记录不会被删除。"
               okText="移除"
               cancelText="取消"
               onConfirm={() => void remove(item)}
@@ -232,7 +311,7 @@ export function FavoritesPage() {
       <div className="page-heading-row">
         <div>
           <Typography.Title level={1}>收藏夹</Typography.Title>
-          <Typography.Text type="secondary">团队精选的分析报告与歌词版本</Typography.Text>
+          <Typography.Text type="secondary">团队共享的分析、歌词与音乐成果，可按价值手动分级</Typography.Text>
         </div>
         <Button icon={<RefreshCw size={16} />} loading={loading} onClick={load}>刷新</Button>
       </div>
@@ -241,17 +320,35 @@ export function FavoritesPage() {
 
       <section className="content-section favorites-section">
         <Tabs
-          activeKey={activeFilter}
+          activeKey={activeCategory}
           onChange={(key) => {
-            setActiveFilter(key as FavoriteFilter)
+            setActiveCategory(key as FavoriteCategoryFilter)
             setExpandedRowKeys([])
           }}
           items={[
             { key: 'all', label: `全部 ${counts.all}` },
-            { key: 'analysis', label: `榜单分析 ${counts.analysis}` },
-            { key: 'lyrics', label: `歌词创作 ${counts.lyrics}` },
+            ...(['unclassified', 'S', 'A', 'B', 'C', 'D'] as FavoriteCategory[]).map((category) => ({
+              key: category,
+              label: `${CLASSIFICATION_LABELS[category]} ${categoryCounts[category]}`,
+            })),
           ]}
         />
+        <div className="favorites-type-filter">
+          <Typography.Text type="secondary">内容类型</Typography.Text>
+          <Segmented
+            value={activeTypeFilter}
+            options={[
+              { value: 'all', label: `全部 ${counts.all}` },
+              { value: 'analysis', label: `分析 ${counts.analysis}` },
+              { value: 'lyrics', label: `歌词 ${counts.lyrics}` },
+              { value: 'music', label: `音乐 ${counts.music}` },
+            ]}
+            onChange={(value) => {
+              setActiveTypeFilter(value as FavoriteTypeFilter)
+              setExpandedRowKeys([])
+            }}
+          />
+        </div>
         <Table<FavoriteItem>
           rowKey="id"
           columns={columns}
@@ -259,7 +356,7 @@ export function FavoritesPage() {
           loading={loading}
           locale={{ emptyText: <Empty description="暂无收藏记录" /> }}
           pagination={{ pageSize: 8, showSizeChanger: false, hideOnSinglePage: true }}
-          scroll={{ x: 955 }}
+          scroll={{ x: 1080 }}
           className="data-table favorites-table"
           expandable={{
             expandedRowKeys,

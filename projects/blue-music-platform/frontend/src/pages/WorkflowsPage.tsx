@@ -69,6 +69,7 @@ interface WorkflowFormValues {
   name: string
   steps: WorkflowStepType[]
   source_mode: 'live' | 'sample'
+  collection_chart: 'top500' | 'rising'
   collection_limit: number
   window_days: number
   direction_number: number
@@ -274,6 +275,7 @@ export function WorkflowsPage() {
       name: '完整创作流程',
       steps: defaultSteps,
       source_mode: 'live',
+      collection_chart: 'top500',
       collection_limit: 100,
       window_days: 7,
       direction_number: 1,
@@ -303,6 +305,7 @@ export function WorkflowsPage() {
       name: '完整创作流程',
       steps: defaultSteps,
       source_mode: 'live',
+      collection_chart: 'top500',
       collection_limit: 100,
       window_days: 7,
       direction_number: 1,
@@ -322,6 +325,7 @@ export function WorkflowsPage() {
     configuration: {
       collection: {
         source_mode: values.source_mode,
+        chart: values.collection_chart,
         limit: values.collection_limit,
       },
       analysis: { window_days: values.window_days },
@@ -373,6 +377,7 @@ export function WorkflowsPage() {
       name: template.name,
       steps: template.steps,
       source_mode: template.configuration.collection.source_mode,
+      collection_chart: template.configuration.collection.chart ?? 'top500',
       collection_limit: template.configuration.collection.limit,
       window_days: template.configuration.analysis.window_days,
       direction_number: template.configuration.lyrics.direction_index + 1,
@@ -705,6 +710,15 @@ export function WorkflowsPage() {
                   <strong>榜单采集设置</strong>
                 </div>
                 <div className="form-grid">
+                  <Form.Item name="collection_chart" label="榜单">
+                    <Segmented
+                      block
+                      options={[
+                        { label: 'TOP500', value: 'top500' },
+                        { label: '飙升榜', value: 'rising' },
+                      ]}
+                    />
+                  </Form.Item>
                   <Form.Item name="source_mode" label="数据来源">
                     <Segmented
                       block

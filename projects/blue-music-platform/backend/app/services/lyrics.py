@@ -10,6 +10,7 @@ from app.core.logging import LOGGER_NAME
 from app.models import (
     AnalysisReport,
     FavoriteItem,
+    LyricsAssistantMessage,
     LyricsTask,
     LyricsVersion,
     TaskStatus,
@@ -19,6 +20,10 @@ from app.models import (
 from app.schemas.lyrics import (
     CreationBriefResponse,
     LyricsCreateRequest,
+    LyricsAssistantHistoryResponse,
+    LyricsAssistantMessageRequest,
+    LyricsAssistantMessageResponse,
+    LyricsAssistantPreviewResponse,
     LyricsTaskDeleteResponse,
     LyricsTaskListResponse,
     LyricsTaskResponse,
@@ -43,6 +48,27 @@ def lyrics_version_response(version: LyricsVersion) -> LyricsVersionResponse:
         sections=version.sections,
         is_saved=version.is_saved,
         created_at=version.created_at,
+    )
+
+
+def lyrics_assistant_message_response(
+    message: LyricsAssistantMessage,
+) -> LyricsAssistantMessageResponse:
+    preview = (
+        LyricsAssistantPreviewResponse.model_validate(message.preview)
+        if message.preview is not None
+        else None
+    )
+    return LyricsAssistantMessageResponse(
+        id=message.id,
+        task_id=message.task_id,
+        source_version_id=message.source_version_id,
+        role=message.role,
+        content=message.content,
+        preview=preview,
+        provider=message.provider,
+        model=message.model,
+        created_at=message.created_at,
     )
 
 
@@ -388,6 +414,206 @@ def save_lyrics_version(db: Session, version_id: int) -> LyricsVersionResponse:
     db.commit()
     db.refresh(version)
     return lyrics_version_response(version)
+
+
+def list_lyrics_assistant_messages(
+    db: Session,
+    version_id: int,
+) -> LyricsAssistantHistoryResponse:
+    _get_lyrics_version(db, version_id)
+    messages = db.scalars(
+        select(LyricsAssistantMessage)
+        .where(LyricsAssistantMessage.source_version_id == version_id)
+        .order_by(LyricsAssistantMessage.created_at, LyricsAssistantMessage.id)
+    ).all()
+    return LyricsAssistantHistoryResponse(
+        items=[lyrics_assistant_message_response(message) for message in messages]
+    )
+
+
+def create_lyrics_assistant_preview(
+    db: Session,
+    version_id: int,
+    payload: LyricsAssistantMessageRequest,
+    user_id: int,
+) -> LyricsAssistantMessageResponse:
+    version = _get_lyrics_version(db, version_id)
+    task = db.get(LyricsTask, version.task_id)
+    if task is None:
+        raise AppException(
+            code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
+        )
+
+    user_message = LyricsAssistantMessage(
+        task_id=task.id,
+        source_version_id=version.id,
+        role="user",
+        content=payload.instruction,
+        created_by_id=user_id,
+    )
+    db.add(user_message)
+    db.commit()
+
+    try:
+        provider = resolve_text_provider(db)
+        history = _assistant_context_history(db, version.id)
+        generated_result = provider.revise_lyrics(
+            {
+                "task": {
+                    "theme": task.theme,
+                    "language": task.language,
+                    "genre_tags": task.genre_tags,
+                    "mood_tags": task.mood_tags,
+                    "scene_tags": task.scene_tags,
+                    "keywords": task.keywords,
+                    "tempo": task.tempo,
+                    "vocal_gender": task.vocal_gender,
+                    "vocal_style": task.vocal_style,
+                    "requirements": task.requirements,
+                    "reference_text": task.reference_text,
+                },
+                "original": {
+                    "title": version.title,
+                    "content": version.content,
+                    "style_prompt": version.style_prompt,
+                    "sections": version.sections,
+                },
+                "history": history,
+                "instruction": payload.instruction,
+                "variation": len(task.versions) + len(history) + 1,
+            }
+        )
+        generated = generated_result.output
+        assistant_message = LyricsAssistantMessage(
+            task_id=task.id,
+            source_version_id=version.id,
+            role="assistant",
+            content="已生成一份预览，确认满意后再保存为正式版本。",
+            preview={
+                "title": generated.title,
+                "content": generated.content,
+                "style_prompt": generated.style_prompt,
+                "sections": [section.model_dump() for section in generated.sections],
+            },
+            provider=provider.name,
+            model=provider.model,
+            created_by_id=user_id,
+        )
+        db.add(assistant_message)
+        record_api_usage(
+            db,
+            task_type="lyrics",
+            task_id=task.id,
+            operation="lyrics.assistant_preview",
+            provider=provider.name,
+            model=provider.model,
+            call=generated_result.call,
+            status=TaskStatus.COMPLETED.value,
+        )
+        db.commit()
+        db.refresh(assistant_message)
+        return lyrics_assistant_message_response(assistant_message)
+    except (TextProviderError, ValueError) as exc:
+        db.rollback()
+        record_api_usage(
+            db,
+            task_type="lyrics",
+            task_id=task.id,
+            operation="lyrics.assistant_preview",
+            provider=task.provider,
+            model=task.model,
+            call=getattr(exc, "call", None),
+            status=TaskStatus.FAILED.value,
+            error_code="LYRICS_ASSISTANT_FAILED",
+            error_message=str(exc),
+        )
+        db.commit()
+        raise AppException(
+            code="LYRICS_ASSISTANT_FAILED",
+            message="歌词 AI 助手生成预览失败，请查看接口用量记录",
+            status_code=502,
+            detail={"task_id": task.id, "reason": str(exc)},
+        ) from exc
+
+
+def confirm_lyrics_assistant_preview(
+    db: Session,
+    message_id: int,
+) -> LyricsVersionResponse:
+    message = db.get(LyricsAssistantMessage, message_id)
+    if message is None or message.role != "assistant" or message.preview is None:
+        raise AppException(
+            code="LYRICS_ASSISTANT_PREVIEW_NOT_FOUND",
+            message="歌词 AI 助手预览不存在",
+            status_code=404,
+        )
+    try:
+        preview = LyricsAssistantPreviewResponse.model_validate(message.preview)
+    except ValueError as exc:
+        raise AppException(
+            code="LYRICS_ASSISTANT_PREVIEW_INVALID",
+            message="歌词 AI 助手预览格式无效，无法保存",
+            status_code=409,
+        ) from exc
+    task = db.get(LyricsTask, message.task_id)
+    if task is None:
+        raise AppException(
+            code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
+        )
+    next_version = (
+        db.scalar(
+            select(func.max(LyricsVersion.version_number)).where(
+                LyricsVersion.task_id == task.id
+            )
+        )
+        or 0
+    ) + 1
+    db.execute(
+        update(LyricsVersion)
+        .where(LyricsVersion.task_id == task.id)
+        .values(is_saved=False)
+    )
+    version = LyricsVersion(
+        task_id=task.id,
+        version_number=next_version,
+        title=preview.title,
+        content=preview.content,
+        style_prompt=preview.style_prompt,
+        sections=preview.sections,
+        is_saved=True,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return lyrics_version_response(version)
+
+
+def _assistant_context_history(
+    db: Session,
+    version_id: int,
+) -> list[dict[str, object]]:
+    messages = db.scalars(
+        select(LyricsAssistantMessage)
+        .where(LyricsAssistantMessage.source_version_id == version_id)
+        .order_by(LyricsAssistantMessage.created_at.desc(), LyricsAssistantMessage.id.desc())
+        .limit(8)
+    ).all()
+    history: list[dict[str, object]] = []
+    for message in reversed(messages):
+        entry: dict[str, object] = {"role": message.role, "content": message.content}
+        if message.preview is not None:
+            entry["preview"] = message.preview
+        history.append(entry)
+    return history
+
+
+def _get_lyrics_version(db: Session, version_id: int) -> LyricsVersion:
+    version = db.get(LyricsVersion, version_id)
+    if version is None:
+        raise AppException(
+            code="LYRICS_VERSION_NOT_FOUND", message="歌词版本不存在", status_code=404
+        )
+    return version
 
 
 def get_creation_brief(db: Session, version_id: int) -> CreationBriefResponse:

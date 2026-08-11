@@ -10,11 +10,20 @@ from typing import Any
 import httpx
 
 
-KUGOU_CHART_CODE = "8888"
-KUGOU_CHART_NAME = "酷狗TOP500"
+KUGOU_TOP500_CHART_CODE = "8888"
+KUGOU_TOP500_CHART_NAME = "酷狗TOP500"
+KUGOU_RISING_CHART_CODE = "6666"
+KUGOU_RISING_CHART_NAME = "酷狗飙升榜"
+# Kept as aliases for the existing TOP500 callers and parser tests.
+KUGOU_CHART_CODE = KUGOU_TOP500_CHART_CODE
+KUGOU_CHART_NAME = KUGOU_TOP500_CHART_NAME
+KUGOU_CHARTS = {
+    "top500": (KUGOU_TOP500_CHART_CODE, KUGOU_TOP500_CHART_NAME),
+    "rising": (KUGOU_RISING_CHART_CODE, KUGOU_RISING_CHART_NAME),
+}
 KUGOU_PAGE_SIZE = 22
 KUGOU_PAGE_URL = (
-    "https://www.kugou.com/yy/rank/home/{page}-8888.html?from=rank"
+    "https://www.kugou.com/yy/rank/home/{page}-{chart_code}.html?from=rank"
 )
 
 
@@ -72,7 +81,13 @@ class _KugouPageParser(HTMLParser):
             self._script_chunks = []
 
 
-def parse_kugou_rank_page(content: str, rank_offset: int = 0) -> RankingFetchResult:
+def parse_kugou_rank_page(
+    content: str,
+    rank_offset: int = 0,
+    *,
+    chart_code: str = KUGOU_TOP500_CHART_CODE,
+    chart_name: str = KUGOU_TOP500_CHART_NAME,
+) -> RankingFetchResult:
     parser = _KugouPageParser()
     parser.feed(content)
 
@@ -145,8 +160,8 @@ def parse_kugou_rank_page(content: str, rank_offset: int = 0) -> RankingFetchRes
         raise KugouAdapterError("酷狗榜单页面返回了空歌曲列表")
 
     return RankingFetchResult(
-        chart_code=KUGOU_CHART_CODE,
-        chart_name=KUGOU_CHART_NAME,
+        chart_code=chart_code,
+        chart_name=chart_name,
         source_updated_date=source_updated_date,
         items=items,
     )
@@ -157,7 +172,13 @@ class KugouRankingAdapter:
         self.timeout_seconds = timeout_seconds
         self.max_retries = max(1, max_retries)
 
-    def fetch(self, limit: int) -> RankingFetchResult:
+    def fetch(
+        self,
+        limit: int,
+        *,
+        chart_code: str = KUGOU_TOP500_CHART_CODE,
+        chart_name: str = KUGOU_TOP500_CHART_NAME,
+    ) -> RankingFetchResult:
         page_count = (limit + KUGOU_PAGE_SIZE - 1) // KUGOU_PAGE_SIZE
         combined: list[RankingItem] = []
         updated_date: date | None = None
@@ -174,26 +195,30 @@ class KugouRankingAdapter:
             },
         ) as client:
             for page in range(1, page_count + 1):
-                content = self._fetch_page(client, page)
+                content = self._fetch_page(client, page, chart_code)
                 parsed = parse_kugou_rank_page(
                     content,
                     rank_offset=(page - 1) * KUGOU_PAGE_SIZE,
+                    chart_code=chart_code,
+                    chart_name=chart_name,
                 )
                 updated_date = updated_date or parsed.source_updated_date
                 combined.extend(parsed.items)
 
         return RankingFetchResult(
-            chart_code=KUGOU_CHART_CODE,
-            chart_name=KUGOU_CHART_NAME,
+            chart_code=chart_code,
+            chart_name=chart_name,
             source_updated_date=updated_date,
             items=combined[:limit],
         )
 
-    def _fetch_page(self, client: httpx.Client, page: int) -> str:
+    def _fetch_page(self, client: httpx.Client, page: int, chart_code: str) -> str:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = client.get(KUGOU_PAGE_URL.format(page=page))
+                response = client.get(
+                    KUGOU_PAGE_URL.format(page=page, chart_code=chart_code)
+                )
                 response.raise_for_status()
                 if "global.features" not in response.text:
                     raise KugouAdapterError("酷狗响应不是预期的榜单页面")
@@ -208,7 +233,12 @@ class KugouRankingAdapter:
         ) from last_error
 
 
-def sample_ranking(limit: int) -> RankingFetchResult:
+def sample_ranking(
+    limit: int,
+    *,
+    chart_code: str = KUGOU_TOP500_CHART_CODE,
+    chart_name: str = KUGOU_TOP500_CHART_NAME,
+) -> RankingFetchResult:
     titles = [
         ("沿途的风", "蓝乐样例歌手A"),
         ("雨停以后", "蓝乐样例歌手B"),
@@ -228,7 +258,7 @@ def sample_ranking(limit: int) -> RankingFetchResult:
     ]
     items = [
         RankingItem(
-            source_song_id=f"sample-{index:03d}",
+            source_song_id=f"sample-{chart_code}-{index:03d}",
             title=title,
             artist=artist,
             rank=index,
@@ -241,8 +271,8 @@ def sample_ranking(limit: int) -> RankingFetchResult:
         for index, (title, artist) in enumerate(titles, start=1)
     ]
     return RankingFetchResult(
-        chart_code=KUGOU_CHART_CODE,
-        chart_name=f"{KUGOU_CHART_NAME}（固定样例）",
+        chart_code=chart_code,
+        chart_name=f"{chart_name}（固定样例）",
         source_updated_date=date.today(),
         items=items[:limit],
     )

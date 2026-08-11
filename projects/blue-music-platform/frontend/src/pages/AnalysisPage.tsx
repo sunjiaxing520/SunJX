@@ -40,6 +40,7 @@ export function AnalysisPage() {
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
   const openedSourceTaskRef = useRef<number | null>(null)
+  const openedEntryRef = useRef<number | null>(null)
   const [entries, setEntries] = useState<RankingEntry[]>([])
   const [tasks, setTasks] = useState<AnalysisTask[]>([])
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([])
@@ -52,6 +53,7 @@ export function AnalysisPage() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const requestedSnapshotId = Number(searchParams.get('snapshot_id')) || undefined
 
   const updateTaskHistory = useCallback((items: AnalysisTask[]) => {
     setTasks(items)
@@ -67,7 +69,7 @@ export function AnalysisPage() {
     }
     try {
       const [ranking, history, favoriteHistory] = await Promise.all([
-        listRankingEntries({ pageSize: 100 }),
+        listRankingEntries({ pageSize: 100, snapshotId: requestedSnapshotId }),
         listAnalysisTasks(),
         listFavorites('analysis'),
       ])
@@ -79,7 +81,7 @@ export function AnalysisPage() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [updateTaskHistory])
+  }, [requestedSnapshotId, updateTaskHistory])
 
   useEffect(() => {
     void load()
@@ -119,6 +121,14 @@ export function AnalysisPage() {
       .then(setActiveTask)
       .catch((sourceError) => message.error(errorMessage(sourceError)))
   }, [loading, message, searchParams, tasks])
+
+  useEffect(() => {
+    const requestedEntryId = Number(searchParams.get('entry_id'))
+    if (!requestedEntryId || loading || openedEntryRef.current === requestedEntryId) return
+    if (!entries.some((entry) => entry.id === requestedEntryId)) return
+    openedEntryRef.current = requestedEntryId
+    setSelectedIds([requestedEntryId])
+  }, [entries, loading, searchParams])
 
   const favoritesByTarget = useMemo(
     () => new Map(favorites.map((favorite) => [favorite.target_id, favorite])),
@@ -304,7 +314,9 @@ export function AnalysisPage() {
           <div>
             <Typography.Title level={2}>选择分析范围</Typography.Title>
             <Typography.Text type="secondary">
-              未勾选时默认分析最新榜单前 30 首；有几天数据就按几天计算
+              {requestedSnapshotId
+                ? '已从榜单详情带入当前快照；可直接分析选中的单曲或重新勾选多首歌曲'
+                : '未勾选时默认分析最新榜单前 30 首；有几天数据就按几天计算'}
             </Typography.Text>
           </div>
           <Space wrap>

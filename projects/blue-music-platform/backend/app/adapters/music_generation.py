@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 from urllib.parse import urlparse
@@ -47,6 +47,7 @@ class MusicGenerationInput:
     instrumental: bool
     negative_tags: list[str]
     requirements: str | None
+    style_tags: list[str] = field(default_factory=list)
     source_external_id: str | None = None
 
 
@@ -103,8 +104,8 @@ class SunoOfficialMusicProvider:
     name = "suno"
     implementation: MusicProviderImplementation = "official"
 
-    def __init__(self) -> None:
-        self.model = settings.SUNO_MODEL or None
+    def __init__(self, *, model: str | None = None) -> None:
+        self.model = model or settings.SUNO_MODEL or None
         if not settings.SUNO_API_BASE_URL or not settings.SUNO_API_KEY:
             raise MusicProviderError(
                 "尚未配置 Suno 官方 API。请先在 Suno Platform 获得正式访问权限和密钥",
@@ -690,7 +691,7 @@ class SunoCompatibilityMusicProvider:
         )
 
     def _style_tags(self, payload: MusicGenerationInput) -> str:
-        values = [payload.style_prompt.strip()]
+        values = [", ".join(payload.style_tags), payload.style_prompt.strip()]
         if payload.requirements:
             values.append(payload.requirements.strip())
         return ", ".join(value for value in values if value)
@@ -747,15 +748,19 @@ class SunoCompatibilityMusicProvider:
 def get_music_provider(
     implementation: MusicProviderImplementation | str | None = None,
     *,
+    model: str | None = None,
     on_submitted: Callable[[str], None] | None = None,
 ) -> MusicGenerationProvider:
     selected = (
         implementation or settings.SUNO_PROVIDER_IMPLEMENTATION
     ).strip().lower()
     if selected == "official":
-        return SunoOfficialMusicProvider()
+        return SunoOfficialMusicProvider(model=model)
     if selected in {"compat", "compatibility"}:
-        return SunoCompatibilityMusicProvider(on_submitted=on_submitted)
+        return SunoCompatibilityMusicProvider(
+            model=model,
+            on_submitted=on_submitted,
+        )
     raise MusicProviderError(
         f"不支持的 Suno Provider 实现：{selected}",
         code="SUNO_PROVIDER_IMPLEMENTATION_INVALID",

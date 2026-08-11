@@ -26,6 +26,13 @@ class FavoriteItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)
     target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str] = mapped_column(
+        String(20),
+        default="unclassified",
+        server_default="unclassified",
+        nullable=False,
+        index=True,
+    )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(
         Integer,

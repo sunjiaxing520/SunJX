@@ -1,30 +1,4 @@
-From 99cec077f340d171e3278cb386a246b2c4d0ed57 Mon Sep 17 00:00:00 2001
-From: sunjiaxing520 <80398105+sunjiaxing520@users.noreply.github.com>
-Date: Tue, 11 Aug 2026 11:55:21 +0800
-Subject: [PATCH] Add isolated Blue Music compatibility runtime
-
----
- .gitignore                  |   2 +
- BLUE_MUSIC_RUNTIME.md       |  55 +++
- README.md                   |   7 +
- package-lock.json           | 764 +-----------------------------------
- package.json                |  21 +-
- scripts/set-suno-cookie.ps1 |  48 +++
- src/app/api/health/route.ts |  12 +
- src/compat-server.ts        | 291 ++++++++++++++
- src/lib/SunoApi.ts          | 274 ++-----------
- src/lib/utils.ts            |  93 +----
- src/middleware.ts           |  32 ++
- tsconfig.compat.json        |  19 +
- 12 files changed, 521 insertions(+), 1097 deletions(-)
- create mode 100644 BLUE_MUSIC_RUNTIME.md
- create mode 100644 scripts/set-suno-cookie.ps1
- create mode 100644 src/app/api/health/route.ts
- create mode 100644 src/compat-server.ts
- create mode 100644 src/middleware.ts
- create mode 100644 tsconfig.compat.json
-
-diff --git a/.gitignore b/.gitignore
+﻿diff --git a/.gitignore b/.gitignore
 index b7fe63c..6755e41 100644
 --- a/.gitignore
 +++ b/.gitignore
@@ -1545,10 +1519,10 @@ index 0000000..43364ee
 +}
 diff --git a/src/compat-server.ts b/src/compat-server.ts
 new file mode 100644
-index 0000000..418f836
+index 0000000..29d979d
 --- /dev/null
 +++ b/src/compat-server.ts
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,429 @@
 +import { timingSafeEqual } from 'node:crypto';
 +import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 +import { URL } from 'node:url';
@@ -1563,6 +1537,20 @@ index 0000000..418f836
 +const port = Number.parseInt(process.env.COMPAT_PORT || '3000', 10);
 +const internalToken = process.env.INTERNAL_API_TOKEN || '';
 +const maxBodyBytes = 256 * 1024;
++const exposedRoutes = [
++  'GET /api/health',
++  'GET /api/get',
++  'GET /api/get_limit',
++  'GET /api/clip',
++  'GET /api/get_aligned_lyrics',
++  'GET /api/persona',
++  'POST /api/generate',
++  'POST /api/custom_generate',
++  'POST /api/extend_audio',
++  'POST /api/generate_lyrics',
++  'POST /api/concat',
++  'POST /api/generate_stems'
++];
 +
 +if (!internalToken) {
 +  throw new Error('INTERNAL_API_TOKEN is required.');
@@ -1638,7 +1626,8 @@ index 0000000..418f836
 +      service: 'blue-music-suno-compat',
 +      upstream: 'gcui-art/suno-api',
 +      captcha_mode: 'human_verification',
-+      cookie_configured: cookieConfigured
++      cookie_configured: cookieConfigured,
++      routes: exposedRoutes
 +    });
 +    return;
 +  }
@@ -1655,6 +1644,57 @@ index 0000000..418f836
 +    const result = await (await sunoApi()).get(
 +      ids ? ids.split(',').filter(Boolean) : undefined,
 +      page
++    );
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'GET' && url.pathname === '/api/clip') {
++    const clipId = requireQueryString(
++      url,
++      'id',
++      'CLIP_ID_REQUIRED',
++      'id is required.'
++    );
++    const result = await (await sunoApi()).getClip(clipId);
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'GET' && url.pathname === '/api/get_aligned_lyrics') {
++    const songId = requireQueryString(
++      url,
++      'song_id',
++      'SONG_ID_REQUIRED',
++      'song_id is required.'
++    );
++    const result = await (await sunoApi()).getLyricAlignment(songId);
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'GET' && url.pathname === '/api/persona') {
++    const personaId = requireQueryString(
++      url,
++      'id',
++      'PERSONA_ID_REQUIRED',
++      'id is required.'
++    );
++    const result = await (await sunoApi()).getPersonaPaginated(
++      personaId,
++      positiveIntegerParam(url.searchParams.get('page'), 1)
++    );
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'POST' && url.pathname === '/api/generate') {
++    const body = await readJsonBody(request);
++    const result = await (await sunoApi()).generate(
++      asString(body.prompt),
++      Boolean(body.make_instrumental),
++      asOptionalString(body.model) || DEFAULT_MODEL,
++      Boolean(body.wait_audio)
 +    );
 +    sendJson(response, 200, result);
 +    return;
@@ -1691,6 +1731,42 @@ index 0000000..418f836
 +      asOptionalString(body.model) || DEFAULT_MODEL,
 +      Boolean(body.wait_audio)
 +    );
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'POST' && url.pathname === '/api/generate_lyrics') {
++    const body = await readJsonBody(request);
++    const prompt = requireBodyString(
++      body.prompt,
++      'PROMPT_REQUIRED',
++      'prompt is required.'
++    );
++    const result = await (await sunoApi()).generateLyrics(prompt);
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'POST' && url.pathname === '/api/concat') {
++    const body = await readJsonBody(request);
++    const clipId = requireBodyString(
++      body.clip_id,
++      'CLIP_ID_REQUIRED',
++      'clip_id is required.'
++    );
++    const result = await (await sunoApi()).concatenate(clipId);
++    sendJson(response, 200, result);
++    return;
++  }
++
++  if (request.method === 'POST' && url.pathname === '/api/generate_stems') {
++    const body = await readJsonBody(request);
++    const audioId = requireBodyString(
++      body.audio_id,
++      'AUDIO_ID_REQUIRED',
++      'audio_id is required.'
++    );
++    const result = await (await sunoApi()).generateStems(audioId);
 +    sendJson(response, 200, result);
 +    return;
 +  }
@@ -1839,6 +1915,42 @@ index 0000000..418f836
 +
 +function asFiniteNumber(value: unknown): number | undefined {
 +  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
++}
++
++function requireBodyString(
++  value: unknown,
++  code: string,
++  message: string
++): string {
++  const result = asString(value).trim();
++  if (!result) {
++    throw new HttpError(400, code, message);
++  }
++  return result;
++}
++
++function requireQueryString(
++  url: URL,
++  name: string,
++  code: string,
++  message: string
++): string {
++  const result = (url.searchParams.get(name) || '').trim();
++  if (!result) {
++    throw new HttpError(400, code, message);
++  }
++  return result;
++}
++
++function positiveIntegerParam(value: string | null, fallback: number): number {
++  if (!value) {
++    return fallback;
++  }
++  const result = Number.parseInt(value, 10);
++  if (!Number.isInteger(result) || result < 1) {
++    throw new HttpError(400, 'PAGE_INVALID', 'page must be a positive integer.');
++  }
++  return result;
 +}
 diff --git a/src/lib/SunoApi.ts b/src/lib/SunoApi.ts
 index cad506e..d72f184 100644
@@ -2339,6 +2451,3 @@ index 0000000..6d78b6a
 +    "src/lib/utils.ts"
 +  ]
 +}
--- 
-2.54.0.windows.1
-
