@@ -95,11 +95,19 @@ def _authorization(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_member(client: TestClient, admin_token: str) -> dict[str, object]:
+def _create_member(
+    client: TestClient,
+    admin_token: str,
+    music_quota_remaining: int = 0,
+) -> dict[str, object]:
     response = client.post(
         "/api/v1/users",
         headers=_authorization(admin_token),
-        json={"username": "member.one", "password": "member-password"},
+        json={
+            "username": "member.one",
+            "password": "member-password",
+            "music_quota_remaining": music_quota_remaining,
+        },
     )
     assert response.status_code == 201
     return response.json()
@@ -314,6 +322,39 @@ def test_admin_manages_member_permissions_status_and_password(
     assert deactivated.json()["is_active"] is False
     assert blocked.status_code == 403
     assert blocked.json()["error"]["code"] == "USER_INACTIVE"
+
+
+def test_admin_assigns_member_music_task_quota(
+    auth_context: AuthContext,
+) -> None:
+    admin_token = _login(auth_context.client, "admin", "admin-password")
+    member = _create_member(
+        auth_context.client,
+        admin_token,
+        music_quota_remaining=3,
+    )
+
+    assert member["music_quota"] == {
+        "is_unlimited": False,
+        "remaining_tasks": 3,
+        "used_tasks": 0,
+    }
+
+    updated = auth_context.client.put(
+        f"/api/v1/users/{member['id']}/music-quota",
+        headers=_authorization(admin_token),
+        json={"remaining_tasks": 8},
+    )
+    admin_update = auth_context.client.put(
+        f"/api/v1/users/{auth_context.admin_id}/music-quota",
+        headers=_authorization(admin_token),
+        json={"remaining_tasks": 8},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["music_quota"]["remaining_tasks"] == 8
+    assert admin_update.status_code == 409
+    assert admin_update.json()["error"]["code"] == "MUSIC_QUOTA_NOT_APPLICABLE"
 
 
 def test_duplicate_username_and_self_disable_are_rejected(

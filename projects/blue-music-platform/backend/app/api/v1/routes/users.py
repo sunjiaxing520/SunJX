@@ -9,6 +9,7 @@ from app.schemas.user import (
     AgentPermissionsUpdate,
     CreateUserRequest,
     UserPasswordResetRequest,
+    UserMusicQuotaUpdate,
     UserResponse,
     UserStatusUpdate,
 )
@@ -17,6 +18,7 @@ from app.services.users import (
     list_users,
     replace_agent_permissions,
     reset_user_password,
+    set_user_music_quota,
     set_user_status,
 )
 
@@ -44,6 +46,7 @@ def create_user(
         db,
         username=payload.username,
         password=payload.password.get_secret_value(),
+        music_quota_remaining=payload.music_quota_remaining,
     )
     audit_logger.info(
         "member_created",
@@ -51,6 +54,27 @@ def create_user(
             "request_id": get_request_id(request),
             "user_id": admin.id,
             "target_user_id": user.id,
+        },
+    )
+    return user
+
+
+@router.put("/{user_id}/music-quota", response_model=UserResponse)
+def update_user_music_quota(
+    request: Request,
+    user_id: int,
+    payload: UserMusicQuotaUpdate,
+    db: DatabaseSession,
+    admin: SuperAdmin,
+) -> UserResponse:
+    user = set_user_music_quota(db, user_id, payload.remaining_tasks)
+    audit_logger.info(
+        "user_music_quota_changed",
+        extra={
+            "request_id": get_request_id(request),
+            "user_id": admin.id,
+            "target_user_id": user_id,
+            "remaining_tasks": payload.remaining_tasks,
         },
     )
     return user

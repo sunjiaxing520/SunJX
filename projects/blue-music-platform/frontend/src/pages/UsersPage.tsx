@@ -6,6 +6,7 @@ import {
   Checkbox,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Space,
@@ -16,7 +17,7 @@ import {
   Typography,
   type TableProps,
 } from 'antd'
-import { KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
+import { Gauge, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
 import {
   createUser,
@@ -24,6 +25,7 @@ import {
   resetUserPassword,
   setUserStatus,
   updateAgentPermissions,
+  updateUserMusicQuota,
 } from '../api/users'
 import { useAuth } from '../auth/useAuth'
 import { errorMessage } from '../lib/errors'
@@ -42,10 +44,15 @@ const AGENT_LABELS = Object.fromEntries(
 interface AccountFormValues {
   username: string
   password: string
+  music_quota_remaining: number
 }
 
 interface PasswordFormValues {
   password: string
+}
+
+interface MusicQuotaFormValues {
+  remaining_tasks: number
 }
 
 export function UsersPage() {
@@ -57,11 +64,13 @@ export function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [permissionUser, setPermissionUser] = useState<User | null>(null)
   const [passwordUser, setPasswordUser] = useState<User | null>(null)
+  const [quotaUser, setQuotaUser] = useState<User | null>(null)
   const [selectedAgents, setSelectedAgents] = useState<AgentType[]>([])
   const [saving, setSaving] = useState(false)
   const [statusUserId, setStatusUserId] = useState<number | null>(null)
   const [createForm] = Form.useForm<AccountFormValues>()
   const [passwordForm] = Form.useForm<PasswordFormValues>()
+  const [quotaForm] = Form.useForm<MusicQuotaFormValues>()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -83,7 +92,11 @@ export function UsersPage() {
     const values = await createForm.validateFields()
     setSaving(true)
     try {
-      const user = await createUser(values.username.trim(), values.password)
+      const user = await createUser(
+        values.username.trim(),
+        values.password,
+        values.music_quota_remaining,
+      )
       setUsers((current) => [...current, user])
       setCreateOpen(false)
       createForm.resetFields()
@@ -143,6 +156,35 @@ export function UsersPage() {
       message.success('密码已重置，原登录凭证已失效')
     } catch (passwordError) {
       message.error(errorMessage(passwordError))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openMusicQuota = (user: User) => {
+    setQuotaUser(user)
+    quotaForm.setFieldsValue({
+      remaining_tasks: user.music_quota.remaining_tasks ?? 0,
+    })
+  }
+
+  const submitMusicQuota = async () => {
+    if (!quotaUser) return
+    const values = await quotaForm.validateFields()
+    setSaving(true)
+    try {
+      const updated = await updateUserMusicQuota(
+        quotaUser.id,
+        values.remaining_tasks,
+      )
+      setUsers((current) =>
+        current.map((item) => (item.id === quotaUser.id ? updated : item)),
+      )
+      setQuotaUser(null)
+      quotaForm.resetFields()
+      message.success('音乐任务额度已更新')
+    } catch (quotaError) {
+      message.error(errorMessage(quotaError))
     } finally {
       setSaving(false)
     }
@@ -208,9 +250,22 @@ export function UsersPage() {
       ),
     },
     {
+      title: '音乐额度',
+      key: 'music_quota',
+      width: 150,
+      render: (_, user) => user.music_quota.is_unlimited ? (
+        <Tag color="gold">不限额</Tag>
+      ) : (
+        <div className="account-cell">
+          <strong>剩余 {user.music_quota.remaining_tasks ?? 0} 次</strong>
+          <small>累计使用 {user.music_quota.used_tasks} 次</small>
+        </div>
+      ),
+    },
+    {
       title: '操作',
       key: 'actions',
-      width: 112,
+      width: 152,
       fixed: 'right',
       render: (_, user) => user.role === 'member' && (
         <Space size={4}>
@@ -228,6 +283,14 @@ export function UsersPage() {
               icon={<KeyRound size={17} />}
               aria-label="重置密码"
               onClick={() => setPasswordUser(user)}
+            />
+          </Tooltip>
+          <Tooltip title="设置音乐任务额度">
+            <Button
+              type="text"
+              icon={<Gauge size={17} />}
+              aria-label="设置音乐任务额度"
+              onClick={() => openMusicQuota(user)}
             />
           </Tooltip>
         </Space>
@@ -258,7 +321,7 @@ export function UsersPage() {
         dataSource={users}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }}
-        scroll={{ x: 820 }}
+        scroll={{ x: 980 }}
         className="users-table"
       />
 
@@ -272,7 +335,12 @@ export function UsersPage() {
         cancelText="取消"
         destroyOnHidden
       >
-        <Form form={createForm} layout="vertical" requiredMark={false}>
+        <Form
+          form={createForm}
+          layout="vertical"
+          requiredMark={false}
+          initialValues={{ music_quota_remaining: 0 }}
+        >
           <Form.Item
             name="username"
             label="登录账号"
@@ -290,6 +358,13 @@ export function UsersPage() {
             rules={[{ required: true, min: 8, max: 128, message: '密码长度为 8 至 128 位' }]}
           >
             <Input.Password autoComplete="new-password" placeholder="至少 8 位" />
+          </Form.Item>
+          <Form.Item
+            name="music_quota_remaining"
+            label="初始音乐任务额度"
+            rules={[{ required: true, message: '请输入初始额度' }]}
+          >
+            <InputNumber min={0} max={100000} precision={0} style={{ width: '100%' }} addonAfter="次" />
           </Form.Item>
         </Form>
       </Modal>
@@ -309,6 +384,33 @@ export function UsersPage() {
           value={selectedAgents}
           onChange={(values) => setSelectedAgents(values as AgentType[])}
         />
+      </Modal>
+
+      <Modal
+        title={`设置音乐额度 · ${quotaUser?.username ?? ''}`}
+        open={Boolean(quotaUser)}
+        onCancel={() => {
+          setQuotaUser(null)
+          quotaForm.resetFields()
+        }}
+        onOk={submitMusicQuota}
+        confirmLoading={saving}
+        okText="保存额度"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <Form form={quotaForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            name="remaining_tasks"
+            label="剩余音乐任务额度"
+            rules={[{ required: true, message: '请输入剩余额度' }]}
+          >
+            <InputNumber min={0} max={100000} precision={0} style={{ width: '100%' }} addonAfter="次" />
+          </Form.Item>
+          <Typography.Text type="secondary">
+            每次新建生成或续写任务扣除 1 次，任务重试不会重复扣除。
+          </Typography.Text>
+        </Form>
       </Modal>
 
       <Modal

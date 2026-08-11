@@ -164,6 +164,72 @@ def test_music_generation_archives_audio_and_records_usage(
     assert "attachment" in download.headers["content-disposition"]
 
 
+def test_member_music_quota_covers_generation_and_extension(
+    music_context: MusicContext,
+) -> None:
+    member = music_context.client.post(
+        "/api/v1/users",
+        headers=_headers(music_context),
+        json={
+            "username": "music.member",
+            "password": "member-password",
+            "music_quota_remaining": 2,
+        },
+    )
+    assert member.status_code == 201
+    member_id = member.json()["id"]
+    permissions = music_context.client.put(
+        f"/api/v1/users/{member_id}/agent-permissions",
+        headers=_headers(music_context),
+        json={"agents": ["music"]},
+    )
+    assert permissions.status_code == 200
+    login = music_context.client.post(
+        "/api/v1/auth/login",
+        json={"username": "music.member", "password": "member-password"},
+    )
+    member_headers = {
+        "Authorization": f"Bearer {login.json()['access_token']}"
+    }
+    lyrics_version_id = _lyrics_version_id(music_context, "额度测试")
+    payload = {
+        "lyrics_version_id": lyrics_version_id,
+        "title": "额度测试",
+        "style_prompt": "Mandopop",
+    }
+
+    generated = music_context.client.post(
+        "/api/v1/music/tasks",
+        headers=member_headers,
+        json=payload,
+    )
+    assert generated.status_code == 202
+    source_result_id = generated.json()["results"][0]["id"]
+    extended = music_context.client.post(
+        f"/api/v1/music/results/{source_result_id}/extend",
+        headers=member_headers,
+        json={"title": "额度测试续写"},
+    )
+    exhausted = music_context.client.post(
+        "/api/v1/music/tasks",
+        headers=member_headers,
+        json=payload,
+    )
+    profile = music_context.client.get(
+        "/api/v1/auth/me",
+        headers=member_headers,
+    )
+
+    assert extended.status_code == 202
+    assert exhausted.status_code == 403
+    assert exhausted.json()["error"]["code"] == "MUSIC_TASK_QUOTA_EXHAUSTED"
+    assert profile.json()["music_quota"] == {
+        "is_unlimited": False,
+        "remaining_tasks": 0,
+        "used_tasks": 2,
+    }
+
+
 def test_music_result_can_be_extended_and_deleted(
     music_context: MusicContext,
 ) -> None:

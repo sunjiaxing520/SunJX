@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.api_usage import ApiUsageResponse
 from app.schemas.ranking import TaskStatusValue
+from app.schemas.user import MusicTaskQuotaResponse
 
 
 MusicOperationValue = Literal["generate", "extend"]
@@ -151,4 +152,5 @@ class SunoProviderStatusResponse(BaseModel):
     queue_mode: Literal["redis", "inline"]
     max_concurrency: int
     min_request_interval_seconds: float
+    user_quota: MusicTaskQuotaResponse
     quota: SunoQuotaResponse | None

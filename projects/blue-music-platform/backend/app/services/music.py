@@ -25,6 +25,8 @@ from app.models import (
     MusicResult,
     MusicTask,
     TaskStatus,
+    User,
+    UserRole,
 )
 from app.schemas.music import (
     MusicCreateRequest,
@@ -119,6 +121,8 @@ def create_music_task(
             status_code=404,
         )
 
+    _consume_music_task_quota(db, requested_by_id)
+
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation="generate",
@@ -149,6 +153,7 @@ def create_extension_task(
 ) -> MusicTaskResponse:
     source = _get_result(db, result_id)
     source_task = _get_task_model(db, source.task_id)
+    _consume_music_task_quota(db, requested_by_id)
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation="extend",
@@ -872,6 +877,30 @@ def _selected_provider_implementation() -> str:
             detail={"allowed": ["official", "compatibility"]},
         )
     return selected
+
+
+def _consume_music_task_quota(db: Session, user_id: int) -> None:
+    user = db.scalar(
+        select(User).where(User.id == user_id).with_for_update()
+    )
+    if user is None:
+        raise AppException(
+            code="USER_NOT_FOUND",
+            message="用户不存在",
+            status_code=404,
+        )
+    if user.role == UserRole.SUPER_ADMIN:
+        return
+    if user.music_quota_remaining <= 0:
+        raise AppException(
+            code="MUSIC_TASK_QUOTA_EXHAUSTED",
+            message="音乐任务额度已用完，请联系管理员分配额度",
+            status_code=403,
+            detail={"remaining_tasks": 0},
+        )
+
+    user.music_quota_remaining -= 1
+    user.music_quota_used += 1
 
 
 def _clean_optional_text(value: str | None) -> str | None:

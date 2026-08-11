@@ -41,6 +41,7 @@ from app.services.music import (
     resolve_storage_path,
     retry_music_task,
 )
+from app.services.users import music_task_quota_response
 
 
 router = APIRouter(prefix="/music")
@@ -109,6 +110,7 @@ def provider_status(
         min_request_interval_seconds=max(
             0.0, settings.MUSIC_MIN_REQUEST_INTERVAL_SECONDS
         ),
+        user_quota=music_task_quota_response(user),
         quota=(
             latest_music_quota(db, implementation)
             if user.role == UserRole.SUPER_ADMIN

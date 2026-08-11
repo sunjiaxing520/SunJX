@@ -122,15 +122,28 @@ D:\DevTools\Venvs\blue-music-backend\Scripts\python.exe -m app.workers.music
 
 ## 额度与对象存储
 
+额度分为两层：
+
+1. **Suno 供应商额度**：超级管理员可在音乐创作页查看真实剩余积分、本期用量
+   和快照时间。普通员工不展示团队账户总余额。
+2. **员工音乐任务额度**：新生成和续写各扣 `1` 次；worker 重试不重复扣除；
+   超级管理员不限额，普通员工默认 `0` 次。
+
 超级管理员可调用：
 
 ```text
 GET  /api/v1/music/provider-status
 POST /api/v1/music/provider-status/refresh
+PUT  /api/v1/users/{user_id}/music-quota
 ```
 
 额度快照保存到 `music_provider_quota_snapshots`。兼容实现读取
 `credits_left/monthly_usage/monthly_limit/period`；官方实现等正式文档后映射。
+
+员工额度保存在 `users.music_quota_remaining/music_quota_used`。创建音乐任务时
+通过数据库行锁完成扣减，额度不足返回 `MUSIC_TASK_QUOTA_EXHAUSTED`，不会创建
+任务。任务提交后即占用额度；供应商失败或用户删除任务/结果时不自动返还，
+管理员可在账号管理页核实后调整当前剩余次数。
 
 对象存储由 `MUSIC_STORAGE_BACKEND` 选择：
 
@@ -196,7 +209,7 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-当前基线：后端 `73` 个测试，前端 `15` 个测试。兼容适配器测试覆盖生成归一化、
+当前基线：后端 `75` 个测试，前端 `15` 个测试。兼容适配器测试覆盖生成归一化、
 额度、运行状态、未配置会话、429、响应级与任务级 hCaptcha、混合结果失败和
 远程 HTTP 拒绝；平台测试覆盖持久重试、人工验证状态、重新入队、试听、下载、
-删除和工作流传参。
+删除、员工额度扣减/耗尽、管理员分配和工作流传参。

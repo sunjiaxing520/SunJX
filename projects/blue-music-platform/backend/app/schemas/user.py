@@ -13,6 +13,7 @@ class CreateUserRequest(BaseModel):
         pattern=USERNAME_PATTERN,
     )
     password: SecretStr = Field(min_length=8, max_length=128)
+    music_quota_remaining: int = Field(default=0, ge=0, le=100_000)
 
     @field_validator("username")
     @classmethod
@@ -32,9 +33,20 @@ class AgentPermissionsUpdate(BaseModel):
     agents: set[AgentType] = Field(default_factory=set)
 
 
+class UserMusicQuotaUpdate(BaseModel):
+    remaining_tasks: int = Field(ge=0, le=100_000)
+
+
+class MusicTaskQuotaResponse(BaseModel):
+    is_unlimited: bool
+    remaining_tasks: int | None
+    used_tasks: int
+
+
 class UserResponse(BaseModel):
     id: int
     username: str
     role: UserRole
     is_active: bool
     agent_permissions: list[AgentType]
+    music_quota: MusicTaskQuotaResponse

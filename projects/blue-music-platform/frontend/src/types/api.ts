@@ -12,6 +12,13 @@ export interface User {
   role: UserRole
   is_active: boolean
   agent_permissions: AgentType[]
+  music_quota: MusicTaskQuota
+}
+
+export interface MusicTaskQuota {
+  is_unlimited: boolean
+  remaining_tasks: number | null
+  used_tasks: number
 }
 
 export interface TokenResponse {
@@ -563,6 +570,7 @@ export interface SunoProviderStatus {
   queue_mode: 'redis' | 'inline'
   max_concurrency: number
   min_request_interval_seconds: number
+  user_quota: MusicTaskQuota
   quota: SunoQuota | null
 }
 

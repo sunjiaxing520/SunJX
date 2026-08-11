@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.exceptions import AppException
 from app.core.security import hash_password
 from app.models import AgentType, User, UserAgentPermission, UserRole
-from app.schemas.user import UserResponse
+from app.schemas.user import MusicTaskQuotaResponse, UserResponse
 
 
 def _user_query():
@@ -34,6 +34,16 @@ def user_response(user: User) -> UserResponse:
         role=user.role,
         is_active=user.is_active,
         agent_permissions=permissions,
+        music_quota=music_task_quota_response(user),
+    )
+
+
+def music_task_quota_response(user: User) -> MusicTaskQuotaResponse:
+    is_unlimited = user.role == UserRole.SUPER_ADMIN
+    return MusicTaskQuotaResponse(
+        is_unlimited=is_unlimited,
+        remaining_tasks=None if is_unlimited else user.music_quota_remaining,
+        used_tasks=user.music_quota_used,
     )
 
 
@@ -42,11 +52,17 @@ def list_users(db: Session) -> list[UserResponse]:
     return [user_response(user) for user in users]
 
 
-def create_member(db: Session, username: str, password: str) -> UserResponse:
+def create_member(
+    db: Session,
+    username: str,
+    password: str,
+    music_quota_remaining: int = 0,
+) -> UserResponse:
     user = User(
         username=username.lower(),
         password_hash=hash_password(password),
         role=UserRole.MEMBER,
+        music_quota_remaining=music_quota_remaining,
     )
     db.add(user)
     try:
@@ -107,5 +123,31 @@ def replace_agent_permissions(
     user.agent_permissions.extend(
         UserAgentPermission(agent=agent) for agent in sorted(agents, key=str)
     )
+    db.commit()
+    return user_response(get_user_or_404(db, user_id))
+
+
+def set_user_music_quota(
+    db: Session,
+    user_id: int,
+    remaining_tasks: int,
+) -> UserResponse:
+    user = db.scalar(
+        _user_query().where(User.id == user_id).with_for_update()
+    )
+    if user is None:
+        raise AppException(
+            code="USER_NOT_FOUND",
+            message="用户不存在",
+            status_code=404,
+        )
+    if user.role == UserRole.SUPER_ADMIN:
+        raise AppException(
+            code="MUSIC_QUOTA_NOT_APPLICABLE",
+            message="超级管理员的音乐任务额度不受限制",
+            status_code=409,
+        )
+
+    user.music_quota_remaining = remaining_tasks
     db.commit()
     return user_response(get_user_or_404(db, user_id))

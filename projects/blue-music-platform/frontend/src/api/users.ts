@@ -5,10 +5,18 @@ export function listUsers(): Promise<User[]> {
   return apiRequest<User[]>('/users')
 }
 
-export function createUser(username: string, password: string): Promise<User> {
+export function createUser(
+  username: string,
+  password: string,
+  musicQuotaRemaining = 0,
+): Promise<User> {
   return apiRequest<User>('/users', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({
+      username,
+      password,
+      music_quota_remaining: musicQuotaRemaining,
+    }),
   })
 }
 
@@ -33,5 +41,15 @@ export function updateAgentPermissions(
   return apiRequest<User>(`/users/${userId}/agent-permissions`, {
     method: 'PUT',
     body: JSON.stringify({ agents }),
+  })
+}
+
+export function updateUserMusicQuota(
+  userId: number,
+  remainingTasks: number,
+): Promise<User> {
+  return apiRequest<User>(`/users/${userId}/music-quota`, {
+    method: 'PUT',
+    body: JSON.stringify({ remaining_tasks: remainingTasks }),
   })
 }

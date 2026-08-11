@@ -2,7 +2,15 @@ from datetime import datetime
 from enum import Enum as PythonEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -17,6 +25,16 @@ class UserRole(str, PythonEnum):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "music_quota_remaining >= 0",
+            name="ck_users_music_quota_remaining_nonnegative",
+        ),
+        CheckConstraint(
+            "music_quota_used >= 0",
+            name="ck_users_music_quota_used_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(
@@ -37,6 +55,12 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
+    )
+    music_quota_remaining: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    music_quota_used: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

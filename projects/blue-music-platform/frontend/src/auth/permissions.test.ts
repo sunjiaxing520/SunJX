@@ -9,6 +9,11 @@ const member: User = {
   role: 'member',
   is_active: true,
   agent_permissions: ['crawler'],
+  music_quota: {
+    is_unlimited: false,
+    remaining_tasks: 0,
+    used_tasks: 0,
+  },
 }
 
 describe('hasAgentAccess', () => {

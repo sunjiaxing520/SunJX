@@ -141,6 +141,11 @@ export function MusicPage() {
   }, [load])
 
   const hasActiveTask = tasks.some((task) => task.status === 'pending' || task.status === 'running')
+  const quotaExhausted = Boolean(
+    providerStatus
+      && !providerStatus.user_quota.is_unlimited
+      && (providerStatus.user_quota.remaining_tasks ?? 0) <= 0,
+  )
   useEffect(() => {
     if (!hasActiveTask) return
     const timer = window.setInterval(() => void load(true), 5000)
@@ -371,11 +376,28 @@ export function MusicPage() {
             <Descriptions.Item label="任务队列">{providerStatus.queue_mode === 'redis' ? 'Redis 独立队列' : '进程内执行'}</Descriptions.Item>
             <Descriptions.Item label="最大并发">{providerStatus.max_concurrency}</Descriptions.Item>
             <Descriptions.Item label="请求间隔">{providerStatus.min_request_interval_seconds} 秒</Descriptions.Item>
-            <Descriptions.Item label="账户额度">
-              {providerStatus.quota?.status === 'available'
-                ? `${providerStatus.quota.credits_remaining ?? '未知'} / ${providerStatus.quota.quota_limit ?? '未知'}`
-                : providerStatus.quota?.error_message ?? '尚未查询'}
+            <Descriptions.Item label="我的任务额度">
+              {providerStatus.user_quota.is_unlimited
+                ? '不限额'
+                : `剩余 ${providerStatus.user_quota.remaining_tasks ?? 0} 次 · 累计使用 ${providerStatus.user_quota.used_tasks} 次`}
             </Descriptions.Item>
+            {user?.role === 'super_admin' && (
+              <Descriptions.Item label="Suno 剩余额度">
+                {providerStatus.quota?.status === 'available'
+                  ? providerStatus.quota.credits_remaining ?? '未知'
+                  : providerStatus.quota?.error_message ?? '尚未查询'}
+              </Descriptions.Item>
+            )}
+            {user?.role === 'super_admin' && providerStatus.quota?.status === 'available' && (
+              <Descriptions.Item label="Suno 本期用量">
+                {providerStatus.quota.usage ?? '未知'}
+              </Descriptions.Item>
+            )}
+            {user?.role === 'super_admin' && providerStatus.quota && (
+              <Descriptions.Item label="额度更新时间">
+                {formatDateTime(providerStatus.quota.checked_at)}
+              </Descriptions.Item>
+            )}
           </Descriptions>
         </section>
       )}
@@ -432,6 +454,7 @@ export function MusicPage() {
               type="primary"
               icon={<Sparkles size={16} />}
               loading={creating}
+              disabled={quotaExhausted}
               onClick={() => void submit()}
             >
               提交 Suno 生成
@@ -457,6 +480,7 @@ export function MusicPage() {
                 key={result.id}
                 result={result}
                 deleting={deletingResultId === result.id}
+                canExtend={!quotaExhausted}
                 onExtend={() => openExtend(result)}
                 onDelete={() => void removeResult(result)}
               />
@@ -567,6 +591,7 @@ export function MusicPage() {
         okText="提交续写"
         cancelText="取消"
         confirmLoading={extending}
+        okButtonProps={{ disabled: quotaExhausted }}
         onOk={() => void submitExtension()}
         onCancel={() => {
           setExtendSource(null)
@@ -596,11 +621,13 @@ export function MusicPage() {
 function MusicResultItem({
   result,
   deleting,
+  canExtend,
   onExtend,
   onDelete,
 }: {
   result: MusicResult
   deleting: boolean
+  canExtend: boolean
   onExtend: () => void
   onDelete: () => void
 }) {
@@ -672,7 +699,7 @@ function MusicResultItem({
             onClick={() => void download()}
           />
         </Tooltip>
-        <Button icon={<Sparkles size={16} />} onClick={onExtend}>续写</Button>
+        <Button icon={<Sparkles size={16} />} disabled={!canExtend} onClick={onExtend}>续写</Button>
         {result.provider_page_url && (
           <Tooltip title="在 Suno 查看">
             <Button
