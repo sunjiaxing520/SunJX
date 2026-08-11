@@ -190,6 +190,49 @@ def test_compatibility_provider_normalizes_rate_limit(
     assert captured.value.retry_after_seconds == 45
 
 
+def test_compatibility_provider_reports_runtime_status(
+    compat_settings: None,
+) -> None:
+    provider = SunoCompatibilityMusicProvider(
+        base_url="http://localhost:3000",
+        shared_token="internal-test-token",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={"status": "waiting_cookie"},
+                request=request,
+            )
+        ),
+    )
+
+    assert provider.get_runtime_status()["status"] == "waiting_cookie"
+
+
+def test_compatibility_provider_normalizes_missing_cookie(
+    compat_settings: None,
+) -> None:
+    provider = SunoCompatibilityMusicProvider(
+        base_url="http://localhost:3000",
+        shared_token="internal-test-token",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                503,
+                json={
+                    "error": "SUNO_COOKIE is not configured in the isolated service.",
+                    "code": "SUNO_COOKIE_NOT_CONFIGURED",
+                },
+                request=request,
+            )
+        ),
+    )
+
+    with pytest.raises(MusicProviderError) as captured:
+        provider.get_quota()
+
+    assert captured.value.code == "SUNO_COOKIE_NOT_CONFIGURED"
+    assert captured.value.retryable is False
+
+
 def test_compatibility_provider_rejects_plain_http_remote_service(
     compat_settings: None,
 ) -> None:

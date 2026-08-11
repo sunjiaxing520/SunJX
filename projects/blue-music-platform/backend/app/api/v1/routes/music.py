@@ -5,6 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import FileResponse, RedirectResponse
 
+from app.adapters.music_generation import (
+    MusicProviderError,
+    SunoCompatibilityMusicProvider,
+)
 from app.api.dependencies import DatabaseSession, SuperAdmin, require_agent_permission
 from app.core.config import settings
 from app.core.exceptions import AppException
@@ -70,8 +74,23 @@ def provider_status(
             integration_status = "disabled"
             message = "Suno 兼容实现已安装但默认关闭"
         elif configured:
-            integration_status = "ready"
-            message = "Suno 兼容实现已连接到隔离服务；人机验证需要管理员处理"
+            try:
+                runtime_status = (
+                    SunoCompatibilityMusicProvider().get_runtime_status()
+                ).get("status")
+            except MusicProviderError as exc:
+                integration_status = "unavailable"
+                message = f"Suno 兼容服务暂时不可用（{exc.code}）"
+            else:
+                if runtime_status == "ready":
+                    integration_status = "ready"
+                    message = "Suno 兼容实现已连接，会话可用；人机验证需要管理员处理"
+                elif runtime_status == "waiting_cookie":
+                    integration_status = "waiting_session"
+                    message = "Suno 兼容服务已启动，等待管理员在本机配置登录会话"
+                else:
+                    integration_status = "unavailable"
+                    message = f"Suno 兼容服务返回未知状态：{runtime_status or 'empty'}"
         else:
             integration_status = "configuration_error"
             message = "Suno 兼容实现缺少服务地址或内部共享令牌"

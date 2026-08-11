@@ -272,6 +272,16 @@ class SunoCompatibilityMusicProvider:
             ),
         )
 
+    def get_runtime_status(self) -> dict[str, Any]:
+        started_at = utc_now()
+        response = self._request(
+            "GET",
+            "/api/health",
+            started_at=started_at,
+            timeout=3.0,
+        )
+        return self._require_mapping(response)
+
     def _submit_and_wait(
         self,
         path: str,
@@ -479,6 +489,7 @@ class SunoCompatibilityMusicProvider:
         started_at: datetime,
     ) -> MusicProviderError:
         message = _response_error_message(response)
+        error_code = _response_error_code(response)
         lowered = message.lower()
         call = self._call_metadata(
             response,
@@ -493,6 +504,20 @@ class SunoCompatibilityMusicProvider:
                 code="SUNO_HUMAN_VERIFICATION_REQUIRED",
                 call=call,
                 requires_human=True,
+                detail={"status_code": response.status_code},
+            )
+        if error_code == "SUNO_COOKIE_NOT_CONFIGURED":
+            return MusicProviderError(
+                "Suno 兼容服务尚未配置登录会话，请管理员在本机更新 Suno Cookie",
+                code="SUNO_COOKIE_NOT_CONFIGURED",
+                call=call,
+                detail={"status_code": response.status_code},
+            )
+        if error_code == "UNAUTHORIZED":
+            return MusicProviderError(
+                "蓝乐与 Suno 兼容服务的内部令牌不一致",
+                code="SUNO_COMPAT_AUTH_FAILED",
+                call=call,
                 detail={"status_code": response.status_code},
             )
         if response.status_code in (401, 403):
@@ -749,6 +774,17 @@ def _response_error_message(response: httpx.Response) -> str:
             if value:
                 return str(value)[:500]
     return str(data)[:500]
+
+
+def _response_error_code(response: httpx.Response) -> str | None:
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("code")
+    return str(value).strip()[:100] if value else None
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:

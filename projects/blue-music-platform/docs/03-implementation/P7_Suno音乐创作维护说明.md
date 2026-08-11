@@ -1,6 +1,6 @@
 # P7 SunoProvider 音乐创作维护说明
 
-更新时间：2026-07-27
+更新时间：2026-08-11
 
 ## 当前状态
 
@@ -11,6 +11,11 @@
   和商用权限；合同未知时明确返回 `SUNO_API_CONTRACT_PENDING`，不猜测路径。
 - `compatibility`：对隔离部署的 `gcui-art/suno-api` 做兼容适配。默认关闭，
   只允许本机或 Docker 内网地址，不把 Suno Cookie 传给蓝乐或智能体。
+
+当前本机演示环境已选择 `compatibility`。隔离服务运行在
+`http://127.0.0.1:3000`；服务、内部令牌、管理员登录会话和真实额度查询均已
+联通。真实音乐生成会消耗账户额度，尚未在未获确认时擅自执行。会话缺失时状态
+必须回落到 `waiting_session`，不得冒充 `ready`。
 
 其他 Agent、自动流程和前端始终调用：
 
@@ -36,6 +41,15 @@ POST /api/v1/music/tasks
 ```text
 a2e6a823428903af715d3835d1cb44ffa336021d
 ```
+
+可复现补丁和安装脚本保存在：
+
+```text
+integrations/suno-compat/
+```
+
+当前机器的隔离运行副本位于 `D:\DevTools\SunoCompat`，本地安全分支提交为
+`99cec07`。`.env.local`、内部令牌、Suno Cookie、日志和编译产物均不进入 Git。
 
 已适配的外部合同：
 
@@ -96,6 +110,8 @@ D:\DevTools\Venvs\blue-music-backend\Scripts\python.exe -m app.workers.music
 | `SUNO_API_NOT_CONFIGURED` | 官方地址或 Key 缺失 | 否 |
 | `SUNO_API_CONTRACT_PENDING` | 官方文档尚未完成映射 | 否 |
 | `SUNO_COMPAT_DISABLED` | 兼容实现未显式启用 | 否 |
+| `SUNO_COOKIE_NOT_CONFIGURED` | 隔离服务尚未配置 Suno 登录会话 | 否 |
+| `SUNO_COMPAT_AUTH_FAILED` | 蓝乐与隔离服务的内部令牌不一致 | 否 |
 | `SUNO_HUMAN_VERIFICATION_REQUIRED` | 需要人工完成 hCaptcha | 否 |
 | `SUNO_SESSION_EXPIRED` | 兼容会话失效 | 否 |
 | `SUNO_QUOTA_EXHAUSTED` | 账户额度不足 | 否 |
@@ -180,6 +196,7 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-当前基线：后端 `70` 个测试，前端 `15` 个测试。兼容适配器测试覆盖生成归一化、
-额度、429、响应级与任务级 hCaptcha、混合结果失败和远程 HTTP 拒绝；平台测试
-覆盖持久重试、人工验证状态、重新入队、试听、下载、删除和工作流传参。
+当前基线：后端 `73` 个测试，前端 `15` 个测试。兼容适配器测试覆盖生成归一化、
+额度、运行状态、未配置会话、429、响应级与任务级 hCaptcha、混合结果失败和
+远程 HTTP 拒绝；平台测试覆盖持久重试、人工验证状态、重新入队、试听、下载、
+删除和工作流传参。

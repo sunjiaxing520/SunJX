@@ -555,6 +555,8 @@ export interface SunoProviderStatus {
     | 'contract_pending'
     | 'disabled'
     | 'ready'
+    | 'waiting_session'
+    | 'unavailable'
     | 'configuration_error'
   message: string
   platform_url: string

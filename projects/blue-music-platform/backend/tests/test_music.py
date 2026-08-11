@@ -7,7 +7,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.adapters.music_generation import MusicProviderError, SunoOfficialMusicProvider
+from app.adapters.music_generation import (
+    MusicProviderError,
+    SunoCompatibilityMusicProvider,
+    SunoOfficialMusicProvider,
+)
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.security import hash_password
@@ -336,3 +340,29 @@ def test_provider_status_exposes_queue_and_persisted_quota(
     assert body["queue_mode"] == "inline"
     assert body["quota"]["status"] == "available"
     assert body["quota"]["credits_remaining"] == 80
+
+
+def test_provider_status_waits_for_compatibility_session(
+    music_context: MusicContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "SUNO_PROVIDER_IMPLEMENTATION", "compatibility")
+    monkeypatch.setattr(settings, "SUNO_COMPAT_ENABLED", True)
+    monkeypatch.setattr(settings, "SUNO_COMPAT_BASE_URL", "http://localhost:3000")
+    monkeypatch.setattr(settings, "SUNO_COMPAT_SHARED_TOKEN", "internal-test-token")
+    monkeypatch.setattr(
+        SunoCompatibilityMusicProvider,
+        "get_runtime_status",
+        lambda _provider: {"status": "waiting_cookie"},
+    )
+
+    response = music_context.client.get(
+        "/api/v1/music/provider-status",
+        headers=_headers(music_context),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["implementation"] == "compatibility"
+    assert body["configured"] is True
+    assert body["integration_status"] == "waiting_session"
