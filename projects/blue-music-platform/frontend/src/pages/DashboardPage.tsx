@@ -73,6 +73,15 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
 }
 
+function formatBalance(provider: ProviderAccountUsage) {
+  if (provider.balance_amount === null) return null
+  const amount = provider.balance_amount.toLocaleString('zh-CN', {
+    minimumFractionDigits: provider.balance_unit === '元' ? 2 : 0,
+    maximumFractionDigits: provider.balance_unit === '元' ? 2 : 4,
+  })
+  return `${amount} ${provider.balance_unit ?? ''}`.trim()
+}
+
 export function DashboardPage() {
   const navigate = useNavigate()
   const [data, setData] = useState<DashboardResponse | null>(null)
@@ -121,10 +130,11 @@ export function DashboardPage() {
       width: 180,
       render: (_, provider) => {
         const label = BALANCE_LABELS[provider.balance_status]
+        const balance = formatBalance(provider)
         return (
           <Space size={6}>
             <Tooltip title={provider.balance_message}>
-              <Tag color={label.color}>{provider.balance_amount === null ? label.text : `${provider.balance_amount} ${provider.balance_unit ?? ''}`}</Tag>
+              <Tag color={label.color}>{balance ?? label.text}</Tag>
             </Tooltip>
             {provider.console_url && (
               <Tooltip title="打开供应商控制台">

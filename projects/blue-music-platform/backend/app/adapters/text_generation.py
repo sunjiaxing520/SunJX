@@ -441,7 +441,7 @@ class OpenAICompatibleTextProvider:
         return self._chat_json(
             system='你正在执行接口连接测试。只返回 JSON：{"status":"ok"}。',
             user="连接测试",
-            max_tokens=32,
+            max_tokens=256 if _is_kimi_k3(self.config.base_url, self.model) else 32,
             temperature=0.1,
         )
 
@@ -468,13 +468,16 @@ class OpenAICompatibleTextProvider:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    "temperature": temperature,
                 }
+                if not _uses_fixed_temperature(url, self.model):
+                    request_body["temperature"] = temperature
                 request_body[self.config.max_tokens_parameter] = max_tokens
                 if self.config.supports_json_mode:
                     request_body["response_format"] = {"type": "json_object"}
                 if _should_disable_thinking(url, self.model):
                     request_body["thinking"] = {"type": "disabled"}
+                if _is_kimi_k3(url, self.model):
+                    request_body["reasoning_effort"] = "low"
                 response = httpx.post(
                     url,
                     headers={
@@ -775,6 +778,24 @@ def _should_disable_thinking(endpoint: str, model: str | None) -> bool:
     model_name = (model or "").lower()
     return hostname.endswith("bigmodel.cn") and model_name.startswith(
         ("glm-4.7", "glm-5")
+    )
+
+
+def _uses_fixed_temperature(endpoint: str, model: str | None) -> bool:
+    hostname = (urlparse(endpoint).hostname or "").lower()
+    model_name = (model or "").lower()
+    return (
+        hostname in {"api.moonshot.cn", "api.moonshot.ai"}
+        and model_name.startswith("kimi-")
+    )
+
+
+def _is_kimi_k3(endpoint: str, model: str | None) -> bool:
+    hostname = (urlparse(endpoint).hostname or "").lower()
+    model_name = (model or "").lower()
+    return (
+        hostname in {"api.moonshot.cn", "api.moonshot.ai"}
+        and model_name.startswith("kimi-k3")
     )
 
 

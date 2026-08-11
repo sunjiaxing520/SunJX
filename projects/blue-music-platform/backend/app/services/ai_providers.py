@@ -493,6 +493,8 @@ def _environment_template() -> AiProviderTemplate:
     key = "openai_compatible"
     if hostname.endswith("bigmodel.cn"):
         key = "bigmodel"
+    elif hostname in {"api.moonshot.cn", "api.moonshot.ai"}:
+        key = "kimi"
     elif hostname.endswith("deepseek.com"):
         key = "deepseek"
     elif hostname.endswith("aliyuncs.com"):

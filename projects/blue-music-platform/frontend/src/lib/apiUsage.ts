@@ -42,10 +42,15 @@ export function groupApiUsageByTaskType(records: ApiUsageRecord[]): ApiUsageTask
 export function providerName(record: ApiUsageRecord | undefined, fallback: string) {
   if (fallback === 'local') return '本地规则基线'
   if (fallback === 'bigmodel') return '智谱 BigModel'
+  if (fallback === 'kimi') return 'Kimi 开放平台'
   if (fallback === 'deepseek') return 'DeepSeek'
   if (fallback === 'qwen') return '阿里百炼 Qwen'
   if (fallback === 'minimax') return 'MiniMax'
   if (record?.endpoint.includes('bigmodel.cn')) return '智谱 BigModel'
+  if (
+    record?.endpoint.includes('moonshot.cn')
+    || record?.endpoint.includes('moonshot.ai')
+  ) return 'Kimi 开放平台'
   if (record?.endpoint.includes('deepseek.com')) return 'DeepSeek'
   if (record?.endpoint.includes('aliyuncs.com')) return '阿里百炼 Qwen'
   if (record?.endpoint.includes('mureka.ai')) return 'Mureka'

@@ -143,6 +143,41 @@ def test_provider_config_controls_json_and_token_parameter(
     assert "response_format" not in captured_request
 
 
+def test_kimi_k3_uses_supported_request_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request: dict[str, object] = {}
+
+    def fake_post(*args, **kwargs):
+        captured_request.update(kwargs.get("json") or {})
+        return FakeResponse()
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="kimi",
+            protocol="openai_compatible",
+            base_url="https://api.moonshot.cn/v1",
+            api_key="test-key",
+            model="kimi-k3",
+            supports_json_mode=True,
+            max_tokens_parameter="max_completion_tokens",
+            max_retries=1,
+        )
+    )
+
+    provider.generate_lyrics({"theme": "测试"}, variation=1)
+
+    assert captured_request["max_completion_tokens"] == 3500
+    assert captured_request["response_format"] == {"type": "json_object"}
+    assert captured_request["reasoning_effort"] == "low"
+    assert "temperature" not in captured_request
+
+    captured_request.clear()
+    provider.test_connection()
+    assert captured_request["max_completion_tokens"] == 256
+
+
 def test_provider_read_timeout_does_not_duplicate_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

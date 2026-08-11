@@ -14,6 +14,7 @@ from app.core.credential_crypto import decrypt_credential
 from app.core.security import hash_password
 from app.main import create_app
 from app.models import AiProviderConfig, User, UserRole
+from app.services import api_usage
 from app.services.ai_providers import resolve_text_provider
 
 
@@ -39,6 +40,23 @@ class FakeProviderResponse:
                 "completion_tokens": 4,
                 "total_tokens": 16,
             },
+        }
+
+
+class FakeBalanceResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return {
+            "code": 0,
+            "data": {
+                "available_balance": 49.5,
+                "voucher_balance": 9.5,
+                "cash_balance": 40.0,
+            },
+            "scode": "0x0",
+            "status": True,
         }
 
 
@@ -123,6 +141,7 @@ def test_provider_templates_and_management_are_admin_only(
     assert {item["key"] for item in admin.json()} >= {
         "local",
         "bigmodel",
+        "kimi",
         "deepseek",
         "qwen",
         "minimax",
@@ -249,3 +268,60 @@ def test_environment_import_never_returns_plaintext_key(
     assert imported.json()["template_key"] == "bigmodel"
     assert imported.json()["source"] == "environment"
     assert "environment-secret-key" not in imported.text
+
+
+def test_kimi_config_can_report_balance_without_exposing_key(
+    provider_context: ProviderContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "test-kimi-api-key"
+    created = provider_context.client.post(
+        "/api/v1/ai-providers",
+        headers=_headers(provider_context.admin_token),
+        json={
+            "name": "Kimi 稳定性测试",
+            "template_key": "kimi",
+            "api_key": secret,
+        },
+    )
+    assert created.status_code == 201
+    provider_id = created.json()["id"]
+
+    monkeypatch.setattr(
+        text_generation.httpx,
+        "post",
+        lambda *args, **kwargs: FakeProviderResponse(),
+    )
+    tested = provider_context.client.post(
+        f"/api/v1/ai-providers/{provider_id}/test",
+        headers=_headers(provider_context.admin_token),
+    )
+    activated = provider_context.client.post(
+        f"/api/v1/ai-providers/{provider_id}/activate",
+        headers=_headers(provider_context.admin_token),
+    )
+    balance_headers: dict[str, str] = {}
+
+    def fake_get(*args, **kwargs):
+        balance_headers.update(kwargs.get("headers") or {})
+        return FakeBalanceResponse()
+
+    monkeypatch.setattr(api_usage.httpx, "get", fake_get)
+    dashboard = provider_context.client.get(
+        "/api/v1/dashboard",
+        headers=_headers(provider_context.admin_token),
+    )
+
+    assert tested.json()["status"] == "success"
+    assert activated.json()["is_active"] is True
+    assert secret not in created.text
+    assert secret not in dashboard.text
+    assert balance_headers["Authorization"] == f"Bearer {secret}"
+    kimi = next(
+        item
+        for item in dashboard.json()["api_usage"]["providers"]
+        if item["provider"] == "kimi"
+    )
+    assert kimi["balance_status"] == "available"
+    assert kimi["balance_amount"] == 49.5
+    assert kimi["balance_unit"] == "元"

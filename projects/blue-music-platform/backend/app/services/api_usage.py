@@ -3,11 +3,16 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.text_generation import ProviderCallMetadata
 from app.core.config import settings
+from app.core.credential_crypto import (
+    CredentialDecryptionError,
+    decrypt_credential,
+)
 from app.core.time import APP_TIMEZONE, app_today, utc_day_bounds, utc_now
 from app.models import AiProviderConfig, ApiUsageRecord
 from app.schemas.api_usage import (
@@ -201,6 +206,7 @@ def get_api_usage_dashboard(
             include_balance=include_balance,
             configured_endpoint=active_endpoint if provider == active_provider else None,
             configured_model=active_model if provider == active_provider else None,
+            provider_config=active_config if provider == active_provider else None,
         )
         for provider, items in sorted(provider_records.items())
     ]
@@ -226,6 +232,7 @@ def _provider_summary(
     include_balance: bool,
     configured_endpoint: str | None,
     configured_model: str | None,
+    provider_config: AiProviderConfig | None,
 ) -> ProviderAccountUsage:
     today_records = [
         record
@@ -236,8 +243,15 @@ def _provider_summary(
     for record in records:
         units[record.usage_unit] += float(record.usage_quantity)
 
-    endpoint = records[-1].endpoint if records else configured_endpoint or _configured_endpoint(provider)
+    endpoint = (
+        records[-1].endpoint
+        if records
+        else configured_endpoint or _configured_endpoint(provider)
+    )
     display_name, console_url = _provider_identity(provider, endpoint)
+    balance_amount: float | None = None
+    balance_unit: str | None = None
+    checked_at: datetime | None = None
     if provider == "local":
         balance_status = "not_applicable"
         balance_message = "本地规则执行不消耗第三方账户余额"
@@ -245,6 +259,14 @@ def _provider_summary(
         balance_status = "hidden"
         balance_message = "仅超级管理员可查看账户余额"
         console_url = None
+    elif provider == "kimi" and provider_config is not None:
+        (
+            balance_status,
+            balance_amount,
+            balance_unit,
+            balance_message,
+            checked_at,
+        ) = _kimi_account_balance(provider_config)
     else:
         balance_status = "manual"
         balance_message = "当前供应商未接入自动余额查询，请前往供应商控制台查看"
@@ -264,11 +286,62 @@ def _provider_summary(
         tokens_7d=sum(record.total_tokens for record in records),
         usage_by_unit_7d=dict(units),
         balance_status=balance_status,
-        balance_amount=None,
-        balance_unit=None,
+        balance_amount=balance_amount,
+        balance_unit=balance_unit,
         balance_message=balance_message,
         console_url=console_url,
-        checked_at=None,
+        checked_at=checked_at,
+    )
+
+
+def _kimi_account_balance(
+    config: AiProviderConfig,
+) -> tuple[str, float | None, str | None, str, datetime]:
+    checked_at = utc_now()
+    hostname = (urlparse(config.base_url).hostname or "").lower()
+    if hostname not in {"api.moonshot.cn", "api.moonshot.ai"}:
+        return (
+            "error",
+            None,
+            None,
+            "Kimi 余额查询只允许使用 Moonshot AI 官方接口地址",
+            checked_at,
+        )
+    if not config.api_key_encrypted:
+        return "error", None, None, "Kimi 接口尚未配置 API Key", checked_at
+
+    try:
+        api_key = decrypt_credential(config.api_key_encrypted)
+        response = httpx.get(
+            f"{config.base_url.rstrip('/')}/users/me/balance",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        body = response.json()
+        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(data, dict) or body.get("status") is not True:
+            raise ValueError("invalid balance response")
+        available = float(data["available_balance"])
+        cash = float(data.get("cash_balance") or 0)
+        voucher = float(data.get("voucher_balance") or 0)
+    except CredentialDecryptionError as exc:
+        return "error", None, None, str(exc), checked_at
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        return (
+            "error",
+            None,
+            None,
+            "暂时无法查询 Kimi 余额，请检查接口配置或稍后刷新",
+            checked_at,
+        )
+
+    return (
+        "available",
+        available,
+        "元",
+        f"可用余额包含现金 {cash:.2f} 元和代金券 {voucher:.2f} 元",
+        checked_at,
     )
 
 
@@ -286,6 +359,8 @@ def _provider_identity(provider: str, endpoint: str) -> tuple[str, str | None]:
         return "本地规则基线", None
     if provider == "bigmodel":
         return "智谱 BigModel", "https://bigmodel.cn/"
+    if provider == "kimi":
+        return "Kimi 开放平台", "https://platform.kimi.com/"
     if provider == "deepseek":
         return "DeepSeek", "https://platform.deepseek.com/"
     if provider == "qwen":
@@ -296,6 +371,8 @@ def _provider_identity(provider: str, endpoint: str) -> tuple[str, str | None]:
         return "Suno", "https://platform.suno.com/"
     if hostname.endswith("bigmodel.cn"):
         return "智谱 BigModel", "https://bigmodel.cn/"
+    if hostname in {"api.moonshot.cn", "api.moonshot.ai"}:
+        return "Kimi 开放平台", "https://platform.kimi.com/"
     if hostname.endswith("mureka.ai"):
         return "Mureka", "https://platform.mureka.ai/"
     if hostname.endswith("minimaxi.com"):
@@ -311,6 +388,8 @@ def _canonical_provider(provider: str, endpoint: str) -> str:
     hostname = (urlparse(endpoint).hostname or "").lower()
     if hostname.endswith("bigmodel.cn"):
         return "bigmodel"
+    if hostname in {"api.moonshot.cn", "api.moonshot.ai"}:
+        return "kimi"
     if hostname.endswith("deepseek.com"):
         return "deepseek"
     if hostname.endswith("aliyuncs.com"):
