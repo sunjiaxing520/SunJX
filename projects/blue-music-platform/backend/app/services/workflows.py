@@ -649,12 +649,18 @@ def _execute_step(
         )
 
     if step_type == WorkflowStepType.COLLECTION.value:
+        collection_limit = configuration.collection.limit
+        if configuration.collection.chart == "rising":
+            collection_limit = max(
+                collection_limit,
+                configuration.collection.rising_rank,
+            )
         result = create_collection(
             db,
             CollectionCreateRequest(
                 source_mode=configuration.collection.source_mode,
                 chart=configuration.collection.chart,
-                limit=configuration.collection.limit,
+                limit=collection_limit,
             ),
             run.requested_by_id,
         )
@@ -663,19 +669,35 @@ def _execute_step(
     if step_type == WorkflowStepType.ANALYSIS.value:
         entry_ids: list[int] = []
         if collected_snapshot_id is not None:
-            entry_ids = list(
-                db.scalars(
-                    select(RankingEntry.id)
-                    .where(RankingEntry.snapshot_id == collected_snapshot_id)
-                    .order_by(RankingEntry.rank)
-                    .limit(30)
-                ).all()
+            entry_query = select(RankingEntry.id).where(
+                RankingEntry.snapshot_id == collected_snapshot_id
             )
+            if configuration.collection.chart == "rising":
+                target_rank = configuration.collection.rising_rank
+                target_entry_id = db.scalar(
+                    entry_query.where(RankingEntry.rank == target_rank).limit(1)
+                )
+                if target_entry_id is None:
+                    raise AppException(
+                        code="WORKFLOW_RISING_RANK_NOT_FOUND",
+                        message=f"飙升榜没有采集到第 {target_rank} 名，无法继续分析",
+                        status_code=409,
+                        detail={"rising_rank": target_rank},
+                    )
+                entry_ids = [target_entry_id]
+            else:
+                entry_ids = list(
+                    db.scalars(entry_query.order_by(RankingEntry.rank).limit(30)).all()
+                )
         result = create_analysis(
             db,
             AnalysisCreateRequest(
                 entry_ids=entry_ids,
-                window_days=configuration.analysis.window_days,
+                window_days=(
+                    1
+                    if configuration.collection.chart == "rising"
+                    else configuration.analysis.window_days
+                ),
             ),
             run.requested_by_id,
         )
@@ -806,6 +828,7 @@ def _execute_review_step(
             message="启动流程的账号已经不存在",
             status_code=409,
         )
+    review_agent = require_review_agent_access(db, agent_id, requester)
     current_version_id = step.output_id or lyrics_version_id
     current_version = (
         db.get(LyricsVersion, current_version_id)
@@ -826,10 +849,17 @@ def _execute_review_step(
         regenerate_lyrics(db, current_version.task_id)
         current_version = _latest_lyrics_version(db, current_version.task_id)
     elif resume_action == "revise":
+        previous_feedback = _latest_review_feedback(detail)
         preview = create_lyrics_assistant_preview(
             db,
             current_version.id,
-            LyricsAssistantMessageRequest(instruction=resume_instruction),
+            LyricsAssistantMessageRequest(
+                instruction=_review_revision_instruction(
+                    previous_feedback,
+                    review_agent.pass_score,
+                    resume_instruction,
+                )
+            ),
             requester.id,
         )
         current_version = db.get(
@@ -856,86 +886,52 @@ def _execute_review_step(
         "started_lyrics_version_id": current_version.id,
         "rounds": [],
     }
-    rounds: list[dict[str, object]] = []
-    latest_review_id = 0
-    latest_score = 0
-    pass_score = configuration.review.pass_score
-    max_rounds = configuration.review.max_rounds
-
-    for round_number in range(1, max_rounds + 1):
-        review_instruction = (
-            f"这是自动流程第 {round_number} 轮歌词审核，及格线为 {pass_score} 分。"
-            "请严格按已配置标准评分，不要为了通过而虚高分数。"
+    pass_score = review_agent.pass_score
+    review_instruction = (
+        f"这是自动流程第 {len(cycles) + 1} 次歌词审核，当前审核智能体的及格线为 "
+        f"{pass_score} 分。请严格按长期记忆中的标准评分，不要为了通过而虚高分数。"
+    )
+    if configuration.review.instruction:
+        review_instruction += f" 补充审核要求：{configuration.review.instruction}"
+    review = create_lyrics_review(
+        db,
+        agent_id,
+        ReviewCreateRequest(
+            lyrics_version_id=current_version.id,
+            instruction=review_instruction,
+        ),
+        requester,
+    )
+    latest_score = _review_score(review.result)
+    round_detail: dict[str, object] = {
+        "round": 1,
+        "review_run_id": review.id,
+        "lyrics_version_id": current_version.id,
+        "score": latest_score,
+        "summary": str(review.result.get("summary") or ""),
+        "deduction_reasons": _string_list(review.result.get("deduction_reasons")),
+        "revision_suggestions": _string_list(
+            review.result.get("revision_suggestions")
+        ),
+    }
+    cycle["rounds"] = [round_detail]
+    if latest_score >= pass_score:
+        cycle["status"] = "passed"
+        cycles.append(cycle)
+        return _StepOutcome(
+            task_id=review.id,
+            output_id=current_version.id,
+            detail={
+                **detail,
+                "status": "passed",
+                "agent_id": agent_id,
+                "pass_score": pass_score,
+                "latest_score": latest_score,
+                "latest_lyrics_version_id": current_version.id,
+                "cycles": cycles,
+            },
         )
-        if configuration.review.instruction:
-            review_instruction += f" 补充审核要求：{configuration.review.instruction}"
-        review = create_lyrics_review(
-            db,
-            agent_id,
-            ReviewCreateRequest(
-                lyrics_version_id=current_version.id,
-                instruction=review_instruction,
-            ),
-            requester,
-        )
-        latest_review_id = review.id
-        latest_score = _review_score(review.result)
-        round_detail: dict[str, object] = {
-            "round": round_number,
-            "review_run_id": review.id,
-            "lyrics_version_id": current_version.id,
-            "score": latest_score,
-            "summary": str(review.result.get("summary") or ""),
-            "revision_suggestions": _string_list(
-                review.result.get("revision_suggestions")
-            ),
-        }
-        rounds.append(round_detail)
-        if latest_score >= pass_score:
-            cycle["rounds"] = rounds
-            cycle["status"] = "passed"
-            cycles.append(cycle)
-            return _StepOutcome(
-                task_id=review.id,
-                output_id=current_version.id,
-                detail={
-                    **detail,
-                    "status": "passed",
-                    "agent_id": agent_id,
-                    "pass_score": pass_score,
-                    "max_rounds": max_rounds,
-                    "latest_score": latest_score,
-                    "latest_lyrics_version_id": current_version.id,
-                    "cycles": cycles,
-                },
-            )
 
-        if round_number < max_rounds:
-            _wait_between_text_calls()
-            preview = create_lyrics_assistant_preview(
-                db,
-                current_version.id,
-                LyricsAssistantMessageRequest(
-                    instruction=_automatic_revision_instruction(
-                        review.result,
-                        latest_score,
-                        pass_score,
-                    )
-                ),
-                requester.id,
-            )
-            confirmed = confirm_lyrics_assistant_preview(db, preview.id)
-            current_version = db.get(LyricsVersion, confirmed.id)
-            if current_version is None:
-                raise AppException(
-                    code="WORKFLOW_LYRICS_OUTPUT_MISSING",
-                    message="自动修改歌词后没有得到新版本",
-                    status_code=409,
-                )
-            round_detail["revised_lyrics_version_id"] = current_version.id
-            _wait_between_text_calls()
-
-    cycle["rounds"] = rounds
     cycle["status"] = "decision_required"
     cycles.append(cycle)
     pause_detail = {
@@ -943,16 +939,16 @@ def _execute_review_step(
         "status": "decision_required",
         "agent_id": agent_id,
         "pass_score": pass_score,
-        "max_rounds": max_rounds,
-        "rounds_completed": max_rounds,
         "latest_score": latest_score,
-        "latest_review_run_id": latest_review_id,
+        "latest_review_run_id": review.id,
         "latest_lyrics_version_id": current_version.id,
+        "latest_deduction_reasons": round_detail["deduction_reasons"],
+        "latest_revision_suggestions": round_detail["revision_suggestions"],
         "cycles": cycles,
     }
     raise _WorkflowReviewPause(
-        _StepOutcome(latest_review_id, current_version.id, pause_detail),
-        f"歌词连续 {max_rounds} 轮审核未达到 {pass_score} 分，请人工判断后继续",
+        _StepOutcome(review.id, current_version.id, pause_detail),
+        f"歌词审核得分 {latest_score}，未达到 {pass_score} 分，流程已暂停等待人工判断",
     )
 
 
@@ -989,17 +985,36 @@ def _string_list(value: object) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def _automatic_revision_instruction(
+def _latest_review_feedback(detail: dict[str, object]) -> dict[str, object]:
+    cycles = detail.get("cycles")
+    if not isinstance(cycles, list) or not cycles:
+        return {}
+    latest_cycle = cycles[-1]
+    if not isinstance(latest_cycle, dict):
+        return {}
+    rounds = latest_cycle.get("rounds")
+    if not isinstance(rounds, list) or not rounds or not isinstance(rounds[-1], dict):
+        return {}
+    return dict(rounds[-1])
+
+
+def _review_revision_instruction(
     result: dict[str, object],
-    score: int,
     pass_score: int,
+    extra_instruction: str = "",
 ) -> str:
+    score = _review_score(result) if "overall_score" in result else int(
+        result.get("score") or 0
+    )
     summary = str(result.get("summary") or "").strip()
+    deductions = _string_list(result.get("deduction_reasons"))
     suggestions = _string_list(result.get("revision_suggestions"))
     parts = [
         f"上一轮歌词审核总分为 {score}，及格线为 {pass_score}。",
         f"审核总结：{summary}" if summary else "",
+        f"扣分原因：{'；'.join(deductions)}" if deductions else "",
         f"请逐项落实以下修改建议：{'；'.join(suggestions)}" if suggestions else "",
+        f"用户补充要求：{extra_instruction}" if extra_instruction else "",
         "请保持主题与原创性，重点改进被扣分的韵律、结构、可唱性和表达，输出完整歌词。",
     ]
     return "\n".join(part for part in parts if part)[:2000]

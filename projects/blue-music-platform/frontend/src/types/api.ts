@@ -221,6 +221,7 @@ export interface WorkflowConfiguration {
     source_mode: 'live' | 'sample'
     chart: 'top500' | 'rising'
     limit: number
+    rising_rank: number
   }
   analysis: {
     window_days: number
@@ -234,8 +235,6 @@ export interface WorkflowConfiguration {
   }
   review: {
     agent_id: number | null
-    pass_score: number
-    max_rounds: 3
     instruction: string | null
   }
   music: {
@@ -706,6 +705,7 @@ export interface ReviewAgentMember {
 export interface ReviewAgent {
   id: number
   name: string
+  pass_score: number
   initialization_notes: string | null
   memory_summary: string
   memory_detail: Record<string, unknown> | null

@@ -8,6 +8,7 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Select,
   Skeleton,
@@ -38,6 +39,7 @@ import {
   previewReviewAgentInitialization,
   saveReviewAgentMemory,
   updateReviewAgentMembers,
+  updateReviewAgentSettings,
 } from '../api/reviewAgents'
 import { listUsers } from '../api/users'
 import { useAuth } from '../auth/useAuth'
@@ -86,12 +88,15 @@ export function ReviewAgentsPage() {
   const [error, setError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [agentName, setAgentName] = useState('')
+  const [agentPassScore, setAgentPassScore] = useState(80)
   const [initializationMessages, setInitializationMessages] = useState<ReviewChatMessage[]>([])
   const [initializationDraft, setInitializationDraft] = useState('')
   const [initializationLoading, setInitializationLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [memberIds, setMemberIds] = useState<number[]>([])
   const [savingMembers, setSavingMembers] = useState(false)
+  const [settingsPassScore, setSettingsPassScore] = useState(80)
+  const [savingSettings, setSavingSettings] = useState(false)
   const [lyricsVersionId, setLyricsVersionId] = useState<number | null>(null)
   const [reviewInstruction, setReviewInstruction] = useState('')
   const [reviewing, setReviewing] = useState(false)
@@ -148,6 +153,7 @@ export function ReviewAgentsPage() {
         setLyricsOptions(options)
         setReviewRuns(history.items)
         setMemberIds(activeAgent.members.map((member) => member.id))
+        setSettingsPassScore(activeAgent.pass_score)
       } catch (detailsError) {
         if (!cancelled) setError(errorMessage(detailsError))
       } finally {
@@ -182,6 +188,7 @@ export function ReviewAgentsPage() {
 
   const openCreate = () => {
     setAgentName('')
+    setAgentPassScore(80)
     setInitializationMessages([])
     setInitializationDraft('')
     setCreateOpen(true)
@@ -217,7 +224,7 @@ export function ReviewAgentsPage() {
     }
     setCreating(true)
     try {
-      const created = await createReviewAgent(agentName.trim(), initializationMessages)
+      const created = await createReviewAgent(agentName.trim(), initializationMessages, agentPassScore)
       setAgents((current) => [created, ...current])
       setActiveAgentId(created.id)
       setCreateOpen(false)
@@ -240,6 +247,20 @@ export function ReviewAgentsPage() {
       message.error(errorMessage(membersError))
     } finally {
       setSavingMembers(false)
+    }
+  }
+
+  const saveSettings = async () => {
+    if (!activeAgent) return
+    setSavingSettings(true)
+    try {
+      const updated = await updateReviewAgentSettings(activeAgent.id, settingsPassScore)
+      replaceAgent(updated)
+      message.success('自动流程及格线已更新')
+    } catch (settingsError) {
+      message.error(errorMessage(settingsError))
+    } finally {
+      setSavingSettings(false)
     }
   }
 
@@ -334,6 +355,7 @@ export function ReviewAgentsPage() {
                 </div>
                 <Descriptions size="small" column={1} className="review-agent-descriptions">
                   <Descriptions.Item label="记忆概述">{activeAgent.memory_summary}</Descriptions.Item>
+                  <Descriptions.Item label="自动流程及格线">{activeAgent.pass_score} 分</Descriptions.Item>
                   <Descriptions.Item label="可用成员">
                     {activeAgent.members.length
                       ? activeAgent.members.map((member) => member.username).join('、')
@@ -345,6 +367,32 @@ export function ReviewAgentsPage() {
                   <Collapse
                     className="review-agent-admin-collapse"
                     items={[
+                      {
+                        key: 'settings',
+                        label: '自动流程设置',
+                        children: (
+                          <div className="review-agent-settings-editor">
+                            <div>
+                              <Typography.Text strong>审核及格线</Typography.Text>
+                              <Typography.Text type="secondary">
+                                自动流程每次只审核一次；低于此分数便暂停，等待用户决定。
+                              </Typography.Text>
+                            </div>
+                            <Space.Compact>
+                              <InputNumber
+                                min={1}
+                                max={100}
+                                value={settingsPassScore}
+                                addonAfter="分"
+                                onChange={(value) => setSettingsPassScore(value ?? 80)}
+                              />
+                              <Button loading={savingSettings} onClick={() => void saveSettings()}>
+                                保存
+                              </Button>
+                            </Space.Compact>
+                          </div>
+                        ),
+                      },
                       {
                         key: 'memory',
                         label: '查看完整初始化与长期记忆',
@@ -467,7 +515,7 @@ export function ReviewAgentsPage() {
                 </div>
                 {loadingDetails ? <Skeleton active paragraph={{ rows: 4 }} /> : reviewRuns.length ? (
                   <div className="review-run-list">
-                    {reviewRuns.map((run) => <ReviewRunView key={run.id} run={run} />)}
+                    {reviewRuns.map((run) => <ReviewRunView key={run.id} run={run} passScore={activeAgent.pass_score} />)}
                   </div>
                 ) : (
                   <div className="review-agent-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审核记录" /></div>
@@ -507,6 +555,18 @@ export function ReviewAgentsPage() {
               placeholder="例如：流行歌词韵律审核"
               onChange={(event) => setAgentName(event.target.value)}
             />
+          </Form.Item>
+          <Form.Item label="自动流程及格线" required>
+            <InputNumber
+              min={1}
+              max={100}
+              value={agentPassScore}
+              addonAfter="分"
+              onChange={(value) => setAgentPassScore(value ?? 80)}
+            />
+            <Typography.Paragraph type="secondary" className="review-agent-field-help">
+              低于该分数时自动流程立即暂停，不会自动修改或重复审核。
+            </Typography.Paragraph>
           </Form.Item>
           <Form.Item label="初始化对话" required>
             <div className="review-agent-init-history">
@@ -548,11 +608,16 @@ export function ReviewAgentsPage() {
   )
 }
 
-function ReviewRunView({ run }: { run: ReviewResult }) {
+function ReviewRunView({ run, passScore }: { run: ReviewResult; passScore: number }) {
   const score = typeof run.result.overall_score === 'number' ? run.result.overall_score : null
+  const historicalPassScore = typeof run.result.pass_score === 'number' ? run.result.pass_score : passScore
+  const passed = typeof run.result.passed === 'boolean'
+    ? run.result.passed
+    : score !== null && score >= historicalPassScore
   const summary = typeof run.result.summary === 'string' ? run.result.summary : '审核结果已生成。'
   const dimensions = reviewDimensions(run.result.dimensions)
   const strengths = stringList(run.result.strengths)
+  const deductions = stringList(run.result.deduction_reasons)
   const suggestions = stringList(run.result.revision_suggestions)
   const risks = stringList(run.result.risk_notes)
 
@@ -563,7 +628,10 @@ function ReviewRunView({ run }: { run: ReviewResult }) {
           <strong>审核 #{run.id}</strong>
           <small>{formatDateTime(run.created_at)} · {run.model || run.provider}</small>
         </div>
-        {score !== null && <span className="review-run-score">{score}<small>分</small></span>}
+        <Space>
+          {score !== null && <Tag color={passed ? 'success' : 'warning'}>{passed ? '通过' : '未通过'}</Tag>}
+          {score !== null && <span className="review-run-score">{score}<small> / {historicalPassScore} 分</small></span>}
+        </Space>
       </div>
       <Typography.Paragraph>{summary}</Typography.Paragraph>
       {dimensions.length > 0 && (
@@ -571,13 +639,14 @@ function ReviewRunView({ run }: { run: ReviewResult }) {
           {dimensions.map((dimension) => (
             <div key={`${dimension.name}-${dimension.score}`}>
               <strong>{dimension.name}</strong>
-              <Tag color={dimension.score >= 80 ? 'success' : dimension.score >= 60 ? 'warning' : 'error'}>{dimension.score} 分</Tag>
+              <Tag color={dimension.score >= historicalPassScore ? 'success' : dimension.score >= 60 ? 'warning' : 'error'}>{dimension.score} 分</Tag>
               <span>{dimension.feedback}</span>
             </div>
           ))}
         </div>
       )}
       <ReviewList label="优点" values={strengths} />
+      <ReviewList label="扣分原因" values={deductions} tone="risk" />
       <ReviewList label="修改建议" values={suggestions} />
       <ReviewList label="风险提示" values={risks} tone="risk" />
     </article>

@@ -54,6 +54,7 @@ export function AnalysisPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestedSnapshotId = Number(searchParams.get('snapshot_id')) || undefined
+  const isRisingSource = searchParams.get('chart') === 'rising'
 
   const updateTaskHistory = useCallback((items: AnalysisTask[]) => {
     setTasks(items)
@@ -190,7 +191,7 @@ export function AnalysisPage() {
   const submit = async () => {
     setRunning(true)
     try {
-      const task = await runAnalysis(selectedIds.map(Number), windowDays)
+      const task = await runAnalysis(selectedIds.map(Number), isRisingSource ? 1 : windowDays)
       message.success('分析完成，已生成创作方向')
       setActiveTask(task)
       setSelectedIds([])
@@ -314,17 +315,21 @@ export function AnalysisPage() {
           <div>
             <Typography.Title level={2}>选择分析范围</Typography.Title>
             <Typography.Text type="secondary">
-              {requestedSnapshotId
-                ? '已从榜单详情带入当前快照；可直接分析选中的单曲或重新勾选多首歌曲'
+              {isRisingSource
+                ? '飙升榜代表当前热度上升最快的歌曲，直接分析本次选择，不计算连续天数'
+                : requestedSnapshotId
+                  ? '已从榜单详情带入当前快照；可直接分析选中的单曲或重新勾选多首歌曲'
                 : '未勾选时默认分析最新榜单前 30 首；有几天数据就按几天计算'}
             </Typography.Text>
           </div>
           <Space wrap>
-            <Segmented
-              value={windowDays}
-              options={[{ label: '7 天', value: 7 }, { label: '15 天', value: 15 }, { label: '30 天', value: 30 }]}
-              onChange={(value) => setWindowDays(Number(value))}
-            />
+            {!isRisingSource && (
+              <Segmented
+                value={windowDays}
+                options={[{ label: '7 天', value: 7 }, { label: '15 天', value: 15 }, { label: '30 天', value: 30 }]}
+                onChange={(value) => setWindowDays(Number(value))}
+              />
+            )}
             <Button
               type="primary"
               icon={<Play size={16} />}

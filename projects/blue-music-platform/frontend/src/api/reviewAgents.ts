@@ -20,10 +20,15 @@ export function getReviewAgent(agentId: number): Promise<ReviewAgent> {
 export function createReviewAgent(
   name: string,
   initializationMessages: ReviewChatMessage[],
+  passScore: number,
 ): Promise<ReviewAgent> {
   return apiRequest<ReviewAgent>('/review-agents', {
     method: 'POST',
-    body: JSON.stringify({ name, initialization_messages: initializationMessages }),
+    body: JSON.stringify({
+      name,
+      initialization_messages: initializationMessages,
+      pass_score: passScore,
+    }),
   })
 }
 
@@ -41,6 +46,13 @@ export function updateReviewAgentMembers(agentId: number, userIds: number[]): Pr
   return apiRequest<ReviewAgent>(`/review-agents/${agentId}/members`, {
     method: 'PUT',
     body: JSON.stringify({ user_ids: userIds }),
+  })
+}
+
+export function updateReviewAgentSettings(agentId: number, passScore: number): Promise<ReviewAgent> {
+  return apiRequest<ReviewAgent>(`/review-agents/${agentId}/settings`, {
+    method: 'PATCH',
+    body: JSON.stringify({ pass_score: passScore }),
   })
 }
 

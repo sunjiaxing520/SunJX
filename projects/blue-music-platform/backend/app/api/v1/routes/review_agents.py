@@ -8,6 +8,7 @@ from app.schemas.review_agent import (
     ReviewAgentInitializationPreviewResponse,
     ReviewAgentMemberUpdate,
     ReviewAgentResponse,
+    ReviewAgentSettingsUpdate,
     ReviewCreateRequest,
     ReviewLyricsOption,
     ReviewListResponse,
@@ -25,6 +26,7 @@ from app.services.review_agents import (
     preview_review_agent_initialization,
     replace_review_agent_members,
     save_review_agent_memory,
+    update_review_agent_settings,
 )
 
 
@@ -76,6 +78,16 @@ def review_agent_detail(
     user: CurrentUser,
 ) -> ReviewAgentResponse:
     return get_review_agent(db, agent_id, user)
+
+
+@router.patch("/{agent_id}/settings", response_model=ReviewAgentResponse)
+def review_agent_settings(
+    agent_id: int,
+    payload: ReviewAgentSettingsUpdate,
+    db: DatabaseSession,
+    admin: SuperAdmin,
+) -> ReviewAgentResponse:
+    return update_review_agent_settings(db, agent_id, payload)
 
 
 @router.put("/{agent_id}/members", response_model=ReviewAgentResponse)

@@ -21,6 +21,7 @@ class WorkflowCollectionConfig(BaseModel):
     source_mode: Literal["live", "sample"] = "live"
     chart: RankingChartValue = "top500"
     limit: int = Field(default=100, ge=1, le=500)
+    rising_rank: int = Field(default=1, ge=1, le=500)
 
 
 class WorkflowAnalysisConfig(BaseModel):
@@ -37,8 +38,6 @@ class WorkflowLyricsConfig(BaseModel):
 
 class WorkflowReviewConfig(BaseModel):
     agent_id: int | None = Field(default=None, gt=0)
-    pass_score: int = Field(default=80, ge=1, le=100)
-    max_rounds: Literal[3] = 3
     instruction: str | None = Field(default=None, max_length=2000)
 
 
@@ -164,9 +163,3 @@ class WorkflowReviewDecisionRequest(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
-
-    @model_validator(mode="after")
-    def validate_instruction(self):
-        if self.action == "revise" and self.instruction is None:
-            raise ValueError("选择按要求修改时必须填写修改要求")
-        return self

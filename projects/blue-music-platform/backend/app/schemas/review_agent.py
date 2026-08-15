@@ -33,6 +33,7 @@ class ReviewAgentInitializationPreviewResponse(ReviewMemoryResponse):
 
 class ReviewAgentCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    pass_score: int = Field(default=80, ge=1, le=100)
     initialization_messages: list[ReviewChatMessage] = Field(min_length=1, max_length=20)
 
     @field_validator("name")
@@ -52,6 +53,7 @@ class ReviewAgentMemberResponse(BaseModel):
 class ReviewAgentResponse(BaseModel):
     id: int
     name: str
+    pass_score: int
     initialization_notes: str | None
     memory_summary: str
     memory_detail: dict[str, object] | None
@@ -59,6 +61,10 @@ class ReviewAgentResponse(BaseModel):
     members: list[ReviewAgentMemberResponse]
     created_at: datetime
     updated_at: datetime
+
+
+class ReviewAgentSettingsUpdate(BaseModel):
+    pass_score: int = Field(ge=1, le=100)
 
 
 class ReviewAgentMemberUpdate(BaseModel):

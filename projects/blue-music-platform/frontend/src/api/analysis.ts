@@ -8,8 +8,8 @@ export function runAnalysis(entryIds: number[], windowDays = 7): Promise<Analysi
   })
 }
 
-export function listAnalysisTasks(): Promise<AnalysisTaskList> {
-  return apiRequest<AnalysisTaskList>('/analysis/tasks?limit=15')
+export function listAnalysisTasks(limit = 15): Promise<AnalysisTaskList> {
+  return apiRequest<AnalysisTaskList>(`/analysis/tasks?limit=${limit}`)
 }
 
 export function getAnalysisTask(taskId: number): Promise<AnalysisTask> {

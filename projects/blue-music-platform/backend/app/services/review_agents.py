@@ -11,6 +11,7 @@ from app.schemas.review_agent import (
     ReviewAgentMemberResponse,
     ReviewAgentMemberUpdate,
     ReviewAgentResponse,
+    ReviewAgentSettingsUpdate,
     ReviewCreateRequest,
     ReviewLyricsOption,
     ReviewListResponse,
@@ -56,6 +57,7 @@ def create_review_agent(
 
     agent = ReviewAgent(
         name=payload.name,
+        pass_score=payload.pass_score,
         initialization_notes="\n".join(
             f"{message['role']}: {message['content']}" for message in messages
         ),
@@ -133,6 +135,18 @@ def replace_review_agent_members(
     return review_agent_response(db, agent, include_memory_detail=True)
 
 
+def update_review_agent_settings(
+    db: Session,
+    agent_id: int,
+    payload: ReviewAgentSettingsUpdate,
+) -> ReviewAgentResponse:
+    agent = _get_agent(db, agent_id)
+    agent.pass_score = payload.pass_score
+    db.commit()
+    db.refresh(agent)
+    return review_agent_response(db, agent, include_memory_detail=True)
+
+
 def list_review_lyrics_options(
     db: Session,
     user: User,
@@ -173,6 +187,7 @@ def create_lyrics_review(
         generated_result = provider.review_lyrics(
             {
                 "agent_name": agent.name,
+                "pass_score": agent.pass_score,
                 "memory_summary": agent.memory_summary,
                 "memory_detail": agent.memory_detail,
                 "lyrics": {
@@ -186,6 +201,30 @@ def create_lyrics_review(
         )
     except TextProviderError as exc:
         raise _provider_error("REVIEW_AGENT_EXECUTION_FAILED", exc) from exc
+    result = generated_result.output.model_dump()
+    result["pass_score"] = agent.pass_score
+    result["passed"] = generated_result.output.overall_score >= agent.pass_score
+    if not result["passed"]:
+        deduction_reasons = list(result.get("deduction_reasons") or [])
+        if not deduction_reasons:
+            deduction_reasons = [
+                f"{dimension.name} {dimension.score} 分：{dimension.feedback}"
+                for dimension in generated_result.output.dimensions
+                if dimension.score < agent.pass_score
+            ]
+        if not deduction_reasons:
+            deduction_reasons = [generated_result.output.summary]
+        result["deduction_reasons"] = deduction_reasons[:12]
+
+        suggestions = list(result.get("revision_suggestions") or [])
+        if not suggestions:
+            suggestions = [
+                dimension.feedback
+                for dimension in generated_result.output.dimensions
+                if dimension.score < agent.pass_score
+            ]
+        result["revision_suggestions"] = suggestions[:12]
+
     run = ReviewRun(
         agent_id=agent.id,
         lyrics_version_id=version.id,
@@ -193,7 +232,7 @@ def create_lyrics_review(
         instruction=_clean_optional_text(payload.instruction),
         provider=provider.name,
         model=provider.model,
-        result=generated_result.output.model_dump(),
+        result=result,
     )
     db.add(run)
     db.flush()
@@ -292,6 +331,7 @@ def review_agent_response(
     return ReviewAgentResponse(
         id=agent.id,
         name=agent.name,
+        pass_score=agent.pass_score,
         initialization_notes=(
             agent.initialization_notes if include_memory_detail else None
         ),

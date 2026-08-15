@@ -239,7 +239,7 @@ export function RankingsPage() {
         <Button
           type="link"
           size="small"
-          onClick={() => navigate(`/analysis?snapshot_id=${entry.snapshot_id}&entry_id=${entry.id}`)}
+          onClick={() => navigate(`/analysis?snapshot_id=${entry.snapshot_id}&entry_id=${entry.id}&chart=rising`)}
         >
           分析单曲
         </Button>

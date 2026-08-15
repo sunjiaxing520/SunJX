@@ -77,13 +77,13 @@ interface WorkflowFormValues {
   source_mode: 'live' | 'sample'
   collection_chart: 'top500' | 'rising'
   collection_limit: number
+  rising_rank: number
   window_days: number
   direction_number: number
   title_hint?: string
   theme?: string
   requirements?: string
   review_agent_id?: number
-  review_pass_score: number
   review_instruction?: string
   music_title?: string
   music_style_prompt?: string
@@ -113,7 +113,7 @@ const STEP_META = {
   },
   review: {
     icon: ShieldCheck,
-    description: '审核、自动修改，输出通过后的歌词版本',
+    description: '审核歌词，未通过时暂停等待人工判断',
   },
   music: {
     icon: Music2,
@@ -145,6 +145,12 @@ function formatTime(value: string | null) {
 function optionalText(value?: string) {
   const cleaned = value?.trim()
   return cleaned || null
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
 }
 
 function WorkflowStepSelector({
@@ -229,6 +235,8 @@ export function WorkflowsPage() {
   const navigate = useNavigate()
   const [form] = Form.useForm<WorkflowFormValues>()
   const selectedSteps = Form.useWatch('steps', form) ?? []
+  const collectionChart = Form.useWatch('collection_chart', form) ?? 'top500'
+  const selectedReviewAgentId = Form.useWatch('review_agent_id', form)
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const [reviewAgents, setReviewAgents] = useState<ReviewAgent[]>([])
@@ -272,6 +280,7 @@ export function WorkflowsPage() {
     () => new Set(reviewAgents.map((agent) => agent.id)),
     [reviewAgents],
   )
+  const selectedReviewAgent = reviewAgents.find((agent) => agent.id === selectedReviewAgentId)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -315,10 +324,10 @@ export function WorkflowsPage() {
       source_mode: 'live',
       collection_chart: 'top500',
       collection_limit: 100,
+      rising_rank: 1,
       window_days: 7,
       direction_number: 1,
       review_agent_id: reviewAgents[0]?.id,
-      review_pass_score: 80,
       music_instrumental: false,
     })
   }, [defaultSteps, form, reviewAgents])
@@ -347,13 +356,13 @@ export function WorkflowsPage() {
       source_mode: 'live',
       collection_chart: 'top500',
       collection_limit: 100,
+      rising_rank: 1,
       window_days: 7,
       direction_number: 1,
       title_hint: undefined,
       theme: undefined,
       requirements: undefined,
       review_agent_id: reviewAgents[0]?.id,
-      review_pass_score: 80,
       review_instruction: undefined,
       music_title: undefined,
       music_style_prompt: undefined,
@@ -370,6 +379,7 @@ export function WorkflowsPage() {
         source_mode: values.source_mode,
         chart: values.collection_chart,
         limit: values.collection_limit,
+        rising_rank: values.rising_rank,
       },
       analysis: { window_days: values.window_days },
       lyrics: {
@@ -381,8 +391,6 @@ export function WorkflowsPage() {
       },
       review: {
         agent_id: values.review_agent_id ?? null,
-        pass_score: values.review_pass_score,
-        max_rounds: 3,
         instruction: optionalText(values.review_instruction),
       },
       music: {
@@ -428,13 +436,13 @@ export function WorkflowsPage() {
       source_mode: template.configuration.collection.source_mode,
       collection_chart: template.configuration.collection.chart ?? 'top500',
       collection_limit: template.configuration.collection.limit,
+      rising_rank: template.configuration.collection.rising_rank ?? 1,
       window_days: template.configuration.analysis.window_days,
       direction_number: template.configuration.lyrics.direction_index + 1,
       title_hint: template.configuration.lyrics.title_hint ?? undefined,
       theme: template.configuration.lyrics.theme ?? undefined,
       requirements: template.configuration.lyrics.requirements ?? undefined,
       review_agent_id: template.configuration.review.agent_id ?? undefined,
-      review_pass_score: template.configuration.review.pass_score,
       review_instruction: template.configuration.review.instruction ?? undefined,
       music_title: template.configuration.music.title ?? undefined,
       music_style_prompt: template.configuration.music.style_prompt ?? undefined,
@@ -468,17 +476,13 @@ export function WorkflowsPage() {
     action: 'accept' | 'retry' | 'revise' | 'regenerate',
   ) => {
     const instruction = reviewRevisionDrafts[run.id]?.trim()
-    if (action === 'revise' && !instruction) {
-      message.warning('请先填写希望怎样修改歌词')
-      return
-    }
     setReviewDecisionRunId(run.id)
     try {
       await resolveWorkflowReview(run.id, action, instruction)
       const labels = {
         accept: '已接受当前歌词，流程将继续执行',
         retry: '将使用最新歌词版本重新开始审核',
-        revise: '正在按你的要求修改歌词并重新审核',
+        revise: '正在按审核意见修改歌词并重新审核',
         regenerate: '正在重新生成歌词并重新审核',
       }
       message.success(labels[action])
@@ -646,7 +650,9 @@ export function WorkflowsPage() {
       : null
     const reviewPassScore = typeof reviewDetail?.pass_score === 'number'
       ? reviewDetail.pass_score
-      : run.configuration.review.pass_score
+      : reviewAgents.find((agent) => agent.id === run.configuration.review.agent_id)?.pass_score ?? 80
+    const deductionReasons = stringValues(reviewDetail?.latest_deduction_reasons)
+    const revisionSuggestions = stringValues(reviewDetail?.latest_revision_suggestions)
     const pausedForReview = run.status === 'paused'
       && run.current_step === 'review'
       && reviewStep?.status === 'paused'
@@ -731,11 +737,27 @@ export function WorkflowsPage() {
                   <Tag color="warning">{latestReviewScore} / {reviewPassScore} 分</Tag>
                 )}
               </div>
+              {(deductionReasons.length > 0 || revisionSuggestions.length > 0) && (
+                <div className="workflow-review-feedback">
+                  {deductionReasons.length > 0 && (
+                    <div>
+                      <strong>扣分原因</strong>
+                      <ul>{deductionReasons.map((reason, index) => <li key={`deduction-${index}`}>{reason}</li>)}</ul>
+                    </div>
+                  )}
+                  {revisionSuggestions.length > 0 && (
+                    <div>
+                      <strong>修改建议</strong>
+                      <ul>{revisionSuggestions.map((suggestion, index) => <li key={`suggestion-${index}`}>{suggestion}</li>)}</ul>
+                    </div>
+                  )}
+                </div>
+              )}
               <Input.TextArea
                 value={reviewRevisionDrafts[run.id] ?? ''}
                 rows={3}
                 maxLength={2000}
-                placeholder="不满意时填写修改要求，例如：压缩主歌长句，让副歌核心句更短、更容易记住"
+                placeholder="可选：在审核意见之外补充修改要求"
                 onChange={(event) => setReviewRevisionDrafts((current) => ({
                   ...current,
                   [run.id]: event.target.value,
@@ -752,11 +774,10 @@ export function WorkflowsPage() {
                 </Button>
                 <Button
                   icon={<ShieldCheck size={16} />}
-                  disabled={!(reviewRevisionDrafts[run.id] ?? '').trim()}
                   loading={reviewDecisionRunId === run.id}
                   onClick={() => void decidePausedReview(run, 'revise')}
                 >
-                  按要求修改并重新审核
+                  打回 AI 修改并重审
                 </Button>
                 {lyricsStep?.task_id && (
                   <Button onClick={() => navigate(`/lyrics?task_id=${lyricsStep.task_id}`)}>
@@ -767,7 +788,7 @@ export function WorkflowsPage() {
                   loading={reviewDecisionRunId === run.id}
                   onClick={() => void decidePausedReview(run, 'retry')}
                 >
-                  已修改，重新审核最新版本
+                  我已修改，重审最新版本
                 </Button>
                 <Popconfirm
                   title="重新生成一版歌词并重新审核？"
@@ -894,12 +915,28 @@ export function WorkflowsPage() {
                   </Form.Item>
                   <Form.Item
                     name="collection_limit"
-                    label="采集歌曲数"
+                    label={collectionChart === 'rising' ? '保留榜单歌曲数' : '采集歌曲数'}
                     rules={[{ required: true, message: '请输入采集数量' }]}
                   >
                     <InputNumber min={1} max={500} step={10} />
                   </Form.Item>
+                  {collectionChart === 'rising' && (
+                    <Form.Item
+                      name="rising_rank"
+                      label="目标名次"
+                      rules={[{ required: true, message: '请输入要分析的名次' }]}
+                    >
+                      <InputNumber min={1} max={500} addonBefore="第" addonAfter="名" />
+                    </Form.Item>
+                  )}
                 </div>
+                {collectionChart === 'rising' && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    title="系统会至少采集到目标名次，但后续只分析并创作这一首歌曲；未填写时默认为第 1 名。"
+                  />
+                )}
               </div>
             )}
 
@@ -909,16 +946,20 @@ export function WorkflowsPage() {
                   <ChartNoAxesCombined size={17} />
                   <strong>内容分析设置</strong>
                 </div>
-                <Form.Item name="window_days" label="趋势窗口">
-                  <Segmented
-                    options={[
-                      { label: '3 天', value: 3 },
-                      { label: '7 天', value: 7 },
-                      { label: '14 天', value: 14 },
-                      { label: '30 天', value: 30 },
-                    ]}
-                  />
-                </Form.Item>
+                {collectionChart === 'rising' ? (
+                  <Alert type="info" showIcon title="飙升榜直接使用本次实时榜单，不计算多日趋势窗口。" />
+                ) : (
+                  <Form.Item name="window_days" label="趋势窗口">
+                    <Segmented
+                      options={[
+                        { label: '3 天', value: 3 },
+                        { label: '7 天', value: 7 },
+                        { label: '14 天', value: 14 },
+                        { label: '30 天', value: 30 },
+                      ]}
+                    />
+                  </Form.Item>
+                )}
               </div>
             )}
 
@@ -972,12 +1013,11 @@ export function WorkflowsPage() {
                       }))}
                     />
                   </Form.Item>
-                  <Form.Item
-                    name="review_pass_score"
-                    label="审核通过分数"
-                    rules={[{ required: true, message: '请输入审核通过分数' }]}
-                  >
-                    <InputNumber min={1} max={100} addonAfter="分" />
+                  <Form.Item label="该智能体及格线">
+                    <Input
+                      value={selectedReviewAgent ? `${selectedReviewAgent.pass_score} 分` : '请先选择审核智能体'}
+                      readOnly
+                    />
                   </Form.Item>
                 </div>
                 <Form.Item name="review_instruction" label="补充审核要求">
@@ -990,7 +1030,7 @@ export function WorkflowsPage() {
                 <Alert
                   type="info"
                   showIcon
-                  title="未达标时自动修改歌词并重新审核，连续 3 轮未通过后暂停流程"
+                  title="每次只审核一次；未达到该智能体及格线时立即暂停，由用户决定是否打回、自己修改、接受或重新生成。"
                 />
               </div>
             )}

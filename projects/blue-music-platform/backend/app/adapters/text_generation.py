@@ -138,6 +138,7 @@ class GeneratedLyricsReview(BaseModel):
     summary: str = Field(min_length=1, max_length=2000)
     dimensions: list[GeneratedReviewDimension] = Field(min_length=1, max_length=12)
     strengths: list[str] = Field(default_factory=list, max_length=12)
+    deduction_reasons: list[str] = Field(default_factory=list, max_length=12)
     revision_suggestions: list[str] = Field(default_factory=list, max_length=12)
     risk_notes: list[str] = Field(default_factory=list, max_length=12)
 
@@ -469,6 +470,7 @@ class LocalTextProvider:
                     ),
                 ],
                 strengths=["主题线索完整", "段落推进清晰"],
+                deduction_reasons=["副歌核心句辨识度不足", "部分主歌长句影响口语节奏"],
                 revision_suggestions=["把副歌核心句压缩为更短的可重复表达", "检查主歌长句的断句位置"],
                 risk_notes=["审核依据为歌词文本，不代表最终演唱和编曲表现"],
             ),
@@ -655,7 +657,8 @@ class OpenAICompatibleTextProvider:
             system=(
                 "你是歌词审核智能体。严格使用提供的审核记忆评价歌词文本的韵律、押韵、结构、"
                 "可唱性与表达，或管理员额外定义的维度。不要声称听过音频，也不要建议复刻具体歌曲。"
-                "结论必须具体、可执行且尊重原创。"
+                "结论必须具体、可执行且尊重原创。低于上下文中的 pass_score 时，"
+                "deduction_reasons 必须列出具体扣分原因，revision_suggestions 必须给出逐项可执行的修改意见。"
                 f"必须严格匹配以下 JSON Schema：{schema}"
             ),
             user=json.dumps(context, ensure_ascii=False),

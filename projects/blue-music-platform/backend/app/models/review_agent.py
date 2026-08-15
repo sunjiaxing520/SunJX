@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -9,9 +9,21 @@ from app.core.database import Base
 
 class ReviewAgent(Base):
     __tablename__ = "review_agents"
+    __table_args__ = (
+        CheckConstraint(
+            "pass_score >= 1 AND pass_score <= 100",
+            name="ck_review_agents_pass_score_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    pass_score: Mapped[int] = mapped_column(
+        Integer,
+        default=80,
+        server_default="80",
+        nullable=False,
+    )
     initialization_notes: Mapped[str] = mapped_column(Text, nullable=False)
     memory_summary: Mapped[str] = mapped_column(Text, nullable=False)
     memory_detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
