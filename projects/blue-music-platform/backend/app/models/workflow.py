@@ -20,6 +20,7 @@ from app.core.database import Base
 class TaskStatus(str, PythonEnum):
     PENDING = "pending"
     RUNNING = "running"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -28,6 +29,7 @@ class WorkflowStepType(str, PythonEnum):
     COLLECTION = "collection"
     ANALYSIS = "analysis"
     LYRICS = "lyrics"
+    REVIEW = "review"
     MUSIC = "music"
 
 
@@ -123,6 +125,7 @@ class WorkflowRunStep(Base):
     )
     task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(

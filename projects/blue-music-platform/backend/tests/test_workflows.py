@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.adapters.kugou import parse_kugou_rank_page
+from app.adapters.text_generation import LocalTextProvider, ProviderResult
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.security import hash_password
@@ -88,6 +89,24 @@ def _collect_sample(
             "snapshot_date": snapshot_date.isoformat(),
         },
     )
+
+
+def _create_review_agent(context: WorkflowContext, name: str = "流程歌词审核官") -> dict:
+    response = context.client.post(
+        "/api/v1/review-agents",
+        headers=_headers(context),
+        json={
+            "name": name,
+            "initialization_messages": [
+                {
+                    "role": "user",
+                    "content": "严格审核歌词韵律、结构和可唱性，80 分及格。",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
 
 
 def test_kugou_page_parser_reads_structured_script_data() -> None:
@@ -524,6 +543,244 @@ def test_workflow_passes_lyrics_output_into_suno_music(
     assert music["lyrics_version_id"] == lyrics_step["output_id"]
     assert music["results"][0]["id"] == music_step["output_id"]
     assert provider.generated[0].lyrics == music["lyrics"]
+
+
+def test_workflow_review_pauses_after_three_failed_rounds_and_can_continue(
+    workflow_context: WorkflowContext,
+) -> None:
+    agent = _create_review_agent(workflow_context)
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "三轮审核人工判断流程",
+            "steps": ["collection", "analysis", "lyrics", "review"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+                "lyrics": {"direction_index": 0, "theme": "城市夜归人"},
+                "review": {
+                    "agent_id": agent["id"],
+                    "pass_score": 80,
+                    "max_rounds": 3,
+                },
+            },
+        },
+    )
+    assert template.status_code == 201
+
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    assert started.status_code == 202
+    run_id = started.json()["id"]
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+
+    assert run["status"] == "paused"
+    assert run["current_step"] == "review"
+    assert run["error_code"] == "WORKFLOW_REVIEW_DECISION_REQUIRED"
+    review_step = run["steps"][3]
+    assert review_step["status"] == "paused"
+    assert review_step["result_detail"]["latest_score"] == 78
+    assert len(review_step["result_detail"]["cycles"][0]["rounds"]) == 3
+    assert [
+        item["score"]
+        for item in review_step["result_detail"]["cycles"][0]["rounds"]
+    ] == [78, 78, 78]
+
+    lyrics = workflow_context.client.get(
+        f"/api/v1/lyrics/tasks/{run['steps'][2]['task_id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert len(lyrics["versions"]) == 3
+    assert review_step["output_id"] == lyrics["versions"][-1]["id"]
+    reviews = workflow_context.client.get(
+        f"/api/v1/review-agents/{agent['id']}/reviews",
+        headers=_headers(workflow_context),
+    ).json()
+    assert reviews["total"] == 3
+
+    blocked_start = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    blocked_delete = workflow_context.client.delete(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    )
+    assert blocked_start.status_code == 409
+    assert blocked_start.json()["error"]["code"] == "WORKFLOW_ALREADY_RUNNING"
+    assert blocked_delete.status_code == 409
+
+    accepted = workflow_context.client.post(
+        f"/api/v1/workflows/runs/{run_id}/review-decision",
+        headers=_headers(workflow_context),
+        json={"action": "accept"},
+    )
+    assert accepted.status_code == 202
+    completed = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert completed["status"] == "completed"
+    assert completed["steps"][3]["status"] == "completed"
+    assert completed["steps"][3]["result_detail"]["status"] == "accepted_by_user"
+
+
+def test_workflow_review_revises_then_passes_latest_lyrics_to_music(
+    workflow_context: WorkflowContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _create_review_agent(workflow_context, "两轮达标审核官")
+    original_review = LocalTextProvider.review_lyrics
+    scores = iter((70, 85))
+
+    def staged_review(self, context):
+        result = original_review(self, context)
+        return ProviderResult(
+            output=result.output.model_copy(update={"overall_score": next(scores)}),
+            call=result.call,
+        )
+
+    monkeypatch.setattr(LocalTextProvider, "review_lyrics", staged_review)
+    provider = FakeSunoProvider()
+    monkeypatch.setattr(
+        "app.services.music.get_music_provider",
+        lambda *_args, **_kwargs: provider,
+    )
+    monkeypatch.setattr(
+        "app.services.music._archive_audio",
+        lambda *_args, **_kwargs: StoredMusicObject(
+            backend="local",
+            key="workflow/reviewed.mp3",
+        ),
+    )
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "审核通过后生成音乐",
+            "steps": ["collection", "analysis", "lyrics", "review", "music"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+                "lyrics": {"direction_index": 0, "theme": "雨后启程"},
+                "review": {
+                    "agent_id": agent["id"],
+                    "pass_score": 80,
+                    "max_rounds": 3,
+                },
+                "music": {"title": "雨后启程", "style_prompt": "温暖流行"},
+            },
+        },
+    )
+    assert template.status_code == 201
+
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template.json()['id']}/runs",
+        headers=_headers(workflow_context),
+    )
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{started.json()['id']}",
+        headers=_headers(workflow_context),
+    ).json()
+
+    assert run["status"] == "completed"
+    lyrics_step, review_step, music_step = run["steps"][2:]
+    rounds = review_step["result_detail"]["cycles"][0]["rounds"]
+    assert [round_item["score"] for round_item in rounds] == [70, 85]
+    assert review_step["output_id"] != lyrics_step["output_id"]
+    music = workflow_context.client.get(
+        f"/api/v1/music/tasks/{music_step['task_id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert music["lyrics_version_id"] == review_step["output_id"]
+    assert provider.generated[0].lyrics == music["lyrics"]
+
+
+def test_paused_workflow_supports_requested_revision_and_regeneration(
+    workflow_context: WorkflowContext,
+) -> None:
+    agent = _create_review_agent(workflow_context, "人工判断审核官")
+    template = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "暂停后修改与重生成",
+            "steps": ["collection", "analysis", "lyrics", "review"],
+            "configuration": {
+                "collection": {"source_mode": "sample", "limit": 15},
+                "analysis": {"window_days": 7},
+                "lyrics": {"direction_index": 0, "theme": "重新出发"},
+                "review": {
+                    "agent_id": agent["id"],
+                    "pass_score": 80,
+                    "max_rounds": 3,
+                },
+            },
+        },
+    ).json()
+    started = workflow_context.client.post(
+        f"/api/v1/workflows/templates/{template['id']}/runs",
+        headers=_headers(workflow_context),
+    ).json()
+    run_id = started["id"]
+
+    missing_instruction = workflow_context.client.post(
+        f"/api/v1/workflows/runs/{run_id}/review-decision",
+        headers=_headers(workflow_context),
+        json={"action": "revise"},
+    )
+    assert missing_instruction.status_code == 422
+
+    revised = workflow_context.client.post(
+        f"/api/v1/workflows/runs/{run_id}/review-decision",
+        headers=_headers(workflow_context),
+        json={
+            "action": "revise",
+            "instruction": "缩短主歌长句，并强化副歌核心句的重复感。",
+        },
+    )
+    assert revised.status_code == 202
+    after_revision = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert after_revision["status"] == "paused"
+    revision_detail = after_revision["steps"][3]["result_detail"]
+    assert len(revision_detail["cycles"]) == 2
+    assert revision_detail["cycles"][0]["resolution"]["action"] == "revise"
+
+    regenerated = workflow_context.client.post(
+        f"/api/v1/workflows/runs/{run_id}/review-decision",
+        headers=_headers(workflow_context),
+        json={"action": "regenerate"},
+    )
+    assert regenerated.status_code == 202
+    after_regeneration = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert after_regeneration["status"] == "paused"
+    regeneration_detail = after_regeneration["steps"][3]["result_detail"]
+    assert len(regeneration_detail["cycles"]) == 3
+    assert regeneration_detail["cycles"][1]["resolution"]["action"] == "regenerate"
+
+    accepted = workflow_context.client.post(
+        f"/api/v1/workflows/runs/{run_id}/review-decision",
+        headers=_headers(workflow_context),
+        json={"action": "accept"},
+    )
+    assert accepted.status_code == 202
+    completed = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{run_id}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert completed["status"] == "completed"
 
 
 def test_workflow_stops_on_failed_step(

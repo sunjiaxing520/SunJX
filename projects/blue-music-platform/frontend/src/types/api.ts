@@ -213,8 +213,8 @@ export interface ApiErrorBody {
   }
 }
 
-export type WorkflowTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
-export type WorkflowStepType = 'collection' | 'analysis' | 'lyrics' | 'music'
+export type WorkflowTaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed'
+export type WorkflowStepType = 'collection' | 'analysis' | 'lyrics' | 'review' | 'music'
 
 export interface WorkflowConfiguration {
   collection: {
@@ -231,6 +231,12 @@ export interface WorkflowConfiguration {
     theme: string | null
     language: string
     requirements: string | null
+  }
+  review: {
+    agent_id: number | null
+    pass_score: number
+    max_rounds: 3
+    instruction: string | null
   }
   music: {
     title: string | null
@@ -261,6 +267,7 @@ export interface WorkflowRunStep {
   status: WorkflowTaskStatus
   task_id: number | null
   output_id: number | null
+  result_detail: Record<string, unknown> | null
   error_code: string | null
   error_message: string | null
   started_at: string | null

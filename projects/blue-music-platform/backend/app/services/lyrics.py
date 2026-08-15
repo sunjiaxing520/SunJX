@@ -390,6 +390,15 @@ def delete_lyrics_tasks(
         )
         .values(task_id=None, output_id=None)
     )
+    if version_ids:
+        db.execute(
+            update(WorkflowRunStep)
+            .where(
+                WorkflowRunStep.step_type == WorkflowStepType.REVIEW.value,
+                WorkflowRunStep.output_id.in_(version_ids),
+            )
+            .values(output_id=None)
+        )
     for task_id in ordered_ids:
         db.delete(tasks_by_id[task_id])
     db.commit()

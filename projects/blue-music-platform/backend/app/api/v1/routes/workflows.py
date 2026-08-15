@@ -6,6 +6,7 @@ from app.schemas.workflow import (
     WorkflowRunDeleteResponse,
     WorkflowRunListResponse,
     WorkflowRunResponse,
+    WorkflowReviewDecisionRequest,
     WorkflowTemplateResponse,
     WorkflowTemplateWrite,
 )
@@ -18,6 +19,7 @@ from app.services.workflows import (
     get_workflow_run,
     list_workflow_runs,
     list_workflow_templates,
+    resolve_workflow_review,
     start_workflow_run,
     update_workflow_template,
 )
@@ -102,6 +104,23 @@ def run_bulk_delete(
     user: CurrentUser,
 ) -> WorkflowRunDeleteResponse:
     return delete_workflow_runs(db, payload.run_ids)
+
+
+@router.post(
+    "/runs/{run_id}/review-decision",
+    response_model=WorkflowRunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def run_review_decision(
+    run_id: int,
+    payload: WorkflowReviewDecisionRequest,
+    background_tasks: BackgroundTasks,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> WorkflowRunResponse:
+    run = resolve_workflow_review(db, run_id, payload, user)
+    background_tasks.add_task(execute_workflow_run, run.id, db.get_bind())
+    return run
 
 
 @router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)

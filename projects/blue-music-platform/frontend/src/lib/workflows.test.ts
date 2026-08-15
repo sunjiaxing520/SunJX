@@ -40,4 +40,23 @@ describe('toggleWorkflowStep', () => {
       ),
     ).toEqual(['collection', 'analysis'])
   })
+
+  it('adds lyrics and analysis before review', () => {
+    expect(toggleWorkflowStep(['collection'], 'review', true)).toEqual([
+      'collection',
+      'analysis',
+      'lyrics',
+      'review',
+    ])
+  })
+
+  it('removes review when lyrics is removed', () => {
+    expect(
+      toggleWorkflowStep(
+        ['collection', 'analysis', 'lyrics', 'review', 'music'],
+        'lyrics',
+        false,
+      ),
+    ).toEqual(['collection', 'analysis'])
+  })
 })

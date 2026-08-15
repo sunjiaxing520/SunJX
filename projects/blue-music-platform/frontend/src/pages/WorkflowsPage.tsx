@@ -11,6 +11,7 @@ import {
   InputNumber,
   Popconfirm,
   Segmented,
+  Select,
   Skeleton,
   Space,
   Steps,
@@ -26,11 +27,13 @@ import {
   BarChart3,
   ChartNoAxesCombined,
   FileMusic,
+  CircleCheck,
   Music2,
   Pencil,
   Play,
   RefreshCw,
   Save,
+  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-react'
@@ -43,9 +46,11 @@ import {
   deleteWorkflowTemplate,
   listWorkflowRuns,
   listWorkflowTemplates,
+  resolveWorkflowReview,
   startWorkflowRun,
   updateWorkflowTemplate,
 } from '../api/workflows'
+import { listReviewAgents } from '../api/reviewAgents'
 import { hasAgentAccess } from '../auth/permissions'
 import { useAuth } from '../auth/useAuth'
 import { CollapsibleList } from '../components/CollapsibleList'
@@ -57,6 +62,7 @@ import {
 } from '../lib/workflows'
 import type {
   AgentType,
+  ReviewAgent,
   WorkflowRun,
   WorkflowRunStep,
   WorkflowStepType,
@@ -76,13 +82,16 @@ interface WorkflowFormValues {
   title_hint?: string
   theme?: string
   requirements?: string
+  review_agent_id?: number
+  review_pass_score: number
+  review_instruction?: string
   music_title?: string
   music_style_prompt?: string
   music_instrumental: boolean
   music_requirements?: string
 }
 
-const STEP_AGENT: Record<WorkflowStepType, AgentType> = {
+const STEP_AGENT: Partial<Record<WorkflowStepType, AgentType>> = {
   collection: 'crawler',
   analysis: 'analysis',
   lyrics: 'lyrics',
@@ -102,6 +111,10 @@ const STEP_META = {
     icon: FileMusic,
     description: '输入分析报告，输出歌词版本',
   },
+  review: {
+    icon: ShieldCheck,
+    description: '审核、自动修改，输出通过后的歌词版本',
+  },
   music: {
     icon: Music2,
     description: '输入歌词版本，输出 Suno 音频',
@@ -118,6 +131,7 @@ const STATUS_META: Record<
 > = {
   pending: { label: '等待中', stepStatus: 'wait' },
   running: { label: '运行中', color: 'processing', stepStatus: 'process' },
+  paused: { label: '等待人工判断', color: 'warning', stepStatus: 'process' },
   completed: { label: '已完成', color: 'success', stepStatus: 'finish' },
   failed: { label: '失败', color: 'error', stepStatus: 'error' },
 }
@@ -184,7 +198,13 @@ function DataHandoffs({ steps }: { steps: WorkflowStepType[] }) {
     steps.includes('analysis') && steps.includes('lyrics')
       ? ['分析报告 + 创作方向', '歌词创作输入']
       : null,
-    steps.includes('lyrics') && steps.includes('music')
+    steps.includes('lyrics') && steps.includes('review')
+      ? ['歌词版本', '审核智能体输入']
+      : null,
+    steps.includes('review') && steps.includes('music')
+      ? ['审核通过后的歌词版本', 'Suno 音乐任务输入']
+      : null,
+    steps.includes('lyrics') && !steps.includes('review') && steps.includes('music')
       ? ['歌词版本 + 创作方案', 'Suno 音乐任务输入']
       : null,
   ].filter((value): value is string[] => value !== null)
@@ -211,6 +231,7 @@ export function WorkflowsPage() {
   const selectedSteps = Form.useWatch('steps', form) ?? []
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
   const [runs, setRuns] = useState<WorkflowRun[]>([])
+  const [reviewAgents, setReviewAgents] = useState<ReviewAgent[]>([])
   const [editingId, setEditingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshingRuns, setRefreshingRuns] = useState(false)
@@ -219,34 +240,51 @@ export function WorkflowsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [selectedRunIds, setSelectedRunIds] = useState<number[]>([])
   const [deletingRunIds, setDeletingRunIds] = useState<number[]>([])
+  const [reviewDecisionRunId, setReviewDecisionRunId] = useState<number | null>(null)
+  const [reviewRevisionDrafts, setReviewRevisionDrafts] = useState<Record<number, string>>({})
   const [error, setError] = useState<string | null>(null)
 
   const allowedSteps = useMemo(() => {
     if (!user) return new Set<WorkflowStepType>()
     const values = new Set(
       WORKFLOW_STEP_ORDER.filter((step) =>
-        hasAgentAccess(user, STEP_AGENT[step]),
+        step === 'review'
+          ? reviewAgents.length > 0 && hasAgentAccess(user, 'lyrics')
+          : Boolean(STEP_AGENT[step] && hasAgentAccess(user, STEP_AGENT[step]!)),
       ),
     )
-    if (!values.has('analysis')) values.delete('lyrics')
+    if (!values.has('analysis')) {
+      values.delete('lyrics')
+      values.delete('review')
+    }
+    if (!values.has('lyrics')) values.delete('review')
     if (!values.has('analysis') || !values.has('lyrics')) values.delete('music')
     return values
-  }, [user])
+  }, [reviewAgents, user])
 
   const defaultSteps = useMemo(() => {
-    return WORKFLOW_STEP_ORDER.filter((step) => allowedSteps.has(step))
+    return WORKFLOW_STEP_ORDER.filter(
+      (step) => step !== 'review' && allowedSteps.has(step),
+    )
   }, [allowedSteps])
+
+  const accessibleReviewAgentIds = useMemo(
+    () => new Set(reviewAgents.map((agent) => agent.id)),
+    [reviewAgents],
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [templateItems, runItems] = await Promise.all([
+      const [templateItems, runItems, agentItems] = await Promise.all([
         listWorkflowTemplates(),
         listWorkflowRuns(),
+        listReviewAgents(),
       ])
       setTemplates(templateItems)
       setRuns(runItems.items)
+      setReviewAgents(agentItems)
     } catch (loadError) {
       setError(errorMessage(loadError))
     } finally {
@@ -279,9 +317,11 @@ export function WorkflowsPage() {
       collection_limit: 100,
       window_days: 7,
       direction_number: 1,
+      review_agent_id: reviewAgents[0]?.id,
+      review_pass_score: 80,
       music_instrumental: false,
     })
-  }, [defaultSteps, form])
+  }, [defaultSteps, form, reviewAgents])
 
   useEffect(() => {
     if (!runs.some((run) => run.status === 'pending' || run.status === 'running')) {
@@ -294,7 +334,7 @@ export function WorkflowsPage() {
   useEffect(() => {
     setSelectedRunIds((current) => current.filter((runId) =>
       runs.some((run) =>
-        run.id === runId && run.status !== 'pending' && run.status !== 'running',
+        run.id === runId && !['pending', 'running', 'paused'].includes(run.status),
       ),
     ))
   }, [runs])
@@ -312,6 +352,9 @@ export function WorkflowsPage() {
       title_hint: undefined,
       theme: undefined,
       requirements: undefined,
+      review_agent_id: reviewAgents[0]?.id,
+      review_pass_score: 80,
+      review_instruction: undefined,
       music_title: undefined,
       music_style_prompt: undefined,
       music_instrumental: false,
@@ -335,6 +378,12 @@ export function WorkflowsPage() {
         theme: optionalText(values.theme),
         language: '中文',
         requirements: optionalText(values.requirements),
+      },
+      review: {
+        agent_id: values.review_agent_id ?? null,
+        pass_score: values.review_pass_score,
+        max_rounds: 3,
+        instruction: optionalText(values.review_instruction),
       },
       music: {
         title: optionalText(values.music_title),
@@ -384,6 +433,9 @@ export function WorkflowsPage() {
       title_hint: template.configuration.lyrics.title_hint ?? undefined,
       theme: template.configuration.lyrics.theme ?? undefined,
       requirements: template.configuration.lyrics.requirements ?? undefined,
+      review_agent_id: template.configuration.review.agent_id ?? undefined,
+      review_pass_score: template.configuration.review.pass_score,
+      review_instruction: template.configuration.review.instruction ?? undefined,
       music_title: template.configuration.music.title ?? undefined,
       music_style_prompt: template.configuration.music.style_prompt ?? undefined,
       music_instrumental: template.configuration.music.instrumental,
@@ -394,6 +446,9 @@ export function WorkflowsPage() {
 
   const canUseTemplate = (template: WorkflowTemplate) =>
     template.steps.every((step) => allowedSteps.has(step))
+    && (!template.steps.includes('review')
+      || (template.configuration.review.agent_id !== null
+        && accessibleReviewAgentIds.has(template.configuration.review.agent_id)))
 
   const runTemplate = async (template: WorkflowTemplate) => {
     setRunningTemplateId(template.id)
@@ -405,6 +460,34 @@ export function WorkflowsPage() {
       message.error(errorMessage(runError))
     } finally {
       setRunningTemplateId(null)
+    }
+  }
+
+  const decidePausedReview = async (
+    run: WorkflowRun,
+    action: 'accept' | 'retry' | 'revise' | 'regenerate',
+  ) => {
+    const instruction = reviewRevisionDrafts[run.id]?.trim()
+    if (action === 'revise' && !instruction) {
+      message.warning('请先填写希望怎样修改歌词')
+      return
+    }
+    setReviewDecisionRunId(run.id)
+    try {
+      await resolveWorkflowReview(run.id, action, instruction)
+      const labels = {
+        accept: '已接受当前歌词，流程将继续执行',
+        retry: '将使用最新歌词版本重新开始审核',
+        revise: '正在按你的要求修改歌词并重新审核',
+        regenerate: '正在重新生成歌词并重新审核',
+      }
+      message.success(labels[action])
+      setReviewRevisionDrafts((current) => ({ ...current, [run.id]: '' }))
+      await refreshRuns()
+    } catch (decisionError) {
+      message.error(errorMessage(decisionError))
+    } finally {
+      setReviewDecisionRunId(null)
     }
   }
 
@@ -446,7 +529,7 @@ export function WorkflowsPage() {
 
   const deletableRunIds = useMemo(
     () => runs
-      .filter((run) => run.status !== 'pending' && run.status !== 'running')
+      .filter((run) => !['pending', 'running', 'paused'].includes(run.status))
       .map((run) => run.id),
     [runs],
   )
@@ -462,7 +545,7 @@ export function WorkflowsPage() {
   const activeTemplateIds = useMemo(
     () => new Set(
       runs
-        .filter((run) => run.status === 'pending' || run.status === 'running')
+        .filter((run) => ['pending', 'running', 'paused'].includes(run.status))
         .map((run) => run.template_id)
         .filter((value): value is number => value !== null),
     ),
@@ -544,16 +627,29 @@ export function WorkflowsPage() {
     if (step.step_type === 'collection') navigate('/rankings')
     if (step.step_type === 'analysis') navigate(`/analysis?task_id=${step.task_id}`)
     if (step.step_type === 'lyrics') navigate(`/lyrics?task_id=${step.task_id}`)
+    if (step.step_type === 'review') navigate('/review-agents')
     if (step.step_type === 'music') navigate(`/music?task_id=${step.task_id}`)
   }
 
   const runItems = runs.map((run) => {
     const statusMeta = STATUS_META[run.status]
     const template = templates.find((item) => item.id === run.template_id)
-    const isActive = run.status === 'pending' || run.status === 'running'
+    const isActive = ['pending', 'running', 'paused'].includes(run.status)
     const providerReason = typeof run.error_detail?.reason === 'string'
       ? run.error_detail.reason
       : null
+    const reviewStep = run.steps.find((step) => step.step_type === 'review')
+    const lyricsStep = run.steps.find((step) => step.step_type === 'lyrics')
+    const reviewDetail = reviewStep?.result_detail ?? run.error_detail
+    const latestReviewScore = typeof reviewDetail?.latest_score === 'number'
+      ? reviewDetail.latest_score
+      : null
+    const reviewPassScore = typeof reviewDetail?.pass_score === 'number'
+      ? reviewDetail.pass_score
+      : run.configuration.review.pass_score
+    const pausedForReview = run.status === 'paused'
+      && run.current_step === 'review'
+      && reviewStep?.status === 'paused'
     return {
       key: String(run.id),
       label: (
@@ -585,11 +681,14 @@ export function WorkflowsPage() {
         <div className="workflow-run-detail">
           {run.error_message && (
             <Alert
-              type="error"
+              type={pausedForReview ? 'warning' : 'error'}
               showIcon
               title={run.error_message}
               description={[
                 run.error_code ? `错误码：${run.error_code}` : null,
+                pausedForReview && latestReviewScore !== null
+                  ? `最新评分：${latestReviewScore} / ${reviewPassScore}`
+                  : null,
                 providerReason,
               ].filter(Boolean).join(' · ') || undefined}
             />
@@ -619,6 +718,71 @@ export function WorkflowsPage() {
               ),
             }))}
           />
+          {pausedForReview && reviewStep && (
+            <div className="workflow-review-decision">
+              <div className="workflow-review-decision-heading">
+                <div>
+                  <strong>人工判断</strong>
+                  <Typography.Text type="secondary">
+                    当前歌词版本 #{reviewStep.output_id ?? '-'}，可以接受后继续，也可以修改或重新生成再审核。
+                  </Typography.Text>
+                </div>
+                {latestReviewScore !== null && (
+                  <Tag color="warning">{latestReviewScore} / {reviewPassScore} 分</Tag>
+                )}
+              </div>
+              <Input.TextArea
+                value={reviewRevisionDrafts[run.id] ?? ''}
+                rows={3}
+                maxLength={2000}
+                placeholder="不满意时填写修改要求，例如：压缩主歌长句，让副歌核心句更短、更容易记住"
+                onChange={(event) => setReviewRevisionDrafts((current) => ({
+                  ...current,
+                  [run.id]: event.target.value,
+                }))}
+              />
+              <Space wrap>
+                <Button
+                  type="primary"
+                  icon={<CircleCheck size={16} />}
+                  loading={reviewDecisionRunId === run.id}
+                  onClick={() => void decidePausedReview(run, 'accept')}
+                >
+                  接受当前歌词并继续
+                </Button>
+                <Button
+                  icon={<ShieldCheck size={16} />}
+                  disabled={!(reviewRevisionDrafts[run.id] ?? '').trim()}
+                  loading={reviewDecisionRunId === run.id}
+                  onClick={() => void decidePausedReview(run, 'revise')}
+                >
+                  按要求修改并重新审核
+                </Button>
+                {lyricsStep?.task_id && (
+                  <Button onClick={() => navigate(`/lyrics?task_id=${lyricsStep.task_id}`)}>
+                    打开歌词详情
+                  </Button>
+                )}
+                <Button
+                  loading={reviewDecisionRunId === run.id}
+                  onClick={() => void decidePausedReview(run, 'retry')}
+                >
+                  已修改，重新审核最新版本
+                </Button>
+                <Popconfirm
+                  title="重新生成一版歌词并重新审核？"
+                  description="当前歌词和审核记录会保留，不会被覆盖。"
+                  okText="重新生成"
+                  cancelText="取消"
+                  onConfirm={() => void decidePausedReview(run, 'regenerate')}
+                >
+                  <Button danger loading={reviewDecisionRunId === run.id}>
+                    重新生成歌词
+                  </Button>
+                </Popconfirm>
+              </Space>
+            </div>
+          )}
           <div className="workflow-run-footer">
             <Typography.Text type="secondary">
               开始 {formatTime(run.started_at)} · 完成 {formatTime(run.completed_at)}
@@ -785,6 +949,49 @@ export function WorkflowsPage() {
                 <Form.Item name="requirements" label="补充要求">
                   <Input.TextArea rows={3} maxLength={2000} />
                 </Form.Item>
+              </div>
+            )}
+
+            {selectedSteps.includes('review') && (
+              <div className="workflow-config-band">
+                <div className="workflow-config-heading">
+                  <ShieldCheck size={17} />
+                  <strong>歌词自动审核设置</strong>
+                </div>
+                <div className="form-grid">
+                  <Form.Item
+                    name="review_agent_id"
+                    label="审核智能体"
+                    rules={[{ required: true, message: '请选择审核智能体' }]}
+                  >
+                    <Select
+                      placeholder="选择已创建并有权限使用的审核智能体"
+                      options={reviewAgents.map((agent) => ({
+                        label: agent.name,
+                        value: agent.id,
+                      }))}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="review_pass_score"
+                    label="审核通过分数"
+                    rules={[{ required: true, message: '请输入审核通过分数' }]}
+                  >
+                    <InputNumber min={1} max={100} addonAfter="分" />
+                  </Form.Item>
+                </div>
+                <Form.Item name="review_instruction" label="补充审核要求">
+                  <Input.TextArea
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="可留空，审核智能体会按自己的长期记忆和评分标准执行"
+                  />
+                </Form.Item>
+                <Alert
+                  type="info"
+                  showIcon
+                  title="未达标时自动修改歌词并重新审核，连续 3 轮未通过后暂停流程"
+                />
               </div>
             )}
 

@@ -3,14 +3,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.schemas.ranking import RankingChartValue, TaskStatusValue
+from app.schemas.ranking import RankingChartValue
 
 
-WorkflowStepValue = Literal["collection", "analysis", "lyrics", "music"]
+WorkflowStatusValue = Literal["pending", "running", "paused", "completed", "failed"]
+WorkflowStepValue = Literal["collection", "analysis", "lyrics", "review", "music"]
 STEP_ORDER: tuple[WorkflowStepValue, ...] = (
     "collection",
     "analysis",
     "lyrics",
+    "review",
     "music",
 )
 
@@ -33,6 +35,13 @@ class WorkflowLyricsConfig(BaseModel):
     requirements: str | None = Field(default=None, max_length=2000)
 
 
+class WorkflowReviewConfig(BaseModel):
+    agent_id: int | None = Field(default=None, gt=0)
+    pass_score: int = Field(default=80, ge=1, le=100)
+    max_rounds: Literal[3] = 3
+    instruction: str | None = Field(default=None, max_length=2000)
+
+
 class WorkflowMusicConfig(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     style_prompt: str | None = Field(default=None, max_length=3000)
@@ -46,12 +55,13 @@ class WorkflowConfiguration(BaseModel):
     )
     analysis: WorkflowAnalysisConfig = Field(default_factory=WorkflowAnalysisConfig)
     lyrics: WorkflowLyricsConfig = Field(default_factory=WorkflowLyricsConfig)
+    review: WorkflowReviewConfig = Field(default_factory=WorkflowReviewConfig)
     music: WorkflowMusicConfig = Field(default_factory=WorkflowMusicConfig)
 
 
 class WorkflowTemplateWrite(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    steps: list[WorkflowStepValue] = Field(min_length=1, max_length=4)
+    steps: list[WorkflowStepValue] = Field(min_length=1, max_length=5)
     configuration: WorkflowConfiguration = Field(
         default_factory=WorkflowConfiguration
     )
@@ -67,9 +77,13 @@ class WorkflowTemplateWrite(BaseModel):
             raise ValueError("流程步骤不能重复")
         expected = [step for step in STEP_ORDER if step in self.steps]
         if self.steps != expected:
-            raise ValueError("流程步骤必须按采集、分析、作词、音乐创作的依赖顺序排列")
+            raise ValueError("流程步骤必须按采集、分析、作词、审核、音乐创作的依赖顺序排列")
         if "lyrics" in self.steps and "analysis" not in self.steps:
             raise ValueError("自动作词步骤必须接在内容分析步骤之后")
+        if "review" in self.steps and "lyrics" not in self.steps:
+            raise ValueError("歌词审核步骤必须接在歌词创作步骤之后")
+        if "review" in self.steps and self.configuration.review.agent_id is None:
+            raise ValueError("选择歌词审核步骤后必须指定审核智能体")
         if "music" in self.steps and "lyrics" not in self.steps:
             raise ValueError("音乐创作步骤必须接在歌词创作步骤之后")
         return self
@@ -90,9 +104,10 @@ class WorkflowRunStepResponse(BaseModel):
     id: int
     step_type: WorkflowStepValue
     position: int
-    status: TaskStatusValue
+    status: WorkflowStatusValue
     task_id: int | None
     output_id: int | None
+    result_detail: dict[str, object] | None
     error_code: str | None
     error_message: str | None
     started_at: datetime | None
@@ -104,7 +119,7 @@ class WorkflowRunResponse(BaseModel):
     template_id: int | None
     template_name: str
     configuration: WorkflowConfiguration
-    status: TaskStatusValue
+    status: WorkflowStatusValue
     current_step: WorkflowStepValue | None
     requested_by_id: int | None
     requested_by_username: str | None
@@ -136,3 +151,22 @@ class WorkflowRunDeleteRequest(BaseModel):
 class WorkflowRunDeleteResponse(BaseModel):
     deleted_count: int
     deleted_run_ids: list[int]
+
+
+class WorkflowReviewDecisionRequest(BaseModel):
+    action: Literal["accept", "retry", "revise", "regenerate"]
+    instruction: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("instruction")
+    @classmethod
+    def clean_instruction(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_instruction(self):
+        if self.action == "revise" and self.instruction is None:
+            raise ValueError("选择按要求修改时必须填写修改要求")
+        return self

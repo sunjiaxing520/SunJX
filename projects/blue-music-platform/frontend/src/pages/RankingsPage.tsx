@@ -40,6 +40,7 @@ import type {
 const STATUS_LABELS: Record<WorkflowTaskStatus, { label: string; color?: string }> = {
   pending: { label: '等待中' },
   running: { label: '运行中', color: 'processing' },
+  paused: { label: '已暂停', color: 'warning' },
   completed: { label: '已完成', color: 'success' },
   failed: { label: '失败', color: 'error' },
 }

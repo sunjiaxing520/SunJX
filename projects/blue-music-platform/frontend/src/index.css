@@ -842,6 +842,36 @@ input {
   padding-inline: 0;
 }
 
+.workflow-review-decision {
+  display: flex;
+  padding: 16px;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid #e8c46a;
+  border-radius: 6px;
+  background: #fffaf0;
+}
+
+.workflow-review-decision-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workflow-review-decision-heading > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.workflow-review-decision-heading .ant-tag {
+  margin: 0;
+  white-space: nowrap;
+}
+
 .workflow-run-footer {
   display: flex;
   padding-top: 14px;
@@ -2184,6 +2214,11 @@ input {
   .workflow-run-footer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .workflow-review-decision-heading {
+    flex-direction: column;
+    gap: 8px;
   }
 
   .ranking-snapshot-list .ant-collapse-expand-icon {

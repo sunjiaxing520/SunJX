@@ -49,6 +49,17 @@ export function getWorkflowRun(runId: number) {
   return apiRequest<WorkflowRun>(`/workflows/runs/${runId}`)
 }
 
+export function resolveWorkflowReview(
+  runId: number,
+  action: 'accept' | 'retry' | 'revise' | 'regenerate',
+  instruction?: string,
+) {
+  return apiRequest<WorkflowRun>(`/workflows/runs/${runId}/review-decision`, {
+    method: 'POST',
+    body: JSON.stringify({ action, instruction: instruction?.trim() || null }),
+  })
+}
+
 export function deleteWorkflowRun(runId: number) {
   return apiRequest<void>(`/workflows/runs/${runId}`, {
     method: 'DELETE',

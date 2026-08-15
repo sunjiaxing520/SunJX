@@ -105,6 +105,7 @@ interface ExtendFormValues {
 const STATUS_LABELS: Record<WorkflowTaskStatus, string> = {
   pending: '排队中',
   running: '生成中',
+  paused: '已暂停',
   completed: '已完成',
   failed: '失败',
 }
@@ -112,6 +113,7 @@ const STATUS_LABELS: Record<WorkflowTaskStatus, string> = {
 const STATUS_COLORS: Record<WorkflowTaskStatus, string> = {
   pending: 'default',
   running: 'processing',
+  paused: 'warning',
   completed: 'success',
   failed: 'error',
 }

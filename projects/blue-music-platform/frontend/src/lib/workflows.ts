@@ -5,6 +5,7 @@ export const WORKFLOW_STEP_ORDER: WorkflowStepType[] = [
   'collection',
   'analysis',
   'lyrics',
+  'review',
   'music',
 ]
 
@@ -12,6 +13,7 @@ export const WORKFLOW_STEP_LABELS: Record<WorkflowStepType, string> = {
   collection: '榜单采集',
   analysis: '内容分析',
   lyrics: '歌词创作',
+  review: '歌词审核',
   music: '音乐创作',
 }
 
@@ -24,6 +26,10 @@ export function toggleWorkflowStep(
   if (checked) {
     selected.add(step)
     if (step === 'lyrics') selected.add('analysis')
+    if (step === 'review') {
+      selected.add('analysis')
+      selected.add('lyrics')
+    }
     if (step === 'music') {
       selected.add('analysis')
       selected.add('lyrics')
@@ -32,9 +38,13 @@ export function toggleWorkflowStep(
     selected.delete(step)
     if (step === 'analysis') {
       selected.delete('lyrics')
+      selected.delete('review')
       selected.delete('music')
     }
-    if (step === 'lyrics') selected.delete('music')
+    if (step === 'lyrics') {
+      selected.delete('review')
+      selected.delete('music')
+    }
   }
   return WORKFLOW_STEP_ORDER.filter((value) => selected.has(value))
 }

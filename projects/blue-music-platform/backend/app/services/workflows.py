@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import Engine, Connection, func, select
@@ -12,6 +13,7 @@ from app.core.time import utc_now
 from app.models import (
     AgentType,
     AnalysisReport,
+    LyricsVersion,
     RankingEntry,
     TaskStatus,
     User,
@@ -23,26 +25,34 @@ from app.models import (
     WorkflowTemplate,
 )
 from app.schemas.analysis import AnalysisCreateRequest
-from app.schemas.lyrics import LyricsCreateRequest
+from app.schemas.lyrics import LyricsAssistantMessageRequest, LyricsCreateRequest
 from app.schemas.music import MusicCreateRequest
 from app.schemas.ranking import CollectionCreateRequest
+from app.schemas.review_agent import ReviewCreateRequest
 from app.schemas.workflow import (
     WorkflowConfiguration,
     WorkflowRunDeleteResponse,
     WorkflowRunListResponse,
     WorkflowRunResponse,
     WorkflowRunStepResponse,
+    WorkflowReviewDecisionRequest,
     WorkflowTemplateResponse,
     WorkflowTemplateWrite,
 )
 from app.services.analysis import create_analysis
-from app.services.lyrics import create_lyrics_task
+from app.services.lyrics import (
+    confirm_lyrics_assistant_preview,
+    create_lyrics_assistant_preview,
+    create_lyrics_task,
+    regenerate_lyrics,
+)
 from app.services.music import (
     create_music_task,
     dispatch_music_task,
     wait_for_music_task_completion,
 )
 from app.services.rankings import create_collection
+from app.services.review_agents import create_lyrics_review, require_review_agent_access
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -52,6 +62,20 @@ STEP_AGENT = {
     WorkflowStepType.LYRICS.value: AgentType.LYRICS,
     WorkflowStepType.MUSIC.value: AgentType.MUSIC,
 }
+
+
+@dataclass(frozen=True)
+class _StepOutcome:
+    task_id: int
+    output_id: int | None
+    detail: dict[str, object] | None = None
+
+
+class _WorkflowReviewPause(Exception):
+    def __init__(self, outcome: _StepOutcome, message: str) -> None:
+        super().__init__(message)
+        self.outcome = outcome
+        self.message = message
 
 
 def _username(db: Session, user_id: int | None) -> str | None:
@@ -99,6 +123,7 @@ def workflow_run_response(db: Session, run: WorkflowRun) -> WorkflowRunResponse:
                 status=step.status,
                 task_id=step.task_id,
                 output_id=step.output_id,
+                result_detail=step.result_detail,
                 error_code=step.error_code,
                 error_message=step.error_message,
                 started_at=step.started_at,
@@ -123,7 +148,11 @@ def _ensure_step_permissions(
             )
         ).all()
     )
-    missing = [step for step in steps if STEP_AGENT[step] not in permissions]
+    missing = [
+        step
+        for step in steps
+        if step in STEP_AGENT and STEP_AGENT[step] not in permissions
+    ]
     if missing:
         raise AppException(
             code="WORKFLOW_PERMISSION_DENIED",
@@ -131,6 +160,24 @@ def _ensure_step_permissions(
             status_code=403,
             detail={"missing_steps": missing},
         )
+
+
+def _ensure_review_step_access(
+    db: Session,
+    user: User,
+    steps: list[str],
+    configuration: WorkflowConfiguration,
+) -> None:
+    if WorkflowStepType.REVIEW.value not in steps:
+        return
+    agent_id = configuration.review.agent_id
+    if agent_id is None:
+        raise AppException(
+            code="WORKFLOW_REVIEW_AGENT_REQUIRED",
+            message="歌词审核步骤必须指定审核智能体",
+            status_code=422,
+        )
+    require_review_agent_access(db, agent_id, user)
 
 
 def _get_template(db: Session, template_id: int) -> WorkflowTemplate:
@@ -176,6 +223,7 @@ def create_workflow_template(
     user: User,
 ) -> WorkflowTemplateResponse:
     _ensure_step_permissions(db, user, list(payload.steps))
+    _ensure_review_step_access(db, user, list(payload.steps), payload.configuration)
     _ensure_unique_name(db, payload.name)
     template = WorkflowTemplate(
         name=payload.name,
@@ -197,6 +245,7 @@ def update_workflow_template(
 ) -> WorkflowTemplateResponse:
     template = _get_template(db, template_id)
     _ensure_step_permissions(db, user, list(payload.steps))
+    _ensure_review_step_access(db, user, list(payload.steps), payload.configuration)
     _ensure_unique_name(db, payload.name, exclude_id=template.id)
     template.name = payload.name
     template.steps = list(payload.steps)
@@ -222,7 +271,11 @@ def start_workflow_run(
         select(WorkflowRun)
         .where(
             WorkflowRun.status.in_(
-                (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+                (
+                    TaskStatus.PENDING.value,
+                    TaskStatus.RUNNING.value,
+                    TaskStatus.PAUSED.value,
+                )
             )
         )
         .order_by(WorkflowRun.created_at)
@@ -238,6 +291,8 @@ def start_workflow_run(
 
     template = _get_template(db, template_id)
     _ensure_step_permissions(db, user, template.steps)
+    configuration = WorkflowConfiguration.model_validate(template.configuration)
+    _ensure_review_step_access(db, user, template.steps, configuration)
     run = WorkflowRun(
         template_id=template.id,
         template_name=template.name,
@@ -325,12 +380,17 @@ def delete_workflow_runs(
     active_ids = [
         run.id
         for run in runs
-        if run.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+        if run.status
+        in (
+            TaskStatus.PENDING.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.PAUSED.value,
+        )
     ]
     if active_ids:
         raise AppException(
             code="WORKFLOW_RUN_DELETE_CONFLICT",
-            message="运行中的自动流程不能删除，请等待流程结束后重试",
+            message="运行中或等待人工决定的自动流程不能删除，请先处理当前流程",
             status_code=409,
             detail={"active_run_ids": active_ids},
         )
@@ -342,6 +402,109 @@ def delete_workflow_runs(
         deleted_count=len(ordered_ids),
         deleted_run_ids=ordered_ids,
     )
+
+
+def resolve_workflow_review(
+    db: Session,
+    run_id: int,
+    payload: WorkflowReviewDecisionRequest,
+    user: User,
+) -> WorkflowRunResponse:
+    run = db.scalar(
+        select(WorkflowRun)
+        .options(selectinload(WorkflowRun.steps))
+        .where(WorkflowRun.id == run_id)
+        .with_for_update()
+    )
+    if run is None:
+        raise AppException(
+            code="WORKFLOW_RUN_NOT_FOUND",
+            message="流程运行记录不存在",
+            status_code=404,
+        )
+    if run.status != TaskStatus.PAUSED.value:
+        raise AppException(
+            code="WORKFLOW_REVIEW_NOT_PAUSED",
+            message="当前流程不在等待歌词审核决定的状态",
+            status_code=409,
+        )
+    configuration = WorkflowConfiguration.model_validate(run.configuration)
+    _ensure_step_permissions(db, user, [step.step_type for step in run.steps])
+    _ensure_review_step_access(
+        db,
+        user,
+        [step.step_type for step in run.steps],
+        configuration,
+    )
+    review_step = next(
+        (
+            step
+            for step in run.steps
+            if step.step_type == WorkflowStepType.REVIEW.value
+            and step.status == TaskStatus.PAUSED.value
+        ),
+        None,
+    )
+    if review_step is None or review_step.output_id is None:
+        raise AppException(
+            code="WORKFLOW_REVIEW_OUTPUT_MISSING",
+            message="暂停流程缺少可处理的歌词审核产出",
+            status_code=409,
+        )
+    if db.get(LyricsVersion, review_step.output_id) is None:
+        raise AppException(
+            code="WORKFLOW_LYRICS_OUTPUT_MISSING",
+            message="待处理歌词版本不存在或已经被删除",
+            status_code=409,
+        )
+
+    now = utc_now()
+    detail = dict(review_step.result_detail or run.error_detail or {})
+    cycles = [
+        dict(value)
+        for value in list(detail.get("cycles") or [])
+        if isinstance(value, dict)
+    ]
+    resolution: dict[str, object] = {
+        "action": payload.action,
+        "user_id": user.id,
+        "resolved_at": now.isoformat(),
+    }
+    if payload.instruction:
+        resolution["instruction"] = payload.instruction
+    if cycles:
+        cycles[-1] = {**cycles[-1], "resolution": resolution}
+    detail["cycles"] = cycles
+    detail["last_resolution"] = resolution
+
+    review_step.error_code = None
+    review_step.error_message = None
+    if payload.action == "accept":
+        detail["status"] = "accepted_by_user"
+        review_step.status = TaskStatus.COMPLETED.value
+        review_step.completed_at = now
+    else:
+        detail["status"] = "resuming"
+        detail["resume_action"] = payload.action
+        if payload.instruction:
+            detail["resume_instruction"] = payload.instruction
+        else:
+            detail.pop("resume_instruction", None)
+        review_step.status = TaskStatus.PENDING.value
+        review_step.task_id = None
+        review_step.started_at = None
+        review_step.completed_at = None
+    review_step.result_detail = detail
+
+    run.status = TaskStatus.PENDING.value
+    run.current_step = None
+    run.error_code = None
+    run.error_message = None
+    run.error_detail = None
+    run.started_at = now
+    run.completed_at = None
+    db.commit()
+    return get_workflow_run(db, run.id)
 
 
 def execute_workflow_run(
@@ -358,7 +521,8 @@ def execute_workflow_run(
         if run is None or run.status != TaskStatus.PENDING.value:
             return
         run.status = TaskStatus.RUNNING.value
-        run.started_at = utc_now()
+        run.started_at = run.started_at or utc_now()
+        run.completed_at = None
         db.commit()
         task_logger.info(
             "workflow_run_started",
@@ -371,17 +535,46 @@ def execute_workflow_run(
         lyrics_version_id: int | None = None
 
         for step in sorted(run.steps, key=lambda value: value.position):
+            if step.status == TaskStatus.COMPLETED.value:
+                if step.step_type == WorkflowStepType.COLLECTION.value:
+                    collected_snapshot_id = step.output_id
+                elif step.step_type == WorkflowStepType.ANALYSIS.value:
+                    analysis_report_id = step.output_id
+                elif step.step_type in (
+                    WorkflowStepType.LYRICS.value,
+                    WorkflowStepType.REVIEW.value,
+                ):
+                    lyrics_version_id = step.output_id
+                continue
+            if step.step_type == WorkflowStepType.REVIEW.value and step.output_id:
+                lyrics_version_id = step.output_id
+            if step.status != TaskStatus.PENDING.value:
+                _mark_workflow_failed(
+                    db,
+                    run.id,
+                    step.id,
+                    AppException(
+                        code="WORKFLOW_STEP_STATE_INVALID",
+                        message="自动流程步骤状态异常，无法继续执行",
+                        status_code=409,
+                        detail={"step_type": step.step_type, "status": step.status},
+                    ),
+                )
+                return
             _mark_step_running(db, run.id, step.id, step.step_type)
             try:
-                task_id, output_id = _execute_step(
+                outcome = _execute_step(
                     db,
                     run,
-                    step.step_type,
+                    step,
                     configuration,
                     collected_snapshot_id=collected_snapshot_id,
                     analysis_report_id=analysis_report_id,
                     lyrics_version_id=lyrics_version_id,
                 )
+            except _WorkflowReviewPause as pause:
+                _mark_workflow_paused(db, run.id, step.id, pause)
+                return
             except AppException as exc:
                 _mark_workflow_failed(db, run.id, step.id, exc)
                 return
@@ -406,13 +599,23 @@ def execute_workflow_run(
                 )
                 return
 
-            _mark_step_completed(db, run.id, step.id, task_id, output_id)
+            _mark_step_completed(
+                db,
+                run.id,
+                step.id,
+                outcome.task_id,
+                outcome.output_id,
+                outcome.detail,
+            )
             if step.step_type == WorkflowStepType.COLLECTION.value:
-                collected_snapshot_id = output_id
+                collected_snapshot_id = outcome.output_id
             elif step.step_type == WorkflowStepType.ANALYSIS.value:
-                analysis_report_id = output_id
-            elif step.step_type == WorkflowStepType.LYRICS.value:
-                lyrics_version_id = output_id
+                analysis_report_id = outcome.output_id
+            elif step.step_type in (
+                WorkflowStepType.LYRICS.value,
+                WorkflowStepType.REVIEW.value,
+            ):
+                lyrics_version_id = outcome.output_id
 
         completed_run = db.get(WorkflowRun, run.id)
         if completed_run is None:
@@ -430,13 +633,14 @@ def execute_workflow_run(
 def _execute_step(
     db: Session,
     run: WorkflowRun,
-    step_type: str,
+    step: WorkflowRunStep,
     configuration: WorkflowConfiguration,
     *,
     collected_snapshot_id: int | None,
     analysis_report_id: int | None,
     lyrics_version_id: int | None,
-) -> tuple[int, int | None]:
+) -> _StepOutcome:
+    step_type = step.step_type
     if run.requested_by_id is None or db.get(User, run.requested_by_id) is None:
         raise AppException(
             code="WORKFLOW_REQUESTER_NOT_FOUND",
@@ -454,7 +658,7 @@ def _execute_step(
             ),
             run.requested_by_id,
         )
-        return result.id, result.snapshot_id
+        return _StepOutcome(result.id, result.snapshot_id)
 
     if step_type == WorkflowStepType.ANALYSIS.value:
         entry_ids: list[int] = []
@@ -475,7 +679,7 @@ def _execute_step(
             ),
             run.requested_by_id,
         )
-        return result.id, result.report.id if result.report else None
+        return _StepOutcome(result.id, result.report.id if result.report else None)
 
     if step_type == WorkflowStepType.LYRICS.value:
         if analysis_report_id is None:
@@ -522,7 +726,16 @@ def _execute_step(
             run.requested_by_id,
         )
         output_id = result.versions[-1].id if result.versions else None
-        return result.id, output_id
+        return _StepOutcome(result.id, output_id)
+
+    if step_type == WorkflowStepType.REVIEW.value:
+        return _execute_review_step(
+            db,
+            run,
+            step,
+            configuration,
+            lyrics_version_id=lyrics_version_id,
+        )
 
     if step_type == WorkflowStepType.MUSIC.value:
         if lyrics_version_id is None:
@@ -555,7 +768,7 @@ def _execute_step(
                 },
             )
         output_id = completed_task.results[0].id if completed_task.results else None
-        return completed_task.id, output_id
+        return _StepOutcome(completed_task.id, output_id)
 
     raise AppException(
         code="WORKFLOW_STEP_UNSUPPORTED",
@@ -563,6 +776,239 @@ def _execute_step(
         status_code=422,
         detail={"step_type": step_type},
     )
+
+
+def _execute_review_step(
+    db: Session,
+    run: WorkflowRun,
+    step: WorkflowRunStep,
+    configuration: WorkflowConfiguration,
+    *,
+    lyrics_version_id: int | None,
+) -> _StepOutcome:
+    agent_id = configuration.review.agent_id
+    if agent_id is None:
+        raise AppException(
+            code="WORKFLOW_REVIEW_AGENT_REQUIRED",
+            message="歌词审核步骤没有配置审核智能体",
+            status_code=422,
+        )
+    if run.requested_by_id is None:
+        raise AppException(
+            code="WORKFLOW_REQUESTER_NOT_FOUND",
+            message="启动流程的账号已经不存在",
+            status_code=409,
+        )
+    requester = db.get(User, run.requested_by_id)
+    if requester is None:
+        raise AppException(
+            code="WORKFLOW_REQUESTER_NOT_FOUND",
+            message="启动流程的账号已经不存在",
+            status_code=409,
+        )
+    current_version_id = step.output_id or lyrics_version_id
+    current_version = (
+        db.get(LyricsVersion, current_version_id)
+        if current_version_id is not None
+        else None
+    )
+    if current_version is None:
+        raise AppException(
+            code="WORKFLOW_LYRICS_OUTPUT_MISSING",
+            message="作词步骤没有可供审核的歌词版本",
+            status_code=409,
+        )
+
+    detail = dict(step.result_detail or {})
+    resume_action = detail.pop("resume_action", None)
+    resume_instruction = str(detail.pop("resume_instruction", "") or "").strip()
+    if resume_action == "regenerate":
+        regenerate_lyrics(db, current_version.task_id)
+        current_version = _latest_lyrics_version(db, current_version.task_id)
+    elif resume_action == "revise":
+        preview = create_lyrics_assistant_preview(
+            db,
+            current_version.id,
+            LyricsAssistantMessageRequest(instruction=resume_instruction),
+            requester.id,
+        )
+        current_version = db.get(
+            LyricsVersion,
+            confirm_lyrics_assistant_preview(db, preview.id).id,
+        )
+    elif resume_action == "retry":
+        current_version = _latest_lyrics_version(db, current_version.task_id)
+    if current_version is None:
+        raise AppException(
+            code="WORKFLOW_LYRICS_OUTPUT_MISSING",
+            message="歌词修改或重新生成后没有得到可审核版本",
+            status_code=409,
+        )
+    _wait_between_text_calls()
+
+    cycles = [
+        dict(value)
+        for value in list(detail.get("cycles") or [])
+        if isinstance(value, dict)
+    ]
+    cycle: dict[str, object] = {
+        "cycle": len(cycles) + 1,
+        "started_lyrics_version_id": current_version.id,
+        "rounds": [],
+    }
+    rounds: list[dict[str, object]] = []
+    latest_review_id = 0
+    latest_score = 0
+    pass_score = configuration.review.pass_score
+    max_rounds = configuration.review.max_rounds
+
+    for round_number in range(1, max_rounds + 1):
+        review_instruction = (
+            f"这是自动流程第 {round_number} 轮歌词审核，及格线为 {pass_score} 分。"
+            "请严格按已配置标准评分，不要为了通过而虚高分数。"
+        )
+        if configuration.review.instruction:
+            review_instruction += f" 补充审核要求：{configuration.review.instruction}"
+        review = create_lyrics_review(
+            db,
+            agent_id,
+            ReviewCreateRequest(
+                lyrics_version_id=current_version.id,
+                instruction=review_instruction,
+            ),
+            requester,
+        )
+        latest_review_id = review.id
+        latest_score = _review_score(review.result)
+        round_detail: dict[str, object] = {
+            "round": round_number,
+            "review_run_id": review.id,
+            "lyrics_version_id": current_version.id,
+            "score": latest_score,
+            "summary": str(review.result.get("summary") or ""),
+            "revision_suggestions": _string_list(
+                review.result.get("revision_suggestions")
+            ),
+        }
+        rounds.append(round_detail)
+        if latest_score >= pass_score:
+            cycle["rounds"] = rounds
+            cycle["status"] = "passed"
+            cycles.append(cycle)
+            return _StepOutcome(
+                task_id=review.id,
+                output_id=current_version.id,
+                detail={
+                    **detail,
+                    "status": "passed",
+                    "agent_id": agent_id,
+                    "pass_score": pass_score,
+                    "max_rounds": max_rounds,
+                    "latest_score": latest_score,
+                    "latest_lyrics_version_id": current_version.id,
+                    "cycles": cycles,
+                },
+            )
+
+        if round_number < max_rounds:
+            _wait_between_text_calls()
+            preview = create_lyrics_assistant_preview(
+                db,
+                current_version.id,
+                LyricsAssistantMessageRequest(
+                    instruction=_automatic_revision_instruction(
+                        review.result,
+                        latest_score,
+                        pass_score,
+                    )
+                ),
+                requester.id,
+            )
+            confirmed = confirm_lyrics_assistant_preview(db, preview.id)
+            current_version = db.get(LyricsVersion, confirmed.id)
+            if current_version is None:
+                raise AppException(
+                    code="WORKFLOW_LYRICS_OUTPUT_MISSING",
+                    message="自动修改歌词后没有得到新版本",
+                    status_code=409,
+                )
+            round_detail["revised_lyrics_version_id"] = current_version.id
+            _wait_between_text_calls()
+
+    cycle["rounds"] = rounds
+    cycle["status"] = "decision_required"
+    cycles.append(cycle)
+    pause_detail = {
+        **detail,
+        "status": "decision_required",
+        "agent_id": agent_id,
+        "pass_score": pass_score,
+        "max_rounds": max_rounds,
+        "rounds_completed": max_rounds,
+        "latest_score": latest_score,
+        "latest_review_run_id": latest_review_id,
+        "latest_lyrics_version_id": current_version.id,
+        "cycles": cycles,
+    }
+    raise _WorkflowReviewPause(
+        _StepOutcome(latest_review_id, current_version.id, pause_detail),
+        f"歌词连续 {max_rounds} 轮审核未达到 {pass_score} 分，请人工判断后继续",
+    )
+
+
+def _latest_lyrics_version(db: Session, task_id: int) -> LyricsVersion:
+    version = db.scalar(
+        select(LyricsVersion)
+        .where(LyricsVersion.task_id == task_id)
+        .order_by(LyricsVersion.version_number.desc(), LyricsVersion.id.desc())
+        .limit(1)
+    )
+    if version is None:
+        raise AppException(
+            code="WORKFLOW_LYRICS_OUTPUT_MISSING",
+            message="作词任务没有可用歌词版本",
+            status_code=409,
+        )
+    return version
+
+
+def _review_score(result: dict[str, object]) -> int:
+    value = result.get("overall_score")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise AppException(
+            code="WORKFLOW_REVIEW_SCORE_INVALID",
+            message="审核智能体没有返回有效总分",
+            status_code=502,
+        )
+    return max(0, min(100, int(value)))
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _automatic_revision_instruction(
+    result: dict[str, object],
+    score: int,
+    pass_score: int,
+) -> str:
+    summary = str(result.get("summary") or "").strip()
+    suggestions = _string_list(result.get("revision_suggestions"))
+    parts = [
+        f"上一轮歌词审核总分为 {score}，及格线为 {pass_score}。",
+        f"审核总结：{summary}" if summary else "",
+        f"请逐项落实以下修改建议：{'；'.join(suggestions)}" if suggestions else "",
+        "请保持主题与原创性，重点改进被扣分的韵律、结构、可唱性和表达，输出完整歌词。",
+    ]
+    return "\n".join(part for part in parts if part)[:2000]
+
+
+def _wait_between_text_calls() -> None:
+    delay_seconds = max(0.0, settings.WORKFLOW_STEP_DELAY_SECONDS)
+    if delay_seconds:
+        time.sleep(delay_seconds)
 
 
 def _mark_step_running(
@@ -579,6 +1025,9 @@ def _mark_step_running(
     run.current_step = step_type
     step.status = TaskStatus.RUNNING.value
     step.started_at = now
+    step.completed_at = None
+    step.error_code = None
+    step.error_message = None
     db.commit()
 
 
@@ -588,6 +1037,7 @@ def _mark_step_completed(
     step_id: int,
     task_id: int,
     output_id: int | None,
+    detail: dict[str, object] | None = None,
 ) -> None:
     run = db.get(WorkflowRun, run_id)
     step = db.get(WorkflowRunStep, step_id)
@@ -596,8 +1046,48 @@ def _mark_step_completed(
     step.status = TaskStatus.COMPLETED.value
     step.task_id = task_id
     step.output_id = output_id
+    step.result_detail = detail
+    step.error_code = None
+    step.error_message = None
     step.completed_at = utc_now()
     db.commit()
+
+
+def _mark_workflow_paused(
+    db: Session,
+    run_id: int,
+    step_id: int,
+    pause: _WorkflowReviewPause,
+) -> None:
+    db.rollback()
+    run = db.get(WorkflowRun, run_id)
+    step = db.get(WorkflowRunStep, step_id)
+    if run is None or step is None:
+        return
+    code = "WORKFLOW_REVIEW_DECISION_REQUIRED"
+    step.status = TaskStatus.PAUSED.value
+    step.task_id = pause.outcome.task_id
+    step.output_id = pause.outcome.output_id
+    step.result_detail = pause.outcome.detail
+    step.error_code = code
+    step.error_message = pause.message
+    step.completed_at = None
+    run.status = TaskStatus.PAUSED.value
+    run.current_step = WorkflowStepType.REVIEW.value
+    run.error_code = code
+    run.error_message = pause.message
+    run.error_detail = pause.outcome.detail
+    run.completed_at = None
+    db.commit()
+    task_logger.info(
+        "workflow_review_paused",
+        extra={
+            "task_id": str(run.id),
+            "task_type": "workflow",
+            "step_type": step.step_type,
+            "error_code": code,
+        },
+    )
 
 
 def _mark_workflow_failed(
