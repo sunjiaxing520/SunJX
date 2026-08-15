@@ -573,6 +573,44 @@ textarea {
   border-top: 1px solid var(--line);
 }
 
+.analysis-snapshot-picker {
+  display: grid;
+  margin-bottom: 16px;
+  padding: 14px 0;
+  align-items: end;
+  grid-template-columns: minmax(280px, 430px) minmax(0, 1fr);
+  gap: 14px 24px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.analysis-snapshot-picker-control {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.analysis-snapshot-picker-control .ant-select {
+  width: 100%;
+}
+
+.analysis-snapshot-meta {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.analysis-snapshot-meta strong {
+  color: #343a42;
+  font-weight: 680;
+}
+
 .usage-stat-strip {
   display: grid;
   margin-bottom: 18px;
@@ -2477,6 +2515,14 @@ textarea {
     min-height: calc(100vh - 62px);
     padding: 20px 16px 36px;
     border-inline: 0;
+  }
+
+  .analysis-snapshot-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-snapshot-meta {
+    justify-content: flex-start;
   }
 
   .page-stack {

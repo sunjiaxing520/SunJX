@@ -175,6 +175,50 @@ def test_rising_chart_history_is_isolated_from_top500(
     assert analysis.json()["report"]["trend_metrics"]["available_days"] == 1
 
 
+def test_analysis_can_select_an_earlier_chart_snapshot(
+    workflow_context: WorkflowContext,
+) -> None:
+    today = date.today()
+    rising = _collect_sample(workflow_context, today, chart="rising", limit=10)
+    top500 = _collect_sample(workflow_context, today, chart="top500", limit=15)
+    assert rising.status_code == 201
+    assert top500.status_code == 201
+
+    snapshots = workflow_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=_headers(workflow_context),
+        params={"limit": 100},
+    ).json()
+    assert snapshots[0]["id"] == top500.json()["snapshot_id"]
+
+    analysis = workflow_context.client.post(
+        "/api/v1/analysis/tasks",
+        headers=_headers(workflow_context),
+        json={
+            "snapshot_id": rising.json()["snapshot_id"],
+            "entry_ids": [],
+            "window_days": 1,
+        },
+    )
+    assert analysis.status_code == 201
+    assert analysis.json()["selected_entry_count"] == 10
+    assert analysis.json()["report"]["evidence"]["chart_code"] == "6666"
+
+    refreshed_rising = _collect_sample(
+        workflow_context,
+        today,
+        chart="rising",
+        limit=10,
+    )
+    assert refreshed_rising.json()["snapshot_id"] == rising.json()["snapshot_id"]
+    refreshed_snapshots = workflow_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=_headers(workflow_context),
+        params={"limit": 100},
+    ).json()
+    assert refreshed_snapshots[0]["id"] == rising.json()["snapshot_id"]
+
+
 def test_workflow_rising_chart_analyzes_only_configured_rank(
     workflow_context: WorkflowContext,
     monkeypatch: pytest.MonkeyPatch,

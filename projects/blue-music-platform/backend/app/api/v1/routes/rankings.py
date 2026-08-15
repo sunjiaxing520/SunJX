@@ -71,7 +71,7 @@ def collection_delete(
 def snapshot_history(
     db: DatabaseSession,
     user: CurrentUser,
-    limit: int = Query(default=15, ge=1, le=30),
+    limit: int = Query(default=15, ge=1, le=100),
 ) -> list[RankingSnapshotResponse]:
     return list_snapshots(db, limit)
 

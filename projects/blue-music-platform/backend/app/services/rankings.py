@@ -331,7 +331,7 @@ def delete_collection_tasks(
 def list_snapshots(db: Session, limit: int = 15) -> list[RankingSnapshotResponse]:
     snapshots = db.scalars(
         select(RankingSnapshot)
-        .order_by(RankingSnapshot.snapshot_date.desc(), RankingSnapshot.id.desc())
+        .order_by(RankingSnapshot.collected_at.desc(), RankingSnapshot.id.desc())
         .limit(limit)
     ).all()
     return [snapshot_response(snapshot) for snapshot in snapshots]
@@ -347,7 +347,7 @@ def list_ranking_entries(
     if snapshot_id is None:
         snapshot_id = db.scalar(
             select(RankingSnapshot.id)
-            .order_by(RankingSnapshot.snapshot_date.desc(), RankingSnapshot.id.desc())
+            .order_by(RankingSnapshot.collected_at.desc(), RankingSnapshot.id.desc())
             .limit(1)
         )
     if snapshot_id is None:

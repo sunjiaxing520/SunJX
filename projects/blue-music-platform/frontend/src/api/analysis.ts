@@ -1,10 +1,18 @@
 import type { AnalysisTask, AnalysisTaskList, TaskDeleteResult } from '../types/api'
 import { apiRequest } from './client'
 
-export function runAnalysis(entryIds: number[], windowDays = 7): Promise<AnalysisTask> {
+export function runAnalysis(
+  entryIds: number[],
+  windowDays = 7,
+  snapshotId?: number,
+): Promise<AnalysisTask> {
   return apiRequest<AnalysisTask>('/analysis/tasks', {
     method: 'POST',
-    body: JSON.stringify({ entry_ids: entryIds, window_days: windowDays }),
+    body: JSON.stringify({
+      snapshot_id: snapshotId,
+      entry_ids: entryIds,
+      window_days: windowDays,
+    }),
   })
 }
 

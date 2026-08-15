@@ -90,22 +90,26 @@ def create_analysis(
             detail={"active_task_id": active_task_id},
         )
 
-    selected_entries = _resolve_selected_entries(db, payload.entry_ids)
-    latest_snapshot = db.get(RankingSnapshot, selected_entries[0].snapshot_id)
-    if latest_snapshot is None:
+    selected_entries = _resolve_selected_entries(
+        db,
+        payload.entry_ids,
+        payload.snapshot_id,
+    )
+    selected_snapshot = db.get(RankingSnapshot, selected_entries[0].snapshot_id)
+    if selected_snapshot is None:
         raise AppException(
             code="ANALYSIS_SNAPSHOT_NOT_FOUND",
             message="所选榜单快照不存在",
             status_code=404,
         )
-    if any(entry.snapshot_id != latest_snapshot.id for entry in selected_entries):
+    if any(entry.snapshot_id != selected_snapshot.id for entry in selected_entries):
         raise AppException(
             code="ANALYSIS_MIXED_SNAPSHOTS",
             message="一次分析只能选择同一个榜单日期的歌曲",
             status_code=422,
         )
 
-    window_end = latest_snapshot.snapshot_date
+    window_end = selected_snapshot.snapshot_date
     window_start = window_end - timedelta(days=payload.window_days - 1)
     try:
         provider = resolve_text_provider(db)
@@ -141,7 +145,7 @@ def create_analysis(
             selected_entries,
             window_start,
             window_end,
-            chart_code=latest_snapshot.chart_code,
+            chart_code=selected_snapshot.chart_code,
         )
         generated_result = provider.analyze(context)
         generated = generated_result.output
@@ -206,7 +210,11 @@ def create_analysis(
     return get_analysis_task(db, task.id)
 
 
-def _resolve_selected_entries(db: Session, entry_ids: list[int]) -> list[RankingEntry]:
+def _resolve_selected_entries(
+    db: Session,
+    entry_ids: list[int],
+    snapshot_id: int | None,
+) -> list[RankingEntry]:
     if entry_ids:
         entries = list(
             db.scalars(
@@ -221,14 +229,31 @@ def _resolve_selected_entries(db: Session, entry_ids: list[int]) -> list[Ranking
                 message="部分所选歌曲不存在或已经过期",
                 status_code=404,
             )
+        if snapshot_id is not None and any(
+            entry.snapshot_id != snapshot_id for entry in entries
+        ):
+            raise AppException(
+                code="ANALYSIS_SNAPSHOT_ENTRY_MISMATCH",
+                message="所选歌曲不属于指定的榜单采集结果",
+                status_code=422,
+                detail={"snapshot_id": snapshot_id},
+            )
         return entries
 
-    latest_snapshot_id = db.scalar(
-        select(RankingSnapshot.id)
-        .order_by(RankingSnapshot.snapshot_date.desc(), RankingSnapshot.id.desc())
-        .limit(1)
-    )
-    if latest_snapshot_id is None:
+    if snapshot_id is None:
+        snapshot_id = db.scalar(
+            select(RankingSnapshot.id)
+            .order_by(RankingSnapshot.collected_at.desc(), RankingSnapshot.id.desc())
+            .limit(1)
+        )
+    elif db.get(RankingSnapshot, snapshot_id) is None:
+        raise AppException(
+            code="ANALYSIS_SNAPSHOT_NOT_FOUND",
+            message="指定的榜单采集结果不存在或已经过期",
+            status_code=404,
+            detail={"snapshot_id": snapshot_id},
+        )
+    if snapshot_id is None:
         raise AppException(
             code="ANALYSIS_NO_RANKING_DATA",
             message="还没有榜单数据，请先运行榜单采集",
@@ -237,7 +262,7 @@ def _resolve_selected_entries(db: Session, entry_ids: list[int]) -> list[Ranking
     entries = list(
         db.scalars(
             select(RankingEntry)
-            .where(RankingEntry.snapshot_id == latest_snapshot_id)
+            .where(RankingEntry.snapshot_id == snapshot_id)
             .order_by(RankingEntry.rank)
             .limit(30)
         ).all()
@@ -245,8 +270,9 @@ def _resolve_selected_entries(db: Session, entry_ids: list[int]) -> list[Ranking
     if not entries:
         raise AppException(
             code="ANALYSIS_NO_RANKING_DATA",
-            message="最新榜单没有可分析的歌曲",
+            message="所选榜单采集结果没有可分析的歌曲",
             status_code=409,
+            detail={"snapshot_id": snapshot_id},
         )
     return entries
 

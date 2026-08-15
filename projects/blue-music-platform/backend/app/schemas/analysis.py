@@ -13,6 +13,7 @@ from app.schemas.ranking import TaskStatusValue
 
 
 class AnalysisCreateRequest(BaseModel):
+    snapshot_id: int | None = Field(default=None, ge=1)
     entry_ids: list[int] = Field(default_factory=list, max_length=100)
     window_days: int = Field(default=7, ge=1, le=30)
 

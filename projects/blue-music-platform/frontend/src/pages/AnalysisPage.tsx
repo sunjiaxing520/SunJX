@@ -8,6 +8,7 @@ import {
   Empty,
   Popconfirm,
   Segmented,
+  Select,
   Space,
   Table,
   Tag,
@@ -26,21 +27,34 @@ import {
   runAnalysis,
 } from '../api/analysis'
 import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
-import { listRankingEntries } from '../api/rankings'
+import { listRankingEntries, listRankingSnapshots } from '../api/rankings'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { totalTaskTokens } from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
-import type { AnalysisTask, CreationDirection, FavoriteItem, RankingEntry } from '../types/api'
+import type {
+  AnalysisTask,
+  CreationDirection,
+  FavoriteItem,
+  RankingEntry,
+  RankingSnapshot,
+} from '../types/api'
 
 const TEMPO_LABELS = { slow: '慢速', medium: '适中', fast: '快速' }
 const GENDER_LABELS = { male: '男声', female: '女声', unspecified: '不限' }
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
 
 export function AnalysisPage() {
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
   const openedSourceTaskRef = useRef<number | null>(null)
   const openedEntryRef = useRef<number | null>(null)
+  const requestedSnapshotId = Number(searchParams.get('snapshot_id')) || null
+  const [snapshots, setSnapshots] = useState<RankingSnapshot[]>([])
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(requestedSnapshotId)
   const [entries, setEntries] = useState<RankingEntry[]>([])
   const [tasks, setTasks] = useState<AnalysisTask[]>([])
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([])
@@ -51,10 +65,9 @@ export function AnalysisPage() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
   const [favoriteTargetId, setFavoriteTargetId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [entriesLoading, setEntriesLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const requestedSnapshotId = Number(searchParams.get('snapshot_id')) || undefined
-  const isRisingSource = searchParams.get('chart') === 'rising'
 
   const updateTaskHistory = useCallback((items: AnalysisTask[]) => {
     setTasks(items)
@@ -69,12 +82,19 @@ export function AnalysisPage() {
       setError(null)
     }
     try {
-      const [ranking, history, favoriteHistory] = await Promise.all([
-        listRankingEntries({ pageSize: 100, snapshotId: requestedSnapshotId }),
+      const [snapshotHistory, history, favoriteHistory] = await Promise.all([
+        listRankingSnapshots(100),
         listAnalysisTasks(),
         listFavorites('analysis'),
       ])
-      setEntries(ranking.items)
+      setSnapshots(snapshotHistory)
+      setSelectedSnapshotId((current) => {
+        if (requestedSnapshotId && snapshotHistory.some((item) => item.id === requestedSnapshotId)) {
+          return requestedSnapshotId
+        }
+        if (current && snapshotHistory.some((item) => item.id === current)) return current
+        return snapshotHistory[0]?.id ?? null
+      })
       updateTaskHistory(history.items)
       setFavorites(favoriteHistory.items)
     } catch (loadError) {
@@ -87,6 +107,31 @@ export function AnalysisPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (selectedSnapshotId === null) {
+      setEntries([])
+      setSelectedIds([])
+      return
+    }
+    let cancelled = false
+    setEntriesLoading(true)
+    void listRankingEntries({ pageSize: 100, snapshotId: selectedSnapshotId })
+      .then((ranking) => {
+        if (cancelled) return
+        setEntries(ranking.items)
+        setSelectedIds([])
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(errorMessage(loadError))
+      })
+      .finally(() => {
+        if (!cancelled) setEntriesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedSnapshotId])
 
   const hasActiveTask = tasks.some(
     (task) => task.status === 'pending' || task.status === 'running',
@@ -125,16 +170,40 @@ export function AnalysisPage() {
 
   useEffect(() => {
     const requestedEntryId = Number(searchParams.get('entry_id'))
-    if (!requestedEntryId || loading || openedEntryRef.current === requestedEntryId) return
+    if (!requestedEntryId || loading || entriesLoading || openedEntryRef.current === requestedEntryId) return
     if (!entries.some((entry) => entry.id === requestedEntryId)) return
     openedEntryRef.current = requestedEntryId
     setSelectedIds([requestedEntryId])
-  }, [entries, loading, searchParams])
+  }, [entries, entriesLoading, loading, searchParams])
 
   const favoritesByTarget = useMemo(
     () => new Map(favorites.map((favorite) => [favorite.target_id, favorite])),
     [favorites],
   )
+  const selectedSnapshot = useMemo(
+    () => snapshots.find((snapshot) => snapshot.id === selectedSnapshotId) ?? null,
+    [selectedSnapshotId, snapshots],
+  )
+  const isRisingSource = selectedSnapshot?.chart_code === '6666'
+  const snapshotOptions = useMemo(
+    () => snapshots.map((snapshot) => ({
+      value: snapshot.id,
+      label: `${snapshot.chart_name} · ${snapshot.snapshot_date} · ${formatDateTime(snapshot.collected_at)}`,
+    })),
+    [snapshots],
+  )
+
+  const changeSnapshot = (snapshotId: number) => {
+    setSelectedSnapshotId(snapshotId)
+    setSelectedIds([])
+    setEntries([])
+    openedEntryRef.current = null
+    const next = new URLSearchParams(searchParams)
+    next.set('snapshot_id', String(snapshotId))
+    next.delete('entry_id')
+    next.delete('chart')
+    setSearchParams(next, { replace: true })
+  }
 
   const toggleFavorite = async (task: AnalysisTask) => {
     if (!task.report) return
@@ -189,9 +258,20 @@ export function AnalysisPage() {
   }
 
   const submit = async () => {
+    if (selectedSnapshotId === null) {
+      message.warning('请先选择一份榜单采集结果')
+      return
+    }
     setRunning(true)
     try {
-      const task = await runAnalysis(selectedIds.map(Number), isRisingSource ? 1 : windowDays)
+      const entryIds = selectedIds.length
+        ? selectedIds.map(Number)
+        : entries.slice(0, 30).map((entry) => entry.id)
+      const task = await runAnalysis(
+        entryIds,
+        isRisingSource ? 1 : windowDays,
+        selectedSnapshotId,
+      )
       message.success('分析完成，已生成创作方向')
       setActiveTask(task)
       setSelectedIds([])
@@ -305,7 +385,7 @@ export function AnalysisPage() {
           <Typography.Title level={1}>内容分析</Typography.Title>
           <Typography.Text type="secondary">从连续榜单中整理可供作词和音乐生成使用的创作方向</Typography.Text>
         </div>
-        <Button icon={<RefreshCw size={16} />} loading={loading} onClick={() => void load()}>刷新</Button>
+        <Button icon={<RefreshCw size={16} />} loading={loading || entriesLoading} onClick={() => void load()}>刷新</Button>
       </div>
 
       {error && <Alert type="error" showIcon title={error} />}
@@ -313,13 +393,11 @@ export function AnalysisPage() {
       <section className="content-section analysis-source-section">
         <div className="section-title-row">
           <div>
-            <Typography.Title level={2}>选择分析范围</Typography.Title>
+            <Typography.Title level={2}>选择采集结果与分析范围</Typography.Title>
             <Typography.Text type="secondary">
               {isRisingSource
-                ? '飙升榜代表当前热度上升最快的歌曲，直接分析本次选择，不计算连续天数'
-                : requestedSnapshotId
-                  ? '已从榜单详情带入当前快照；可直接分析选中的单曲或重新勾选多首歌曲'
-                : '未勾选时默认分析最新榜单前 30 首；有几天数据就按几天计算'}
+                ? '飙升榜代表当前热度上升最快的歌曲；可选任意歌曲，不计算连续天数'
+                : '先选择一份已保存的榜单；可勾选歌曲，未勾选时分析当前结果前 30 首'}
             </Typography.Text>
           </div>
           <Space wrap>
@@ -334,22 +412,48 @@ export function AnalysisPage() {
               type="primary"
               icon={<Play size={16} />}
               loading={running || hasActiveTask}
-              disabled={!entries.length || hasActiveTask}
+              disabled={!selectedSnapshotId || !entries.length || entriesLoading || hasActiveTask}
               onClick={submit}
             >
               {hasActiveTask
                 ? '分析任务运行中'
                 : selectedIds.length
                   ? `分析所选 ${selectedIds.length} 首`
-                  : '分析最新前 30 首'}
+                  : `分析当前结果前 ${Math.min(entries.length, 30)} 首`}
             </Button>
           </Space>
+        </div>
+        <div className="analysis-snapshot-picker">
+          <div className="analysis-snapshot-picker-control">
+            <Typography.Text strong>榜单采集结果</Typography.Text>
+            <Select
+              aria-label="选择榜单采集结果"
+              showSearch
+              optionFilterProp="label"
+              value={selectedSnapshotId ?? undefined}
+              options={snapshotOptions}
+              placeholder="暂无可选的榜单采集结果"
+              loading={loading}
+              disabled={!snapshots.length}
+              onChange={changeSnapshot}
+            />
+          </div>
+          {selectedSnapshot ? (
+            <div className="analysis-snapshot-meta">
+              <Tag color={isRisingSource ? 'volcano' : 'blue'}>{selectedSnapshot.chart_name}</Tag>
+              <span>榜单日期 <strong>{selectedSnapshot.snapshot_date}</strong></span>
+              <span>共 <strong>{selectedSnapshot.item_count}</strong> 首</span>
+              <span>最后采集 <strong>{formatDateTime(selectedSnapshot.collected_at)}</strong></span>
+            </div>
+          ) : (
+            <Typography.Text type="secondary">请先到榜单采集页面保存一份结果</Typography.Text>
+          )}
         </div>
         <Table<RankingEntry>
           rowKey="id"
           columns={entryColumns}
           dataSource={entries}
-          loading={loading}
+          loading={loading || entriesLoading}
           rowSelection={{ selectedRowKeys: selectedIds, onChange: setSelectedIds }}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           className="data-table"

@@ -32,8 +32,8 @@ export function deleteCollectionTasks(taskIds: number[]): Promise<TaskDeleteResu
   })
 }
 
-export function listRankingSnapshots(): Promise<RankingSnapshot[]> {
-  return apiRequest<RankingSnapshot[]>('/rankings/snapshots?limit=15')
+export function listRankingSnapshots(limit = 15): Promise<RankingSnapshot[]> {
+  return apiRequest<RankingSnapshot[]>(`/rankings/snapshots?limit=${limit}`)
 }
 
 export function listRankingEntries(options: {
