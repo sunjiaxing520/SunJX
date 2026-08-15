@@ -7,9 +7,7 @@ import {
   Grid,
   Layout,
   Menu,
-  Space,
   Tooltip,
-  Typography,
   type MenuProps,
 } from 'antd'
 import {
@@ -43,53 +41,87 @@ interface NavigationItem {
   key: string
   label: string
   icon: ReactNode
+  section: 'overview' | 'creation' | 'assets' | 'admin'
   agent?: AgentType
   adminOnly?: boolean
 }
 
 const NAVIGATION: NavigationItem[] = [
-  { key: '/', label: '工作台', icon: <Gauge size={18} /> },
-  { key: '/workflows', label: '自动流程', icon: <WorkflowIcon size={18} /> },
+  { key: '/', label: '工作台', icon: <Gauge size={18} />, section: 'overview' },
+  {
+    key: '/workflows',
+    label: '自动流程',
+    icon: <WorkflowIcon size={18} />,
+    section: 'creation',
+  },
   {
     key: '/rankings',
     label: '榜单采集',
     icon: <BarChart3 size={18} />,
+    section: 'creation',
     agent: 'crawler',
   },
   {
     key: '/analysis',
     label: '内容分析',
     icon: <ChartNoAxesCombined size={18} />,
+    section: 'creation',
     agent: 'analysis',
   },
   {
     key: '/lyrics',
     label: '歌词创作',
     icon: <FileMusic size={18} />,
+    section: 'creation',
     agent: 'lyrics',
   },
   {
     key: '/music',
     label: '音乐创作',
     icon: <Music2 size={18} />,
+    section: 'creation',
     agent: 'music',
   },
-  { key: '/favorites', label: '收藏夹', icon: <FolderHeart size={18} /> },
-  { key: '/review-agents', label: '审核智能体', icon: <ShieldCheck size={18} /> },
-  { key: '/agents', label: 'Agent 状态', icon: <Bot size={18} /> },
+  {
+    key: '/favorites',
+    label: '收藏夹',
+    icon: <FolderHeart size={18} />,
+    section: 'assets',
+  },
+  {
+    key: '/review-agents',
+    label: '审核智能体',
+    icon: <ShieldCheck size={18} />,
+    section: 'assets',
+  },
+  {
+    key: '/agents',
+    label: 'Agent 状态',
+    icon: <Bot size={18} />,
+    section: 'assets',
+  },
   {
     key: '/admin/ai-providers',
     label: 'AI 接口',
     icon: <Network size={18} />,
+    section: 'admin',
     adminOnly: true,
   },
   {
     key: '/admin/users',
     label: '账号管理',
     icon: <Users size={18} />,
+    section: 'admin',
     adminOnly: true,
   },
 ]
+
+const NAVIGATION_SECTIONS = [
+  { key: 'overview', label: '总览' },
+  { key: 'creation', label: '创作流程' },
+  { key: 'assets', label: '资产与协作' },
+  { key: 'admin', label: '系统管理' },
+] as const
 
 function Brand() {
   return (
@@ -122,17 +154,22 @@ export function AppShell() {
       }),
     [user],
   )
-  const selectedKey =
-    visibleNavigation.find((item) =>
-      item.key === '/' ? location.pathname === '/' : location.pathname.startsWith(item.key),
-    )?.key ?? '/'
-  const pageTitle =
-    visibleNavigation.find((item) => item.key === selectedKey)?.label ?? '工作台'
-  const menuItems: MenuProps['items'] = visibleNavigation.map((item) => ({
-    key: item.key,
-    label: item.label,
-    icon: item.icon,
-  }))
+  const activeNavigationItem = visibleNavigation.find((item) =>
+    item.key === '/' ? location.pathname === '/' : location.pathname.startsWith(item.key),
+  )
+  const selectedKey = activeNavigationItem?.key ?? '/'
+  const pageTitle = activeNavigationItem?.label ?? '工作台'
+  const menuItems: MenuProps['items'] = NAVIGATION_SECTIONS.map((section) => ({
+    type: 'group' as const,
+    label: <span className="navigation-group-label">{section.label}</span>,
+    children: visibleNavigation
+      .filter((item) => item.section === section.key)
+      .map((item) => ({
+        key: item.key,
+        label: item.label,
+        icon: item.icon,
+      })),
+  })).filter((section) => section.children.length > 0)
 
   const navigateFromMenu: MenuProps['onClick'] = ({ key }) => {
     navigate(key)
@@ -177,7 +214,7 @@ export function AppShell() {
   return (
     <Layout className="app-layout">
       {isDesktop ? (
-        <Sider width={232} className="app-sider" theme="light">
+        <Sider width={236} className="app-sider" theme="light">
           <Brand />
           <nav className="main-navigation" aria-label="主导航">
             {navigationMenu}
@@ -203,7 +240,7 @@ export function AppShell() {
 
       <Layout>
         <Header className="app-header">
-          <Space size={12}>
+          <div className="app-header-leading">
             {!isDesktop && (
               <Tooltip title="打开导航">
                 <Button
@@ -214,10 +251,16 @@ export function AppShell() {
                 />
               </Tooltip>
             )}
-            <Typography.Title level={2}>{pageTitle}</Typography.Title>
-          </Space>
+            <div className="header-context">
+              <span className="header-context-icon">{activeNavigationItem?.icon}</span>
+              <span className="header-context-copy">
+                <small>蓝乐工作台</small>
+                <strong>{pageTitle}</strong>
+              </span>
+            </div>
+          </div>
           <Dropdown menu={{ items: userMenu }} trigger={['click']}>
-            <Button type="text" className="user-menu-button">
+            <Button type="text" className="user-menu-button" aria-label="打开账号菜单">
               <span className="user-avatar">{user?.username.charAt(0).toUpperCase()}</span>
               <span className="user-menu-copy">
                 <strong>{user?.username}</strong>

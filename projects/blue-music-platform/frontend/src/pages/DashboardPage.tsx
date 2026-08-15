@@ -14,6 +14,7 @@ import {
   type TableProps,
 } from 'antd'
 import {
+  ArrowRight,
   BarChart3,
   Bot,
   ChartNoAxesCombined,
@@ -232,6 +233,24 @@ export function DashboardPage() {
           </div>
         ))}
       </section>
+
+      <nav className="dashboard-quick-actions" aria-label="常用操作">
+        <strong>常用操作</strong>
+        <div>
+          {[
+            { label: '运行自动流程', path: '/workflows', icon: WorkflowIcon },
+            { label: '采集榜单', path: '/rankings', icon: BarChart3 },
+            { label: '新建歌词', path: '/lyrics', icon: FileMusic },
+            { label: '试听音乐', path: '/music', icon: Music2 },
+          ].map(({ label, path, icon: Icon }) => (
+            <button type="button" key={path} onClick={() => navigate(path)}>
+              <span><Icon size={17} /></span>
+              <strong>{label}</strong>
+              <ArrowRight size={15} />
+            </button>
+          ))}
+        </div>
+      </nav>
 
       <section className="content-section usage-board-section">
         <div className="section-title-row">

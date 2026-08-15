@@ -171,7 +171,7 @@ function WorkflowStepSelector({
         const disabled = !allowedSteps.has(step)
         return (
           <div
-            className={`workflow-step-option${checked ? ' workflow-step-option-selected' : ''}`}
+            className={`workflow-step-option${checked ? ' workflow-step-option-selected' : ''}${disabled ? ' workflow-step-option-disabled' : ''}`}
             key={step}
           >
             <Checkbox
@@ -808,7 +808,7 @@ export function WorkflowsPage() {
             <Typography.Text type="secondary">
               开始 {formatTime(run.started_at)} · 完成 {formatTime(run.completed_at)}
             </Typography.Text>
-            <Space wrap>
+            <Space wrap className="workflow-builder-actions">
               {template && (
                 <Button
                   icon={<Play size={15} />}

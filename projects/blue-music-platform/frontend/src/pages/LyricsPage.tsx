@@ -452,7 +452,7 @@ export function LyricsPage() {
         <Form form={form} layout="vertical" requiredMark={false} initialValues={{ tempo: 'medium', vocal_gender: 'unspecified' }}>
           <Form.Item name="analysis_direction" hidden><Input /></Form.Item>
           <div className="form-grid">
-            <Form.Item label="引用分析方向">
+            <Form.Item label="引用分析方向" className="form-span-full">
               <button
                 type="button"
                 className={`analysis-direction-trigger ${selectedAnalysisDirection ? 'selected' : ''}`}
@@ -505,7 +505,9 @@ export function LyricsPage() {
           <Form.Item name="requirements" label="补充要求">
             <Input.TextArea rows={3} maxLength={2000} placeholder="叙事视角、避免内容、押韵偏好等" />
           </Form.Item>
-          <Button type="primary" icon={<Sparkles size={16} />} loading={generating} onClick={submit}>生成歌词</Button>
+          <div className="lyrics-create-actions">
+            <Button type="primary" icon={<Sparkles size={16} />} loading={generating} onClick={submit}>生成歌词</Button>
+          </div>
         </Form>
       </section>
 

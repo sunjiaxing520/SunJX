@@ -354,7 +354,18 @@ export function ReviewAgentsPage() {
                   </div>
                 </div>
                 <Descriptions size="small" column={1} className="review-agent-descriptions">
-                  <Descriptions.Item label="记忆概述">{activeAgent.memory_summary}</Descriptions.Item>
+                  <Descriptions.Item label="记忆概述">
+                    <Typography.Paragraph
+                      className="review-agent-memory-summary"
+                      ellipsis={{
+                        rows: 4,
+                        expandable: 'collapsible',
+                        symbol: (expanded) => expanded ? '收起概述' : '展开概述',
+                      }}
+                    >
+                      {activeAgent.memory_summary}
+                    </Typography.Paragraph>
+                  </Descriptions.Item>
                   <Descriptions.Item label="自动流程及格线">{activeAgent.pass_score} 分</Descriptions.Item>
                   <Descriptions.Item label="可用成员">
                     {activeAgent.members.length
