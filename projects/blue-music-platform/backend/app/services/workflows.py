@@ -720,14 +720,14 @@ def _execute_step(
                 message="分析报告不存在或已经过期，无法继续作词",
                 status_code=409,
             )
-        index = configuration.lyrics.direction_index
-        if index >= len(report.creation_directions):
+        if not report.creation_directions:
             raise AppException(
                 code="WORKFLOW_DIRECTION_NOT_FOUND",
-                message="所选创作方向不存在，无法继续作词",
+                message="分析报告没有可用的首选创作方向，无法继续作词",
                 status_code=422,
-                detail={"direction_index": index},
+                detail={"analysis_report_id": analysis_report_id},
             )
+        index = 0
         direction = report.creation_directions[index]
         theme_keywords = list(direction.get("theme_keywords") or [])
         theme = (

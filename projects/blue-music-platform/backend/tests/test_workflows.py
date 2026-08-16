@@ -493,7 +493,7 @@ def test_configurable_workflow_runs_collection_analysis_and_lyrics(
                 "collection": {"source_mode": "sample", "limit": 15},
                 "analysis": {"window_days": 7},
                 "lyrics": {
-                    "direction_index": 0,
+                    "direction_index": 2,
                     "theme": "根据榜单趋势完成一首成长主题歌曲",
                     "language": "中文",
                 },
@@ -504,6 +504,7 @@ def test_configurable_workflow_runs_collection_analysis_and_lyrics(
     assert created.status_code == 201
     template = created.json()
     assert template["steps"] == ["collection", "analysis", "lyrics"]
+    assert template["configuration"]["lyrics"]["direction_index"] == 2
 
     started = workflow_context.client.post(
         f"/api/v1/workflows/templates/{template['id']}/runs",
@@ -556,6 +557,7 @@ def test_configurable_workflow_runs_collection_analysis_and_lyrics(
     )
     assert lyrics.status_code == 200
     assert lyrics.json()["analysis_report_id"] == analysis_step["output_id"]
+    assert lyrics.json()["direction_index"] == 0
     assert lyrics.json()["versions"]
     assert lyrics.json()["versions"][0]["id"] == lyrics_step["output_id"]
 

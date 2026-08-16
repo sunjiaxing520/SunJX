@@ -29,7 +29,12 @@ class WorkflowAnalysisConfig(BaseModel):
 
 
 class WorkflowLyricsConfig(BaseModel):
-    direction_index: int = Field(default=0, ge=0, le=9)
+    direction_index: int = Field(
+        default=0,
+        ge=0,
+        le=9,
+        description="兼容旧模板；自动流程始终使用分析报告的首选方向",
+    )
     title_hint: str | None = Field(default=None, max_length=200)
     theme: str | None = Field(default=None, max_length=500)
     language: str = Field(default="中文", min_length=1, max_length=30)

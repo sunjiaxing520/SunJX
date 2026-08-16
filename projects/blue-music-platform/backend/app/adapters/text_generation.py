@@ -107,7 +107,11 @@ class GeneratedDirection(BaseModel):
 
 class GeneratedAnalysis(BaseModel):
     trend_summary: str
-    creation_directions: list[GeneratedDirection] = Field(min_length=1, max_length=3)
+    creation_directions: list[GeneratedDirection] = Field(
+        min_length=1,
+        max_length=3,
+        description="按推荐优先级排序，第一项为首选创作方向",
+    )
 
 
 class GeneratedLyricsSection(BaseModel):
@@ -539,6 +543,7 @@ class OpenAICompatibleTextProvider:
                 "mood_tags, theme_keywords, scene_tags, tempo(slow/medium/fast), "
                 "vocal_gender(male/female/unspecified), vocal_style, instrument_tags, "
                 "structure, hook_direction, negative_constraints。"
+                "按推荐优先级排列 creation_directions，第一项必须是最适合本次榜单证据的首选方向。"
                 "所有字符串字段必须返回字符串，数组字段必须返回数组，structure 至少3项。"
                 f"必须严格匹配以下JSON Schema：{schema}"
             ),

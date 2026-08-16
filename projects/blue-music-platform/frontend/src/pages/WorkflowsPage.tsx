@@ -79,7 +79,6 @@ interface WorkflowFormValues {
   collection_limit: number
   rising_rank: number
   window_days: number
-  direction_number: number
   title_hint?: string
   theme?: string
   requirements?: string
@@ -326,7 +325,6 @@ export function WorkflowsPage() {
       collection_limit: 100,
       rising_rank: 1,
       window_days: 7,
-      direction_number: 1,
       review_agent_id: reviewAgents[0]?.id,
       music_instrumental: false,
     })
@@ -358,7 +356,6 @@ export function WorkflowsPage() {
       collection_limit: 100,
       rising_rank: 1,
       window_days: 7,
-      direction_number: 1,
       title_hint: undefined,
       theme: undefined,
       requirements: undefined,
@@ -383,7 +380,7 @@ export function WorkflowsPage() {
       },
       analysis: { window_days: values.window_days },
       lyrics: {
-        direction_index: values.direction_number - 1,
+        direction_index: 0,
         title_hint: optionalText(values.title_hint),
         theme: optionalText(values.theme),
         language: '中文',
@@ -438,7 +435,6 @@ export function WorkflowsPage() {
       collection_limit: template.configuration.collection.limit,
       rising_rank: template.configuration.collection.rising_rank ?? 1,
       window_days: template.configuration.analysis.window_days,
-      direction_number: template.configuration.lyrics.direction_index + 1,
       title_hint: template.configuration.lyrics.title_hint ?? undefined,
       theme: template.configuration.lyrics.theme ?? undefined,
       requirements: template.configuration.lyrics.requirements ?? undefined,
@@ -969,17 +965,8 @@ export function WorkflowsPage() {
                   <FileMusic size={17} />
                   <strong>歌词创作设置</strong>
                 </div>
+                <Alert type="info" showIcon title="创作方向由分析结果自动确定" />
                 <div className="form-grid">
-                  <Form.Item name="direction_number" label="使用创作方向">
-                    <Segmented
-                      block
-                      options={[
-                        { label: '方向 1', value: 1 },
-                        { label: '方向 2', value: 2 },
-                        { label: '方向 3', value: 3 },
-                      ]}
-                    />
-                  </Form.Item>
                   <Form.Item name="title_hint" label="歌名方向">
                     <Input maxLength={200} placeholder="可留空自动生成" />
                   </Form.Item>
