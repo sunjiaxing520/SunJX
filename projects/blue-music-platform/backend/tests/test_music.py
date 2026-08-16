@@ -536,6 +536,68 @@ def test_lyrics_assistant_and_review_agent_respect_member_memory_privacy(
     assert review.json()["result"]["overall_score"] >= 0
     assert review.json()["result"]["dimensions"]
 
+    unrelated_preview = music_context.client.post(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{review.json()['id']}/assistant-previews/{preview.json()['id']}/confirm",
+        headers=member_headers,
+    )
+    assert unrelated_preview.status_code == 404
+    assert unrelated_preview.json()["error"]["code"] == "REVIEW_REVISION_PREVIEW_NOT_FOUND"
+
+    review_revision = music_context.client.post(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{review.json()['id']}/assistant",
+        headers=member_headers,
+        json={"instruction": "Revise the chorus using the review deductions."},
+    )
+    assert review_revision.status_code == 200
+    assert review_revision.json()["role"] == "assistant"
+    assert review_revision.json()["preview"]["content"]
+
+    review_revision_history = music_context.client.get(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{review.json()['id']}/assistant",
+        headers=member_headers,
+    )
+    assert review_revision_history.status_code == 200
+    assert [item["role"] for item in review_revision_history.json()["items"]] == [
+        "user",
+        "assistant",
+    ]
+
+    second_review = music_context.client.post(
+        f"/api/v1/review-agents/{review_agent.json()['id']}/reviews",
+        headers=member_headers,
+        json={"lyrics_version_id": confirmed.json()["id"]},
+    )
+    assert second_review.status_code == 200
+    second_review_history = music_context.client.get(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{second_review.json()['id']}/assistant",
+        headers=member_headers,
+    )
+    assert second_review_history.status_code == 200
+    assert second_review_history.json()["items"] == []
+    cross_review_preview = music_context.client.post(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{second_review.json()['id']}"
+        f"/assistant-previews/{review_revision.json()['id']}/confirm",
+        headers=member_headers,
+    )
+    assert cross_review_preview.status_code == 404
+    assert cross_review_preview.json()["error"]["code"] == "REVIEW_REVISION_PREVIEW_NOT_FOUND"
+
+    saved_revision = music_context.client.post(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{review.json()['id']}"
+        f"/assistant-previews/{review_revision.json()['id']}/confirm",
+        headers=member_headers,
+    )
+    assert saved_revision.status_code == 200
+    assert saved_revision.json()["version_number"] == 3
+    assert saved_revision.json()["is_saved"] is True
+    assert saved_revision.json()["content"] == review_revision.json()["preview"]["content"]
+
     memory = music_context.client.post(
         f"/api/v1/review-agents/{review_agent.json()['id']}/memory",
         headers=member_headers,

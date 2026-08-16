@@ -428,12 +428,20 @@ def save_lyrics_version(db: Session, version_id: int) -> LyricsVersionResponse:
 def list_lyrics_assistant_messages(
     db: Session,
     version_id: int,
+    *,
+    review_run_id: int | None = None,
 ) -> LyricsAssistantHistoryResponse:
     _get_lyrics_version(db, version_id)
+    query = select(LyricsAssistantMessage).where(
+        LyricsAssistantMessage.source_version_id == version_id
+    )
+    query = query.where(
+        LyricsAssistantMessage.review_run_id == review_run_id
+        if review_run_id is not None
+        else LyricsAssistantMessage.review_run_id.is_(None)
+    )
     messages = db.scalars(
-        select(LyricsAssistantMessage)
-        .where(LyricsAssistantMessage.source_version_id == version_id)
-        .order_by(LyricsAssistantMessage.created_at, LyricsAssistantMessage.id)
+        query.order_by(LyricsAssistantMessage.created_at, LyricsAssistantMessage.id)
     ).all()
     return LyricsAssistantHistoryResponse(
         items=[lyrics_assistant_message_response(message) for message in messages]
@@ -445,6 +453,9 @@ def create_lyrics_assistant_preview(
     version_id: int,
     payload: LyricsAssistantMessageRequest,
     user_id: int,
+    *,
+    review_guidance: str | None = None,
+    review_run_id: int | None = None,
 ) -> LyricsAssistantMessageResponse:
     version = _get_lyrics_version(db, version_id)
     task = db.get(LyricsTask, version.task_id)
@@ -456,6 +467,7 @@ def create_lyrics_assistant_preview(
     user_message = LyricsAssistantMessage(
         task_id=task.id,
         source_version_id=version.id,
+        review_run_id=review_run_id,
         role="user",
         content=payload.instruction,
         created_by_id=user_id,
@@ -465,7 +477,11 @@ def create_lyrics_assistant_preview(
 
     try:
         provider = resolve_text_provider(db)
-        history = _assistant_context_history(db, version.id)
+        history = _assistant_context_history(
+            db,
+            version.id,
+            review_run_id=review_run_id,
+        )
         generated_result = provider.revise_lyrics(
             {
                 "task": {
@@ -488,6 +504,7 @@ def create_lyrics_assistant_preview(
                     "sections": version.sections,
                 },
                 "history": history,
+                "review_guidance": review_guidance,
                 "instruction": payload.instruction,
                 "variation": len(task.versions) + len(history) + 1,
             }
@@ -496,6 +513,7 @@ def create_lyrics_assistant_preview(
         assistant_message = LyricsAssistantMessage(
             task_id=task.id,
             source_version_id=version.id,
+            review_run_id=review_run_id,
             role="assistant",
             content="已生成一份预览，确认满意后再保存为正式版本。",
             preview={
@@ -600,11 +618,22 @@ def confirm_lyrics_assistant_preview(
 def _assistant_context_history(
     db: Session,
     version_id: int,
+    *,
+    review_run_id: int | None = None,
 ) -> list[dict[str, object]]:
+    query = select(LyricsAssistantMessage).where(
+        LyricsAssistantMessage.source_version_id == version_id
+    )
+    query = query.where(
+        LyricsAssistantMessage.review_run_id == review_run_id
+        if review_run_id is not None
+        else LyricsAssistantMessage.review_run_id.is_(None)
+    )
     messages = db.scalars(
-        select(LyricsAssistantMessage)
-        .where(LyricsAssistantMessage.source_version_id == version_id)
-        .order_by(LyricsAssistantMessage.created_at.desc(), LyricsAssistantMessage.id.desc())
+        query.order_by(
+            LyricsAssistantMessage.created_at.desc(),
+            LyricsAssistantMessage.id.desc(),
+        )
         .limit(8)
     ).all()
     history: list[dict[str, object]] = []

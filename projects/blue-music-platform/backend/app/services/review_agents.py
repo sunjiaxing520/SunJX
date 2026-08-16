@@ -1,9 +1,26 @@
+import json
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters.text_generation import TextProviderError
 from app.core.exceptions import AppException
-from app.models import LyricsVersion, ReviewAgent, ReviewAgentMember, ReviewRun, TaskStatus, User, UserRole
+from app.models import (
+    LyricsAssistantMessage,
+    LyricsVersion,
+    ReviewAgent,
+    ReviewAgentMember,
+    ReviewRun,
+    TaskStatus,
+    User,
+    UserRole,
+)
+from app.schemas.lyrics import (
+    LyricsAssistantHistoryResponse,
+    LyricsAssistantMessageRequest,
+    LyricsAssistantMessageResponse,
+    LyricsVersionResponse,
+)
 from app.schemas.review_agent import (
     ReviewAgentCreateRequest,
     ReviewAgentInitializationPreviewRequest,
@@ -21,6 +38,11 @@ from app.schemas.review_agent import (
 )
 from app.services.ai_providers import resolve_text_provider
 from app.services.api_usage import record_api_usage
+from app.services.lyrics import (
+    confirm_lyrics_assistant_preview,
+    create_lyrics_assistant_preview,
+    list_lyrics_assistant_messages,
+)
 
 
 def preview_review_agent_initialization(
@@ -269,6 +291,61 @@ def list_review_runs(
     )
 
 
+def list_review_revision_messages(
+    db: Session,
+    agent_id: int,
+    review_id: int,
+    user: User,
+) -> LyricsAssistantHistoryResponse:
+    run, version = _review_revision_source(db, agent_id, review_id, user)
+    return list_lyrics_assistant_messages(
+        db,
+        version.id,
+        review_run_id=run.id,
+    )
+
+
+def create_review_revision_preview(
+    db: Session,
+    agent_id: int,
+    review_id: int,
+    payload: LyricsAssistantMessageRequest,
+    user: User,
+) -> LyricsAssistantMessageResponse:
+    run, version = _review_revision_source(db, agent_id, review_id, user)
+    return create_lyrics_assistant_preview(
+        db,
+        version.id,
+        payload,
+        user.id,
+        review_guidance=_review_revision_guidance(run),
+        review_run_id=run.id,
+    )
+
+
+def confirm_review_revision_preview(
+    db: Session,
+    agent_id: int,
+    review_id: int,
+    message_id: int,
+    user: User,
+) -> LyricsVersionResponse:
+    _, version = _review_revision_source(db, agent_id, review_id, user)
+    message = db.get(LyricsAssistantMessage, message_id)
+    if (
+        message is None
+        or message.source_version_id != version.id
+        or message.review_run_id != review_id
+    ):
+        raise AppException(
+            code="REVIEW_REVISION_PREVIEW_NOT_FOUND",
+            message="当前审核记录下没有这份歌词修改预览",
+            status_code=404,
+            detail={"review_id": review_id, "message_id": message_id},
+        )
+    return confirm_lyrics_assistant_preview(db, message_id)
+
+
 def save_review_agent_memory(
     db: Session,
     agent_id: int,
@@ -375,6 +452,51 @@ def _get_agent(db: Session, agent_id: int) -> ReviewAgent:
             status_code=404,
         )
     return agent
+
+
+def _review_revision_source(
+    db: Session,
+    agent_id: int,
+    review_id: int,
+    user: User,
+) -> tuple[ReviewRun, LyricsVersion]:
+    require_review_agent_access(db, agent_id, user)
+    run = db.scalar(
+        select(ReviewRun).where(
+            ReviewRun.id == review_id,
+            ReviewRun.agent_id == agent_id,
+        )
+    )
+    if run is None:
+        raise AppException(
+            code="REVIEW_RUN_NOT_FOUND",
+            message="审核记录不存在",
+            status_code=404,
+        )
+    version = db.get(LyricsVersion, run.lyrics_version_id) if run.lyrics_version_id else None
+    if version is None:
+        raise AppException(
+            code="REVIEW_LYRICS_VERSION_NOT_FOUND",
+            message="被审核的歌词版本不存在，无法继续修改",
+            status_code=409,
+            detail={"review_id": review_id, "lyrics_version_id": run.lyrics_version_id},
+        )
+    return run, version
+
+
+def _review_revision_guidance(run: ReviewRun) -> str:
+    result = run.result if isinstance(run.result, dict) else {}
+    guidance = {
+        "summary": result.get("summary"),
+        "overall_score": result.get("overall_score"),
+        "pass_score": result.get("pass_score"),
+        "dimensions": result.get("dimensions"),
+        "deduction_reasons": result.get("deduction_reasons"),
+        "revision_suggestions": result.get("revision_suggestions"),
+        "risk_notes": result.get("risk_notes"),
+    }
+    serialized = json.dumps(guidance, ensure_ascii=False, separators=(",", ":"))
+    return f"请根据本次歌词审核意见修改，不要忽略扣分原因和修改建议：{serialized}"[:6000]
 
 
 def _ensure_has_any_review_access(db: Session, user: User) -> None:

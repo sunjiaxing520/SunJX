@@ -1617,6 +1617,117 @@ textarea {
   font-size: 11px;
 }
 
+.review-revision-assistant {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #dde2e7;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.review-revision-heading,
+.review-revision-heading > div,
+.review-revision-preview-heading {
+  display: flex;
+  align-items: center;
+}
+
+.review-revision-heading {
+  min-height: 28px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-revision-heading > div {
+  min-width: 0;
+  gap: 7px;
+}
+
+.review-revision-heading > div > .ant-typography {
+  margin: 0;
+  font-size: 12px;
+}
+
+.review-revision-heading .ant-tag {
+  margin-inline-end: 0;
+}
+
+.review-revision-history {
+  display: flex;
+  max-height: 380px;
+  margin-top: 10px;
+  padding-right: 4px;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.review-revision-message {
+  display: flex;
+  padding: 9px 10px;
+  border: 1px solid #e2e5e9;
+  border-radius: 5px;
+  flex-direction: column;
+  gap: 5px;
+  background: #fff;
+  color: #4b5058;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.review-revision-message.user {
+  border-left: 3px solid #77818e;
+}
+
+.review-revision-message.assistant {
+  border-left: 3px solid #2f7a65;
+}
+
+.review-revision-preview {
+  margin-top: 3px;
+  padding-top: 9px;
+  border-top: 1px solid #e8eaed;
+}
+
+.review-revision-preview-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-revision-preview-heading > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.review-revision-preview-heading small {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.review-revision-preview pre {
+  max-height: 260px;
+  margin: 9px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #e5e7ea;
+  border-radius: 4px;
+  background: #f7f8f9;
+  color: #343940;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.review-revision-input {
+  margin-top: 10px;
+}
+
+.review-revision-input .ant-input {
+  resize: none;
+}
+
 .review-run-toggle {
   display: flex;
   margin-top: 8px;
@@ -2667,6 +2778,16 @@ textarea {
 
   .review-agent-save-memory .ant-btn {
     align-self: flex-start;
+  }
+
+  .review-revision-heading,
+  .review-revision-preview-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .review-revision-preview-heading .ant-btn {
+    width: 100%;
   }
 
   .review-dimension-list > div {

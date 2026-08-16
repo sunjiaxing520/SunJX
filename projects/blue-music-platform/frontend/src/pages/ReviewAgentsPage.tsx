@@ -21,6 +21,7 @@ import {
 import {
   Bot,
   BrainCircuit,
+  Check,
   ChevronDown,
   ChevronUp,
   FileSearch,
@@ -28,18 +29,22 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Send,
   ShieldCheck,
   Sparkles,
   Users,
 } from 'lucide-react'
 
 import {
+  confirmReviewRevisionPreview,
   createLyricsReview,
   createReviewAgent,
   listReviewAgents,
   listReviewLyricsOptions,
+  listReviewRevisionMessages,
   listReviewRuns,
   previewReviewAgentInitialization,
+  requestReviewRevisionPreview,
   saveReviewAgentMemory,
   updateReviewAgentMembers,
   updateReviewAgentSettings,
@@ -48,6 +53,7 @@ import { listUsers } from '../api/users'
 import { useAuth } from '../auth/useAuth'
 import { errorMessage } from '../lib/errors'
 import type {
+  LyricsAssistantMessage,
   ReviewAgent,
   ReviewChatMessage,
   ReviewLyricsOption,
@@ -566,7 +572,14 @@ export function ReviewAgentsPage() {
                 </div>
                 {loadingDetails ? <Skeleton active paragraph={{ rows: 4 }} /> : reviewRuns.length ? (
                   <div className="review-run-list">
-                    {reviewRuns.map((run) => <ReviewRunView key={run.id} run={run} passScore={activeAgent.pass_score} />)}
+                    {reviewRuns.map((run) => (
+                      <ReviewRunView
+                        key={run.id}
+                        run={run}
+                        passScore={activeAgent.pass_score}
+                        agentId={activeAgent.id}
+                      />
+                    ))}
                   </div>
                 ) : (
                   <div className="review-agent-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审核记录" /></div>
@@ -659,8 +672,25 @@ export function ReviewAgentsPage() {
   )
 }
 
-function ReviewRunView({ run, passScore }: { run: ReviewResult; passScore: number }) {
+function ReviewRunView({
+  run,
+  passScore,
+  agentId,
+}: {
+  run: ReviewResult
+  passScore: number
+  agentId: number
+}) {
+  const { message } = App.useApp()
   const [expanded, setExpanded] = useState(false)
+  const [revisionMessages, setRevisionMessages] = useState<LyricsAssistantMessage[]>([])
+  const [revisionInstruction, setRevisionInstruction] = useState('')
+  const [revisionHistoryLoaded, setRevisionHistoryLoaded] = useState(false)
+  const [revisionHistoryLoading, setRevisionHistoryLoading] = useState(false)
+  const [revisionLoading, setRevisionLoading] = useState(false)
+  const [confirmingPreviewId, setConfirmingPreviewId] = useState<number | null>(null)
+  const [currentPreviewId, setCurrentPreviewId] = useState<number | null>(null)
+  const [savedVersionNumber, setSavedVersionNumber] = useState<number | null>(null)
   const score = typeof run.result.overall_score === 'number' ? run.result.overall_score : null
   const historicalPassScore = typeof run.result.pass_score === 'number' ? run.result.pass_score : passScore
   const passed = typeof run.result.passed === 'boolean'
@@ -673,6 +703,67 @@ function ReviewRunView({ run, passScore }: { run: ReviewResult; passScore: numbe
   const suggestions = stringList(run.result.revision_suggestions)
   const risks = stringList(run.result.risk_notes)
 
+  const loadRevisionHistory = useCallback(async () => {
+    if (!run.lyrics_version_id || revisionHistoryLoaded || revisionHistoryLoading) return
+    setRevisionHistoryLoading(true)
+    try {
+      const history = await listReviewRevisionMessages(agentId, run.id)
+      setRevisionMessages(history.items)
+      setRevisionHistoryLoaded(true)
+    } catch (historyError) {
+      message.error(errorMessage(historyError))
+    } finally {
+      setRevisionHistoryLoading(false)
+    }
+  }, [
+    agentId,
+    message,
+    revisionHistoryLoaded,
+    revisionHistoryLoading,
+    run.id,
+    run.lyrics_version_id,
+  ])
+
+  useEffect(() => {
+    void loadRevisionHistory()
+  }, [loadRevisionHistory])
+
+  const requestRevision = async () => {
+    const instruction = revisionInstruction.trim()
+    if (!run.lyrics_version_id || !instruction || revisionLoading) return
+    setRevisionLoading(true)
+    try {
+      const preview = await requestReviewRevisionPreview(agentId, run.id, instruction)
+      setRevisionInstruction('')
+      try {
+        const history = await listReviewRevisionMessages(agentId, run.id)
+        setRevisionMessages(history.items)
+        setRevisionHistoryLoaded(true)
+      } catch {
+        setRevisionMessages((current) => [...current, preview])
+      }
+      message.success('修改预览已生成，请检查后再保存')
+    } catch (revisionError) {
+      message.error(errorMessage(revisionError))
+    } finally {
+      setRevisionLoading(false)
+    }
+  }
+
+  const saveRevision = async (previewId: number) => {
+    setConfirmingPreviewId(previewId)
+    try {
+      const version = await confirmReviewRevisionPreview(agentId, run.id, previewId)
+      setCurrentPreviewId(previewId)
+      setSavedVersionNumber(version.version_number)
+      message.success(`已设为当前作品 V${version.version_number}，上一版仍可恢复`)
+    } catch (confirmError) {
+      message.error(errorMessage(confirmError))
+    } finally {
+      setConfirmingPreviewId(null)
+    }
+  }
+
   return (
     <article className="review-run-item">
       <div className="review-run-heading">
@@ -684,6 +775,79 @@ function ReviewRunView({ run, passScore }: { run: ReviewResult; passScore: numbe
           {score !== null && <Tag color={passed ? 'success' : 'warning'}>{passed ? '通过' : '未通过'}</Tag>}
           {score !== null && <span className="review-run-score">{score}<small> / {historicalPassScore} 分</small></span>}
         </Space>
+      </div>
+      <div className="review-revision-assistant">
+        <div className="review-revision-heading">
+          <div>
+            <MessageCircleMore size={16} />
+            <strong>AI 修改</strong>
+            <Typography.Text type="secondary">已自动带入本次审核意见</Typography.Text>
+          </div>
+          {savedVersionNumber !== null && <Tag color="success">当前作品 V{savedVersionNumber}</Tag>}
+        </div>
+        {run.lyrics_version_id ? (
+          <>
+            {revisionHistoryLoading && !revisionMessages.length ? (
+              <Skeleton active paragraph={{ rows: 2 }} title={false} />
+            ) : revisionMessages.length > 0 && (
+              <div className="review-revision-history" aria-label="审核修改对话记录">
+                {revisionMessages.map((item) => (
+                  <div className={`review-revision-message ${item.role}`} key={item.id}>
+                    <strong>{item.role === 'user' ? '你' : 'AI 助手'}</strong>
+                    <span>{item.content}</span>
+                    {item.preview && (
+                      <div className="review-revision-preview">
+                        <div className="review-revision-preview-heading">
+                          <div>
+                            <strong>{item.preview.title}</strong>
+                            <small>{item.preview.style_prompt}</small>
+                          </div>
+                          <Button
+                            type={currentPreviewId === item.id ? 'default' : 'primary'}
+                            size="small"
+                            icon={<Check size={14} />}
+                            loading={confirmingPreviewId === item.id}
+                            disabled={currentPreviewId === item.id || confirmingPreviewId !== null}
+                            onClick={() => void saveRevision(item.id)}
+                          >
+                            {currentPreviewId === item.id ? '当前作品' : '保存并设为当前作品'}
+                          </Button>
+                        </div>
+                        <pre>{item.preview.content}</pre>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <Space.Compact block className="review-revision-input">
+              <Input.TextArea
+                autoSize={{ minRows: 1, maxRows: 4 }}
+                maxLength={2000}
+                value={revisionInstruction}
+                placeholder="告诉 AI 需要怎样修改这份歌词"
+                aria-label="审核后歌词修改要求"
+                onFocus={() => void loadRevisionHistory()}
+                onChange={(event) => setRevisionInstruction(event.target.value)}
+                onPressEnter={(event) => {
+                  if (event.shiftKey) return
+                  event.preventDefault()
+                  if (revisionInstruction.trim() && !revisionLoading) void requestRevision()
+                }}
+              />
+              <Button
+                type="primary"
+                icon={<Send size={15} />}
+                loading={revisionLoading}
+                disabled={!revisionInstruction.trim()}
+                aria-label="发送审核修改要求"
+                onClick={() => void requestRevision()}
+              />
+            </Space.Compact>
+          </>
+        ) : (
+          <Alert type="warning" showIcon message="这条历史审核未关联歌词版本，无法继续修改" />
+        )}
       </div>
       <div className="review-run-toggle">
         <Button

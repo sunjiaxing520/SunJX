@@ -403,6 +403,7 @@ class LocalTextProvider:
     ) -> ProviderResult[GeneratedLyrics]:
         original = dict(context.get("original") or {})
         task_context = dict(context.get("task") or {})
+        review_guidance = str(context.get("review_guidance") or "").strip()
         instruction = str(context.get("instruction") or "调整表达").strip()
         generated = self.generate_lyrics(
             {
@@ -412,6 +413,7 @@ class LocalTextProvider:
                     value
                     for value in [
                         str(task_context.get("requirements") or "").strip(),
+                        review_guidance,
                         instruction,
                     ]
                     if value
@@ -604,6 +606,7 @@ class OpenAICompatibleTextProvider:
         response = self._chat_json(
             system=(
                 "你是中文原创歌词修改助手。你会收到正式歌词、创作上下文、此前预览和用户的修改要求。"
+                "若上下文包含 review_guidance，必须根据其中的审核总结、扣分原因和修改建议进行修改。"
                 "只根据用户明确要求进行原创性修改，不得复写或近似改写任何外部歌曲。"
                 "返回纯 JSON，字段 title、style_prompt、sections；sections 每项包含 name 和 content。"
                 f"必须严格匹配以下 JSON Schema：{schema}"

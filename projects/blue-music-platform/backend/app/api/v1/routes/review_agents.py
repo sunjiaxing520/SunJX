@@ -2,6 +2,12 @@ from fastapi import APIRouter, Query, status
 
 from app.api.dependencies import CurrentUser, DatabaseSession, SuperAdmin
 from app.models import User
+from app.schemas.lyrics import (
+    LyricsAssistantHistoryResponse,
+    LyricsAssistantMessageRequest,
+    LyricsAssistantMessageResponse,
+    LyricsVersionResponse,
+)
 from app.schemas.review_agent import (
     ReviewAgentCreateRequest,
     ReviewAgentInitializationPreviewRequest,
@@ -17,12 +23,15 @@ from app.schemas.review_agent import (
     ReviewResultResponse,
 )
 from app.services.review_agents import (
+    confirm_review_revision_preview,
     create_lyrics_review,
+    create_review_revision_preview,
     create_review_agent,
     get_review_agent,
     list_review_agents,
     list_review_lyrics_options,
     list_review_runs,
+    list_review_revision_messages,
     preview_review_agent_initialization,
     replace_review_agent_members,
     save_review_agent_memory,
@@ -118,6 +127,53 @@ def review_agent_review_history(
     limit: int = Query(default=20, ge=1, le=100),
 ) -> ReviewListResponse:
     return list_review_runs(db, agent_id, user, limit)
+
+
+@router.get(
+    "/{agent_id}/reviews/{review_id}/assistant",
+    response_model=LyricsAssistantHistoryResponse,
+)
+def review_revision_history(
+    agent_id: int,
+    review_id: int,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> LyricsAssistantHistoryResponse:
+    return list_review_revision_messages(db, agent_id, review_id, user)
+
+
+@router.post(
+    "/{agent_id}/reviews/{review_id}/assistant",
+    response_model=LyricsAssistantMessageResponse,
+)
+def review_revision_preview(
+    agent_id: int,
+    review_id: int,
+    payload: LyricsAssistantMessageRequest,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> LyricsAssistantMessageResponse:
+    return create_review_revision_preview(db, agent_id, review_id, payload, user)
+
+
+@router.post(
+    "/{agent_id}/reviews/{review_id}/assistant-previews/{message_id}/confirm",
+    response_model=LyricsVersionResponse,
+)
+def review_revision_confirm(
+    agent_id: int,
+    review_id: int,
+    message_id: int,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> LyricsVersionResponse:
+    return confirm_review_revision_preview(
+        db,
+        agent_id,
+        review_id,
+        message_id,
+        user,
+    )
 
 
 @router.post("/{agent_id}/memory", response_model=ReviewMemoryResponse)

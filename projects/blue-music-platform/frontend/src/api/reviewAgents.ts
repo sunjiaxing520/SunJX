@@ -1,4 +1,7 @@
 import type {
+  LyricsAssistantHistory,
+  LyricsAssistantMessage,
+  LyricsVersion,
   ReviewAgent,
   ReviewAgentInitializationPreview,
   ReviewChatMessage,
@@ -73,6 +76,40 @@ export function createLyricsReview(
 
 export function listReviewRuns(agentId: number): Promise<ReviewList> {
   return apiRequest<ReviewList>(`/review-agents/${agentId}/reviews?limit=20`)
+}
+
+export function listReviewRevisionMessages(
+  agentId: number,
+  reviewId: number,
+): Promise<LyricsAssistantHistory> {
+  return apiRequest<LyricsAssistantHistory>(
+    `/review-agents/${agentId}/reviews/${reviewId}/assistant`,
+  )
+}
+
+export function requestReviewRevisionPreview(
+  agentId: number,
+  reviewId: number,
+  instruction: string,
+): Promise<LyricsAssistantMessage> {
+  return apiRequest<LyricsAssistantMessage>(
+    `/review-agents/${agentId}/reviews/${reviewId}/assistant`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ instruction }),
+    },
+  )
+}
+
+export function confirmReviewRevisionPreview(
+  agentId: number,
+  reviewId: number,
+  messageId: number,
+): Promise<LyricsVersion> {
+  return apiRequest<LyricsVersion>(
+    `/review-agents/${agentId}/reviews/${reviewId}/assistant-previews/${messageId}/confirm`,
+    { method: 'POST' },
+  )
 }
 
 export function saveReviewAgentMemory(agentId: number, content: string): Promise<ReviewMemory> {

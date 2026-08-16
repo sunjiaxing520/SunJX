@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as reviewAgentApi from '../api/reviewAgents'
 import * as userApi from '../api/users'
-import type { ReviewAgent, ReviewResult, User } from '../types/api'
+import type {
+  LyricsAssistantMessage,
+  LyricsVersion,
+  ReviewAgent,
+  ReviewResult,
+  User,
+} from '../types/api'
 import { ReviewAgentsPage } from './ReviewAgentsPage'
 
 class ResizeObserverMock {
@@ -34,8 +40,11 @@ vi.mock('../api/reviewAgents', () => ({
   createReviewAgent: vi.fn(),
   listReviewAgents: vi.fn(),
   listReviewLyricsOptions: vi.fn(),
+  listReviewRevisionMessages: vi.fn(),
   listReviewRuns: vi.fn(),
   previewReviewAgentInitialization: vi.fn(),
+  requestReviewRevisionPreview: vi.fn(),
+  confirmReviewRevisionPreview: vi.fn(),
   saveReviewAgentMemory: vi.fn(),
   updateReviewAgentMembers: vi.fn(),
   updateReviewAgentSettings: vi.fn(),
@@ -125,13 +134,57 @@ const reviewRun: ReviewResult = {
   created_at: '2026-08-16T09:00:00Z',
 }
 
+const revisionUserMessage: LyricsAssistantMessage = {
+  id: 90,
+  task_id: 12,
+  source_version_id: 31,
+  role: 'user',
+  content: '让副歌更有记忆点，并处理审核报告里的押韵问题。',
+  preview: null,
+  provider: null,
+  model: null,
+  created_at: '2026-08-16T09:10:00Z',
+}
+
+const revisionPreviewMessage: LyricsAssistantMessage = {
+  id: 91,
+  task_id: 12,
+  source_version_id: 31,
+  role: 'assistant',
+  content: '已生成一份预览，确认满意后再保存为正式版本。',
+  preview: {
+    title: '改写后的副歌',
+    content: '[副歌]\n把月光唱成一句回响',
+    style_prompt: '中文流行，清晰副歌记忆点',
+    sections: [{ name: '副歌', content: '把月光唱成一句回响' }],
+  },
+  provider: 'kimi',
+  model: 'kimi-k3',
+  created_at: '2026-08-16T09:10:02Z',
+}
+
+const savedRevision: LyricsVersion = {
+  id: 32,
+  task_id: 12,
+  version_number: 3,
+  title: '改写后的副歌',
+  content: '[副歌]\n把月光唱成一句回响',
+  style_prompt: '中文流行，清晰副歌记忆点',
+  sections: [{ name: '副歌', content: '把月光唱成一句回响' }],
+  is_saved: true,
+  created_at: '2026-08-16T09:11:00Z',
+}
+
 afterEach(cleanup)
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(reviewAgentApi.listReviewAgents).mockResolvedValue([reviewAgent])
   vi.mocked(reviewAgentApi.listReviewLyricsOptions).mockResolvedValue([])
+  vi.mocked(reviewAgentApi.listReviewRevisionMessages).mockResolvedValue({ items: [] })
   vi.mocked(reviewAgentApi.listReviewRuns).mockResolvedValue({ items: [], total: 0 })
+  vi.mocked(reviewAgentApi.requestReviewRevisionPreview).mockResolvedValue(revisionPreviewMessage)
+  vi.mocked(reviewAgentApi.confirmReviewRevisionPreview).mockResolvedValue(savedRevision)
   vi.mocked(reviewAgentApi.updateReviewAgentMembers).mockResolvedValue({
     ...reviewAgent,
     members: [{ id: 3, username: 'member-b' }],
@@ -181,6 +234,9 @@ describe('ReviewAgentsPage member permissions', () => {
     )
 
     await screen.findByText('审核 #77')
+    await waitFor(() => {
+      expect(reviewAgentApi.listReviewRevisionMessages).toHaveBeenCalledWith(10, 77)
+    })
     expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
 
     const expandButton = screen.getByRole('button', { name: '展开审核结果' })
@@ -195,5 +251,44 @@ describe('ReviewAgentsPage member permissions', () => {
     await user.click(hideButton)
 
     expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
+  })
+
+  it('revises from a collapsed review and saves the selected preview as current', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reviewAgentApi.listReviewRuns).mockResolvedValue({ items: [reviewRun], total: 1 })
+    vi.mocked(reviewAgentApi.listReviewRevisionMessages)
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [revisionUserMessage, revisionPreviewMessage] })
+
+    render(
+      <App>
+        <ReviewAgentsPage />
+      </App>,
+    )
+
+    await screen.findByText('审核 #77')
+    expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
+
+    const revisionInput = screen.getByRole('textbox', { name: '审核后歌词修改要求' })
+    await user.type(revisionInput, revisionUserMessage.content)
+    await user.click(screen.getByRole('button', { name: '发送审核修改要求' }))
+
+    await waitFor(() => {
+      expect(reviewAgentApi.requestReviewRevisionPreview).toHaveBeenCalledWith(
+        10,
+        77,
+        revisionUserMessage.content,
+      )
+    })
+    expect(await screen.findByText('改写后的副歌')).toBeInTheDocument()
+    expect(screen.getByText('把月光唱成一句回响', { exact: false })).toBeInTheDocument()
+    expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '保存并设为当前作品' }))
+    await waitFor(() => {
+      expect(reviewAgentApi.confirmReviewRevisionPreview).toHaveBeenCalledWith(10, 77, 91)
+    })
+    expect(await screen.findByRole('button', { name: '当前作品' })).toBeDisabled()
+    expect(screen.getByText('当前作品 V3')).toBeInTheDocument()
   })
 })

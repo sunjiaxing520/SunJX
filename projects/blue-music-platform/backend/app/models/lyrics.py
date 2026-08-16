@@ -121,6 +121,12 @@ class LyricsAssistantMessage(Base):
         nullable=False,
         index=True,
     )
+    review_run_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("review_runs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     preview: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
