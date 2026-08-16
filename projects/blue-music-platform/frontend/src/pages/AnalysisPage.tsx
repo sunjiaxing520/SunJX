@@ -8,7 +8,7 @@ import {
   Empty,
   Popconfirm,
   Segmented,
-  Select,
+  Skeleton,
   Space,
   Table,
   Tag,
@@ -30,6 +30,11 @@ import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { listRankingEntries, listRankingSnapshots } from '../api/rankings'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
+import {
+  UpstreamOutputField,
+  UpstreamOutputPicker,
+  type UpstreamOutputItem,
+} from '../components/UpstreamOutputPicker'
 import { totalTaskTokens } from '../lib/apiUsage'
 import { errorMessage } from '../lib/errors'
 import type {
@@ -55,6 +60,10 @@ export function AnalysisPage() {
   const requestedSnapshotId = Number(searchParams.get('snapshot_id')) || null
   const [snapshots, setSnapshots] = useState<RankingSnapshot[]>([])
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(requestedSnapshotId)
+  const [snapshotPickerOpen, setSnapshotPickerOpen] = useState(false)
+  const [snapshotPreviewEntries, setSnapshotPreviewEntries] = useState<RankingEntry[]>([])
+  const [snapshotPreviewLoading, setSnapshotPreviewLoading] = useState(false)
+  const snapshotPreviewIdRef = useRef<number | null>(null)
   const [entries, setEntries] = useState<RankingEntry[]>([])
   const [tasks, setTasks] = useState<AnalysisTask[]>([])
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([])
@@ -185,13 +194,49 @@ export function AnalysisPage() {
     [selectedSnapshotId, snapshots],
   )
   const isRisingSource = selectedSnapshot?.chart_code === '6666'
-  const snapshotOptions = useMemo(
+  const snapshotPickerItems = useMemo<UpstreamOutputItem[]>(
     () => snapshots.map((snapshot) => ({
-      value: snapshot.id,
-      label: `${snapshot.chart_name} · ${snapshot.snapshot_date} · ${formatDateTime(snapshot.collected_at)}`,
+      id: snapshot.id,
+      title: `${snapshot.chart_name} · ${snapshot.snapshot_date}`,
+      source: `榜单快照 #${snapshot.id}`,
+      summary: `${snapshot.item_count} 首歌曲，最后采集于 ${formatDateTime(snapshot.collected_at)}`,
+      createdAt: snapshot.collected_at,
+      group: snapshot.chart_code === '6666' ? 'rising' : 'top500',
+      tags: [snapshot.chart_name, snapshot.platform],
+      meta: [
+        { label: '榜单日期', value: snapshot.snapshot_date },
+        { label: '歌曲数量', value: `${snapshot.item_count} 首` },
+        { label: '榜单代码', value: snapshot.chart_code },
+        { label: '最后采集', value: formatDateTime(snapshot.collected_at) },
+      ],
+      searchText: `${snapshot.chart_name} ${snapshot.snapshot_date} ${snapshot.chart_code} ${snapshot.id}`,
     })),
     [snapshots],
   )
+  const selectedSnapshotItem = useMemo(
+    () => snapshotPickerItems.find((item) => Number(item.id) === selectedSnapshotId) ?? null,
+    [selectedSnapshotId, snapshotPickerItems],
+  )
+
+  const previewSnapshot = useCallback((item: UpstreamOutputItem) => {
+    const snapshotId = Number(item.id)
+    if (!Number.isFinite(snapshotId)) return
+    snapshotPreviewIdRef.current = snapshotId
+    setSnapshotPreviewLoading(true)
+    void listRankingEntries({ pageSize: 10, snapshotId })
+      .then((result) => {
+        if (snapshotPreviewIdRef.current === snapshotId) setSnapshotPreviewEntries(result.items)
+      })
+      .catch((previewError) => {
+        if (snapshotPreviewIdRef.current === snapshotId) {
+          setSnapshotPreviewEntries([])
+          message.error(errorMessage(previewError))
+        }
+      })
+      .finally(() => {
+        if (snapshotPreviewIdRef.current === snapshotId) setSnapshotPreviewLoading(false)
+      })
+  }, [message])
 
   const changeSnapshot = (snapshotId: number) => {
     setSelectedSnapshotId(snapshotId)
@@ -424,30 +469,13 @@ export function AnalysisPage() {
           </Space>
         </div>
         <div className="analysis-snapshot-picker">
-          <div className="analysis-snapshot-picker-control">
-            <Typography.Text strong>榜单采集结果</Typography.Text>
-            <Select
-              aria-label="选择榜单采集结果"
-              showSearch
-              optionFilterProp="label"
-              value={selectedSnapshotId ?? undefined}
-              options={snapshotOptions}
-              placeholder="暂无可选的榜单采集结果"
-              loading={loading}
-              disabled={!snapshots.length}
-              onChange={changeSnapshot}
-            />
-          </div>
-          {selectedSnapshot ? (
-            <div className="analysis-snapshot-meta">
-              <Tag color={isRisingSource ? 'volcano' : 'blue'}>{selectedSnapshot.chart_name}</Tag>
-              <span>榜单日期 <strong>{selectedSnapshot.snapshot_date}</strong></span>
-              <span>共 <strong>{selectedSnapshot.item_count}</strong> 首</span>
-              <span>最后采集 <strong>{formatDateTime(selectedSnapshot.collected_at)}</strong></span>
-            </div>
-          ) : (
-            <Typography.Text type="secondary">请先到榜单采集页面保存一份结果</Typography.Text>
-          )}
+          <UpstreamOutputField
+            label="当前榜单采集结果"
+            placeholder={snapshots.length ? '选择一份榜单采集结果' : '请先到榜单采集页面保存结果'}
+            item={selectedSnapshotItem}
+            disabled={!snapshots.length}
+            onClick={() => setSnapshotPickerOpen(true)}
+          />
         </div>
         <Table<RankingEntry>
           rowKey="id"
@@ -505,6 +533,46 @@ export function AnalysisPage() {
           )}
         </CollapsibleList>
       </section>
+
+      <UpstreamOutputPicker
+        open={snapshotPickerOpen}
+        title="选择榜单采集结果"
+        description="按榜单类型、日期或快照编号查找。先预览榜单内容，确认后再替换当前分析来源。"
+        items={snapshotPickerItems}
+        selectedId={selectedSnapshotId}
+        loading={loading}
+        groups={[
+          { key: 'top500', label: 'TOP500' },
+          { key: 'rising', label: '飙升榜' },
+        ]}
+        emptyText="暂无可用于分析的榜单快照"
+        onClose={() => setSnapshotPickerOpen(false)}
+        onPreviewChange={previewSnapshot}
+        onConfirm={(item) => {
+          changeSnapshot(Number(item.id))
+          setSnapshotPickerOpen(false)
+        }}
+        renderPreview={() => (
+          <div className="upstream-output-detail-section">
+            <Typography.Text strong>榜单前 10 首</Typography.Text>
+            {snapshotPreviewLoading ? (
+              <Skeleton active paragraph={{ rows: 8 }} title={false} />
+            ) : snapshotPreviewEntries.length ? (
+              <ol className="upstream-output-song-list">
+                {snapshotPreviewEntries.map((entry) => (
+                  <li key={entry.id}>
+                    <span>{entry.rank}</span>
+                    <strong>{entry.title}</strong>
+                    <small>{entry.artist}</small>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该快照暂无歌曲" />
+            )}
+          </div>
+        )}
+      />
 
       <Drawer
         title={`分析报告${activeTask ? ` #${activeTask.id}` : ''}`}

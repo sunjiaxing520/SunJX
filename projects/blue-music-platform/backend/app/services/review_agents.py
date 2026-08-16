@@ -7,6 +7,7 @@ from app.adapters.text_generation import TextProviderError
 from app.core.exceptions import AppException
 from app.models import (
     LyricsAssistantMessage,
+    LyricsTask,
     LyricsVersion,
     ReviewAgent,
     ReviewAgentMember,
@@ -175,8 +176,9 @@ def list_review_lyrics_options(
     limit: int = 100,
 ) -> list[ReviewLyricsOption]:
     _ensure_has_any_review_access(db, user)
-    versions = db.scalars(
-        select(LyricsVersion)
+    rows = db.execute(
+        select(LyricsVersion, LyricsTask)
+        .join(LyricsTask, LyricsTask.id == LyricsVersion.task_id)
         .order_by(LyricsVersion.created_at.desc(), LyricsVersion.id.desc())
         .limit(limit)
     ).all()
@@ -186,9 +188,15 @@ def list_review_lyrics_options(
             task_id=version.task_id,
             version_number=version.version_number,
             title=version.title,
+            theme=task.theme,
+            content=version.content,
+            style_prompt=version.style_prompt,
+            is_saved=version.is_saved,
+            provider=task.provider,
+            model=task.model,
             created_at=version.created_at,
         )
-        for version in versions
+        for version, task in rows
     ]
 
 

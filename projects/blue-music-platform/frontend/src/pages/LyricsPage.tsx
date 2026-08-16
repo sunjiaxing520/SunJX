@@ -21,10 +21,8 @@ import {
 import {
   BookmarkCheck,
   Check,
-  ChevronRight,
   Copy,
   Eye,
-  FolderOpen,
   MessageCircleMore,
   RefreshCw,
   RotateCw,
@@ -39,13 +37,18 @@ import { listAnalysisTasks } from '../api/analysis'
 import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
+import {
+  UpstreamOutputField,
+  UpstreamOutputPicker,
+  type UpstreamOutputItem,
+} from '../components/UpstreamOutputPicker'
 import { totalTaskTokens } from '../lib/apiUsage'
 import {
   ANALYSIS_CATEGORY_LABELS,
   ANALYSIS_CATEGORY_ORDER,
   analysisDirectionFormValues,
-  analysisDirectionLabel,
   buildLyricsAnalysisDirections,
+  type LyricsAnalysisDirection,
 } from '../lib/lyricsAnalysis'
 import {
   deleteLyricsTask,
@@ -62,7 +65,6 @@ import {
 import { errorMessage } from '../lib/errors'
 import type {
   AnalysisTask,
-  FavoriteCategory,
   FavoriteItem,
   LyricsAssistantMessage,
   LyricsCreatePayload,
@@ -96,7 +98,6 @@ export function LyricsPage() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
   const [analysisFavorites, setAnalysisFavorites] = useState<FavoriteItem[]>([])
   const [analysisPickerOpen, setAnalysisPickerOpen] = useState(false)
-  const [analysisCategory, setAnalysisCategory] = useState<FavoriteCategory>('unclassified')
   const [favoriteTargetId, setFavoriteTargetId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -249,8 +250,38 @@ export function LyricsPage() {
     [analysisFavorites, analysisTasks],
   )
   const selectedAnalysisValue = Form.useWatch('analysis_direction', form)
-  const selectedAnalysisDirection = directions.find(
-    (item) => item.value === selectedAnalysisValue,
+  const analysisPickerItems = useMemo<UpstreamOutputItem[]>(() => directions.map((item) => ({
+    id: item.value,
+    title: item.direction.name,
+    source: `榜单分析 #${item.analysisTaskId} · 报告 #${item.reportId} · 方向 ${item.directionIndex + 1}`,
+    summary: item.summary,
+    createdAt: item.createdAt,
+    group: item.category,
+    tags: [
+      ...item.direction.genre_tags,
+      ...item.direction.mood_tags,
+      ...item.direction.scene_tags,
+    ].filter((tag, index, values) => values.indexOf(tag) === index).slice(0, 6),
+    meta: [
+      { label: '分析任务', value: `#${item.analysisTaskId}` },
+      { label: '分析报告', value: `#${item.reportId}` },
+      { label: '创作方向', value: `方向 ${item.directionIndex + 1}` },
+      { label: '收藏等级', value: ANALYSIS_CATEGORY_LABELS[item.category] },
+      { label: '语言', value: item.direction.language },
+      { label: '速度', value: { slow: '慢速', medium: '适中', fast: '快速' }[item.direction.tempo] },
+    ],
+    searchText: [
+      item.analysisTaskId,
+      item.reportId,
+      item.direction.name,
+      item.direction.hook_direction,
+      ...item.direction.theme_keywords,
+      ...item.direction.negative_constraints,
+    ].join(' '),
+  })), [directions])
+  const selectedAnalysisItem = useMemo(
+    () => analysisPickerItems.find((item) => item.id === selectedAnalysisValue) ?? null,
+    [analysisPickerItems, selectedAnalysisValue],
   )
 
   const chooseDirection = (value?: string) => {
@@ -265,7 +296,6 @@ export function LyricsPage() {
   }
 
   const openAnalysisPicker = () => {
-    setAnalysisCategory(selectedAnalysisDirection?.category ?? 'unclassified')
     setAnalysisPickerOpen(true)
   }
 
@@ -453,26 +483,12 @@ export function LyricsPage() {
           <Form.Item name="analysis_direction" hidden><Input /></Form.Item>
           <div className="form-grid">
             <Form.Item label="引用分析方向" className="form-span-full">
-              <button
-                type="button"
-                className={`analysis-direction-trigger ${selectedAnalysisDirection ? 'selected' : ''}`}
+              <UpstreamOutputField
+                label="当前引用的分析方向"
+                placeholder="从最近产出或分级收藏中选择"
+                item={selectedAnalysisItem}
                 onClick={openAnalysisPicker}
-              >
-                <span className="analysis-direction-trigger-icon"><FolderOpen size={18} /></span>
-                <span className="analysis-direction-trigger-copy">
-                  <strong>
-                    {selectedAnalysisDirection
-                      ? analysisDirectionLabel(selectedAnalysisDirection)
-                      : '从分级分析中选择'}
-                  </strong>
-                  <small>
-                    {selectedAnalysisDirection
-                      ? ANALYSIS_CATEGORY_LABELS[selectedAnalysisDirection.category]
-                      : '待分类、S、A、B、C、D'}
-                  </small>
-                </span>
-                <ChevronRight size={17} />
-              </button>
+              />
             </Form.Item>
             <Form.Item name="title_hint" label="歌名方向">
               <Input placeholder="可留空自动生成" maxLength={200} />
@@ -554,52 +570,26 @@ export function LyricsPage() {
         </CollapsibleList>
       </section>
 
-      <Drawer
+      <UpstreamOutputPicker
         title="选择分析方向"
         open={analysisPickerOpen}
         onClose={() => setAnalysisPickerOpen(false)}
-        size="large"
-        className="analysis-direction-drawer"
-      >
-        <Typography.Paragraph type="secondary" className="analysis-direction-intro">
-          已收藏的分析按等级归档，未分级的分析位于待分类。选择后会自动填写创作参数，提交前仍可修改。
-        </Typography.Paragraph>
-        <Tabs
-          activeKey={analysisCategory}
-          onChange={(key) => setAnalysisCategory(key as FavoriteCategory)}
-          items={ANALYSIS_CATEGORY_ORDER.map((category) => {
-            const categoryDirections = directions.filter((item) => item.category === category)
-            return {
-              key: category,
-              label: `${ANALYSIS_CATEGORY_LABELS[category]} (${categoryDirections.length})`,
-              children: categoryDirections.length ? (
-                <div className="analysis-direction-list">
-                  {categoryDirections.map((item) => (
-                    <button
-                      type="button"
-                      key={item.value}
-                      className={`analysis-direction-item ${item.value === selectedAnalysisValue ? 'selected' : ''}`}
-                      onClick={() => chooseDirection(item.value)}
-                    >
-                      <span className="analysis-direction-item-heading">
-                        <strong>{analysisDirectionLabel(item)}</strong>
-                        <Tag color={item.value === selectedAnalysisValue ? 'success' : undefined}>
-                          {ANALYSIS_CATEGORY_LABELS[item.category]}
-                        </Tag>
-                      </span>
-                      <span className="analysis-direction-item-name">{item.direction.name}</span>
-                      <span className="analysis-direction-item-summary">{item.summary}</span>
-                      <small>{new Date(item.createdAt).toLocaleString('zh-CN', { hour12: false })}</small>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`${ANALYSIS_CATEGORY_LABELS[category]}暂无分析方向`} />
-              ),
-            }
-          })}
-        />
-      </Drawer>
+        description="按最近产出或收藏等级查找分析方向。先核对趋势依据和创作参数，确认后再自动填入表单。"
+        items={analysisPickerItems}
+        selectedId={selectedAnalysisValue}
+        loading={loading}
+        groups={ANALYSIS_CATEGORY_ORDER.map((category) => ({
+          key: category,
+          label: ANALYSIS_CATEGORY_LABELS[category],
+        }))}
+        emptyText="暂无可用的分析方向"
+        confirmLabel="选择并填入表单"
+        onConfirm={(item) => chooseDirection(String(item.id))}
+        renderPreview={(item) => {
+          const choice = directions.find((direction) => direction.value === item.id)
+          return choice ? <AnalysisDirectionPreview choice={choice} /> : null
+        }}
+      />
 
       <Drawer
         title={activeTask ? `歌词任务 #${activeTask.id}` : '歌词任务'}
@@ -649,6 +639,36 @@ export function LyricsPage() {
           </div>
         ) : <Empty description="暂无歌词版本" />}
       </Drawer>
+    </div>
+  )
+}
+
+function AnalysisDirectionPreview({ choice }: { choice: LyricsAnalysisDirection }) {
+  const direction = choice.direction
+  return (
+    <div className="upstream-output-detail-section">
+      <div>
+        <Typography.Text strong>副歌与传播方向</Typography.Text>
+        <Typography.Paragraph>{direction.hook_direction || '未提供副歌方向'}</Typography.Paragraph>
+      </div>
+      <div>
+        <Typography.Text strong>主题关键词</Typography.Text>
+        <div className="upstream-output-detail-tags">
+          {direction.theme_keywords.map((tag) => <Tag key={tag}>{tag}</Tag>)}
+        </div>
+      </div>
+      <div>
+        <Typography.Text strong>人声表达</Typography.Text>
+        <Typography.Paragraph>{direction.vocal_style || '未指定'}</Typography.Paragraph>
+      </div>
+      <div>
+        <Typography.Text strong>结构建议</Typography.Text>
+        <Typography.Paragraph>{direction.structure.join(' → ') || '未指定'}</Typography.Paragraph>
+      </div>
+      <div>
+        <Typography.Text strong>避免内容</Typography.Text>
+        <Typography.Paragraph>{direction.negative_constraints.join('；') || '无'}</Typography.Paragraph>
+      </div>
     </div>
   )
 }

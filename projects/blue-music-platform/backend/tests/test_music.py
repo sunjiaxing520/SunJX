@@ -524,6 +524,19 @@ def test_lyrics_assistant_and_review_agent_respect_member_memory_privacy(
     assert member_agents.json()[0]["memory_detail"] is None
     assert member_agents.json()[0]["initialization_notes"] is None
 
+    lyrics_options = music_context.client.get(
+        "/api/v1/review-agents/lyrics-options",
+        headers=member_headers,
+    )
+    assert lyrics_options.status_code == 200
+    selected_option = next(
+        item for item in lyrics_options.json() if item["id"] == confirmed.json()["id"]
+    )
+    assert selected_option["content"] == confirmed.json()["content"]
+    assert selected_option["style_prompt"] == confirmed.json()["style_prompt"]
+    assert selected_option["theme"] == "Assistant review test"
+    assert selected_option["is_saved"] is True
+
     review = music_context.client.post(
         f"/api/v1/review-agents/{review_agent.json()['id']}/reviews",
         headers=member_headers,

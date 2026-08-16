@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as favoriteApi from '../api/favorites'
 import * as reviewAgentApi from '../api/reviewAgents'
 import * as userApi from '../api/users'
 import type {
@@ -48,6 +49,10 @@ vi.mock('../api/reviewAgents', () => ({
   saveReviewAgentMemory: vi.fn(),
   updateReviewAgentMembers: vi.fn(),
   updateReviewAgentSettings: vi.fn(),
+}))
+
+vi.mock('../api/favorites', () => ({
+  listFavorites: vi.fn(),
 }))
 
 vi.mock('../api/users', () => ({
@@ -180,6 +185,7 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(reviewAgentApi.listReviewAgents).mockResolvedValue([reviewAgent])
+  vi.mocked(favoriteApi.listFavorites).mockResolvedValue({ items: [], total: 0 })
   vi.mocked(reviewAgentApi.listReviewLyricsOptions).mockResolvedValue([])
   vi.mocked(reviewAgentApi.listReviewRevisionMessages).mockResolvedValue({ items: [] })
   vi.mocked(reviewAgentApi.listReviewRuns).mockResolvedValue({ items: [], total: 0 })

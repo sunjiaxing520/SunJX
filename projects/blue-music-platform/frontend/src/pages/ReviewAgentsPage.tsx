@@ -11,7 +11,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Select,
   Skeleton,
   Space,
   Tag,
@@ -49,10 +48,21 @@ import {
   updateReviewAgentMembers,
   updateReviewAgentSettings,
 } from '../api/reviewAgents'
+import { listFavorites } from '../api/favorites'
 import { listUsers } from '../api/users'
 import { useAuth } from '../auth/useAuth'
+import { LyricsOutputPreview } from '../components/LyricsOutputPreview'
+import {
+  UpstreamOutputField,
+  UpstreamOutputPicker,
+} from '../components/UpstreamOutputPicker'
 import { errorMessage } from '../lib/errors'
+import {
+  buildLyricsOutputItems,
+  FAVORITE_OUTPUT_GROUPS,
+} from '../lib/upstreamOutputs'
 import type {
+  FavoriteItem,
   LyricsAssistantMessage,
   ReviewAgent,
   ReviewChatMessage,
@@ -89,6 +99,8 @@ export function ReviewAgentsPage() {
   const [agents, setAgents] = useState<ReviewAgent[]>([])
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null)
   const [lyricsOptions, setLyricsOptions] = useState<ReviewLyricsOption[]>([])
+  const [lyricsFavorites, setLyricsFavorites] = useState<FavoriteItem[]>([])
+  const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false)
   const [reviewRuns, setReviewRuns] = useState<ReviewResult[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -124,6 +136,14 @@ export function ReviewAgentsPage() {
     () => memberAccounts.filter((account) => memberIds.includes(account.id)).length,
     [memberAccounts, memberIds],
   )
+  const lyricsPickerItems = useMemo(
+    () => buildLyricsOutputItems(lyricsOptions, lyricsFavorites),
+    [lyricsFavorites, lyricsOptions],
+  )
+  const selectedLyricsItem = useMemo(
+    () => lyricsPickerItems.find((item) => item.id === lyricsVersionId) ?? null,
+    [lyricsPickerItems, lyricsVersionId],
+  )
 
   const replaceAgent = useCallback((nextAgent: ReviewAgent) => {
     setAgents((current) => current.map((agent) => agent.id === nextAgent.id ? nextAgent : agent))
@@ -154,6 +174,8 @@ export function ReviewAgentsPage() {
   useEffect(() => {
     if (!activeAgent) {
       setLyricsOptions([])
+      setLyricsFavorites([])
+      setLyricsPickerOpen(false)
       setReviewRuns([])
       return
     }
@@ -162,13 +184,18 @@ export function ReviewAgentsPage() {
     const loadDetails = async () => {
       setLoadingDetails(true)
       try {
-        const [options, history] = await Promise.all([
+        const [options, history, favoriteHistory] = await Promise.all([
           listReviewLyricsOptions(),
           listReviewRuns(activeAgent.id),
+          listFavorites('lyrics'),
         ])
         if (cancelled) return
         setLyricsOptions(options)
+        setLyricsFavorites(favoriteHistory.items)
         setReviewRuns(history.items)
+        setLyricsVersionId((current) => (
+          current && options.some((option) => option.id === current) ? current : null
+        ))
         setMemberIds(activeAgent.members.map((member) => member.id))
         setSettingsPassScore(activeAgent.pass_score)
       } catch (detailsError) {
@@ -501,17 +528,12 @@ export function ReviewAgentsPage() {
                 </div>
                 <Form layout="vertical" requiredMark={false}>
                   <Form.Item label="歌词版本" required>
-                    <Select
-                      showSearch
-                      optionFilterProp="label"
-                      value={lyricsVersionId}
-                      loading={loadingDetails}
-                      placeholder="选择歌词版本"
-                      options={lyricsOptions.map((option) => ({
-                        value: option.id,
-                        label: `${option.title} · 第 ${option.version_number} 版 · 任务 #${option.task_id}`,
-                      }))}
-                      onChange={(value) => setLyricsVersionId(value)}
+                    <UpstreamOutputField
+                      label="当前待审核歌词"
+                      placeholder="从最近歌词或分级收藏中选择"
+                      item={selectedLyricsItem}
+                      disabled={!lyricsOptions.length || loadingDetails}
+                      onClick={() => setLyricsPickerOpen(true)}
                     />
                   </Form.Item>
                   <Form.Item label="本次补充要求">
@@ -598,6 +620,26 @@ export function ReviewAgentsPage() {
           </Empty>
         </div>
       )}
+
+      <UpstreamOutputPicker
+        open={lyricsPickerOpen}
+        title="选择待审核歌词"
+        description="按最近产出或收藏等级查找歌词。先核对主题、版本、风格和正文，确认后再发起审核。"
+        items={lyricsPickerItems}
+        selectedId={lyricsVersionId}
+        groups={FAVORITE_OUTPUT_GROUPS}
+        loading={loadingDetails}
+        emptyText="暂无可审核的歌词版本"
+        onClose={() => setLyricsPickerOpen(false)}
+        onConfirm={(item) => {
+          setLyricsVersionId(Number(item.id))
+          setLyricsPickerOpen(false)
+        }}
+        renderPreview={(item) => {
+          const source = lyricsOptions.find((option) => option.id === Number(item.id))
+          return source ? <LyricsOutputPreview source={source} /> : null
+        }}
+      />
 
       <Modal
         title="新建审核智能体"

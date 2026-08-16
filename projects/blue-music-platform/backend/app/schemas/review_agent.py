@@ -83,6 +83,12 @@ class ReviewLyricsOption(BaseModel):
     task_id: int
     version_number: int
     title: str
+    theme: str
+    content: str
+    style_prompt: str
+    is_saved: bool
+    provider: str
+    model: str | None
     created_at: datetime
 
 

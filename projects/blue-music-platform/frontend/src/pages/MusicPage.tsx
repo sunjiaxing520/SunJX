@@ -57,9 +57,18 @@ import {
 } from '../api/music'
 import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
+import { LyricsOutputPreview } from '../components/LyricsOutputPreview'
+import {
+  UpstreamOutputField,
+  UpstreamOutputPicker,
+} from '../components/UpstreamOutputPicker'
 import { errorMessage } from '../lib/errors'
+import {
+  buildLyricsOutputItems,
+  FAVORITE_OUTPUT_GROUPS,
+  type LyricsOutputSource,
+} from '../lib/upstreamOutputs'
 import type {
-  LyricsVersion,
   FavoriteItem,
   MusicAdaptPayload,
   MusicCreatePayload,
@@ -125,7 +134,9 @@ export function MusicPage() {
   const [extendForm] = Form.useForm<ExtendFormValues>()
   const [adaptForm] = Form.useForm<AdaptFormValues>()
   const [providerStatus, setProviderStatus] = useState<SunoProviderStatus | null>(null)
-  const [lyricsVersions, setLyricsVersions] = useState<LyricsVersion[]>([])
+  const [lyricsVersions, setLyricsVersions] = useState<LyricsOutputSource[]>([])
+  const [lyricsFavorites, setLyricsFavorites] = useState<FavoriteItem[]>([])
+  const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false)
   const [tasks, setTasks] = useState<MusicTask[]>([])
   const [results, setResults] = useState<MusicResult[]>([])
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
@@ -146,24 +157,40 @@ export function MusicPage() {
   const [regeneratingTaskId, setRegeneratingTaskId] = useState<number | null>(null)
   const [updatingModel, setUpdatingModel] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const selectedLyricsVersionId = Form.useWatch('lyrics_version_id', form)
+  const lyricsPickerItems = useMemo(
+    () => buildLyricsOutputItems(lyricsVersions, lyricsFavorites),
+    [lyricsFavorites, lyricsVersions],
+  )
+  const selectedLyricsItem = useMemo(
+    () => lyricsPickerItems.find((item) => item.id === selectedLyricsVersionId) ?? null,
+    [lyricsPickerItems, selectedLyricsVersionId],
+  )
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [provider, lyrics, taskHistory, resultHistory, favoriteHistory] = await Promise.all([
+      const [provider, lyrics, taskHistory, resultHistory, favoriteHistory, lyricsFavoriteHistory] = await Promise.all([
         getSunoProviderStatus(),
         listLyricsTasks(),
         listMusicTasks(),
         listMusicResults(),
         listFavorites('music'),
+        listFavorites('lyrics'),
       ])
-      const versions = lyrics.items.flatMap((task) => task.versions).sort((a, b) => b.id - a.id)
+      const versions = lyrics.items.flatMap((task) => task.versions.map((version) => ({
+        ...version,
+        theme: task.theme,
+        provider: task.provider,
+        model: task.model,
+      }))).sort((a, b) => b.id - a.id)
       setProviderStatus(provider)
       setLyricsVersions(versions)
       setTasks(taskHistory.items)
       setResults(resultHistory.items)
       setFavorites(favoriteHistory.items)
+      setLyricsFavorites(lyricsFavoriteHistory.items)
       setActiveTask((current) =>
         current ? taskHistory.items.find((task) => task.id === current.id) ?? current : null,
       )
@@ -194,9 +221,11 @@ export function MusicPage() {
     const version = lyricsVersions.find((item) => item.id === versionId)
     if (!version) return
     form.setFieldsValue({
+      lyrics_version_id: version.id,
       title: version.title,
       style_prompt: version.style_prompt,
     })
+    setLyricsPickerOpen(false)
   }
 
   const removeOverlappingTags = (field: 'style_tags' | 'negative_tags', values: string[]) => {
@@ -581,21 +610,21 @@ export function MusicPage() {
             layout="vertical"
             initialValues={{ instrumental: false }}
           >
+            <Form.Item
+              name="lyrics_version_id"
+              hidden
+              rules={[{ required: true, message: '请选择歌词版本' }]}
+            >
+              <Input />
+            </Form.Item>
             <div className="form-grid">
-              <Form.Item
-                name="lyrics_version_id"
-                label="歌词版本"
-                rules={[{ required: true, message: '请选择歌词版本' }]}
-              >
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="选择已生成的歌词"
-                  options={lyricsVersions.map((version) => ({
-                    value: version.id,
-                    label: `${version.title} · 第 ${version.version_number} 版 · #${version.id}`,
-                  }))}
-                  onChange={selectLyricsVersion}
+              <Form.Item label="歌词版本" required className="form-span-full">
+                <UpstreamOutputField
+                  label="当前用于音乐创作的歌词"
+                  placeholder="从最近歌词或分级收藏中选择"
+                  item={selectedLyricsItem}
+                  disabled={loading || !lyricsVersions.length}
+                  onClick={() => setLyricsPickerOpen(true)}
                 />
               </Form.Item>
               <Form.Item name="title" label="歌曲标题">
@@ -679,6 +708,23 @@ export function MusicPage() {
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可试听音乐" />
         )}
       </section>
+
+      <UpstreamOutputPicker
+        open={lyricsPickerOpen}
+        title="选择音乐创作歌词"
+        description="按最近产出或收藏等级查找歌词。先核对版本、风格与完整正文，确认后再填写 Suno 任务。"
+        items={lyricsPickerItems}
+        selectedId={selectedLyricsVersionId}
+        groups={FAVORITE_OUTPUT_GROUPS}
+        loading={loading}
+        emptyText="暂无可用于音乐创作的歌词版本"
+        onClose={() => setLyricsPickerOpen(false)}
+        onConfirm={(item) => selectLyricsVersion(Number(item.id))}
+        renderPreview={(item) => {
+          const source = lyricsVersions.find((version) => version.id === Number(item.id))
+          return source ? <LyricsOutputPreview source={source} /> : null
+        }}
+      />
 
       <section className="content-section">
         <div className="section-title-row">

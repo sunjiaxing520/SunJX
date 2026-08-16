@@ -720,6 +720,12 @@ export interface ReviewLyricsOption {
   task_id: number
   version_number: number
   title: string
+  theme: string
+  content: string
+  style_prompt: string
+  is_saved: boolean
+  provider: string
+  model: string | null
   created_at: string
 }
 

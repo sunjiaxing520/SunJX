@@ -22,8 +22,10 @@
 14. `03-implementation/P4-P6_榜单分析作词维护说明.md`
 15. `03-implementation/P6.5_线性自动工作流维护说明.md`
 16. `03-implementation/P7_Suno音乐创作维护说明.md`
-17. `03-implementation/接手评估.md`
-18. `03-implementation/06_实现方向与接口设计.md`
+17. `03-implementation/P8_创作协作与审核体验维护说明.md`
+18. `03-implementation/P8.1_上游产出选择器维护说明.md`
+19. `03-implementation/接手评估.md`
+20. `03-implementation/06_实现方向与接口设计.md`
 
 ## 目录说明
 
