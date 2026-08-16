@@ -240,9 +240,8 @@ describe('ReviewAgentsPage member permissions', () => {
     )
 
     await screen.findByText('审核 #77')
-    await waitFor(() => {
-      expect(reviewAgentApi.listReviewRevisionMessages).toHaveBeenCalledWith(10, 77)
-    })
+    expect(reviewAgentApi.listReviewRevisionMessages).not.toHaveBeenCalled()
+    expect(screen.queryByRole('textbox', { name: '审核后歌词修改要求' })).not.toBeInTheDocument()
     expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
 
     const expandButton = screen.getByRole('button', { name: '展开审核结果' })
@@ -275,6 +274,11 @@ describe('ReviewAgentsPage member permissions', () => {
     await screen.findByText('审核 #77')
     expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
 
+    await user.click(screen.getByRole('button', { name: '展开 AI 修改' }))
+    await waitFor(() => {
+      expect(reviewAgentApi.listReviewRevisionMessages).toHaveBeenCalledWith(10, 77)
+    })
+
     const revisionInput = screen.getByRole('textbox', { name: '审核后歌词修改要求' })
     await user.type(revisionInput, revisionUserMessage.content)
     await user.click(screen.getByRole('button', { name: '发送审核修改要求' }))
@@ -296,5 +300,38 @@ describe('ReviewAgentsPage member permissions', () => {
     })
     expect(await screen.findByRole('button', { name: '当前作品' })).toBeDisabled()
     expect(screen.getByText('当前作品 V3')).toBeInTheDocument()
+  })
+
+  it('shows only the latest two AI revision messages until older history is expanded', async () => {
+    const user = userEvent.setup()
+    const olderMessage: LyricsAssistantMessage = {
+      ...revisionUserMessage,
+      id: 89,
+      content: '这是更早的一条修改要求。',
+    }
+    vi.mocked(reviewAgentApi.listReviewRuns).mockResolvedValue({ items: [reviewRun], total: 1 })
+    vi.mocked(reviewAgentApi.listReviewRevisionMessages).mockResolvedValue({
+      items: [olderMessage, revisionUserMessage, revisionPreviewMessage],
+    })
+
+    render(
+      <App>
+        <ReviewAgentsPage />
+      </App>,
+    )
+
+    await screen.findByText('审核 #77')
+    await user.click(screen.getByRole('button', { name: '展开 AI 修改' }))
+
+    expect(await screen.findByText(revisionUserMessage.content)).toBeInTheDocument()
+    expect(screen.getByText('改写后的副歌')).toBeInTheDocument()
+    expect(screen.queryByText(olderMessage.content)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '展开更早 1 条' }))
+    expect(screen.getByText(olderMessage.content)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '收起 AI 修改' }))
+    expect(screen.queryByText(olderMessage.content)).not.toBeInTheDocument()
+    expect(screen.getByText('已省略 3 条对话')).toBeInTheDocument()
   })
 })

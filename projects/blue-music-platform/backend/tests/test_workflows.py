@@ -219,6 +219,53 @@ def test_analysis_can_select_an_earlier_chart_snapshot(
     assert refreshed_snapshots[0]["id"] == rising.json()["snapshot_id"]
 
 
+def test_collection_task_and_snapshot_have_stable_detail_routes(
+    workflow_context: WorkflowContext,
+) -> None:
+    created = _collect_sample(workflow_context, date.today(), chart="rising", limit=10)
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+    snapshot_id = created.json()["snapshot_id"]
+
+    task = workflow_context.client.get(
+        f"/api/v1/rankings/collections/{task_id}",
+        headers=_headers(workflow_context),
+    )
+    snapshot = workflow_context.client.get(
+        f"/api/v1/rankings/snapshots/{snapshot_id}",
+        headers=_headers(workflow_context),
+    )
+    assert task.status_code == 200
+    assert task.json()["snapshot_id"] == snapshot_id
+    assert snapshot.status_code == 200
+    assert snapshot.json()["id"] == snapshot_id
+    assert snapshot.json()["chart_code"] == "6666"
+
+    deleted = workflow_context.client.delete(
+        f"/api/v1/rankings/collections/{task_id}",
+        headers=_headers(workflow_context),
+    )
+    assert deleted.status_code == 204
+    missing_task = workflow_context.client.get(
+        f"/api/v1/rankings/collections/{task_id}",
+        headers=_headers(workflow_context),
+    )
+    preserved_snapshot = workflow_context.client.get(
+        f"/api/v1/rankings/snapshots/{snapshot_id}",
+        headers=_headers(workflow_context),
+    )
+    assert missing_task.status_code == 404
+    assert missing_task.json()["error"]["code"] == "CRAWLER_TASK_NOT_FOUND"
+    assert preserved_snapshot.status_code == 200
+
+    missing_snapshot = workflow_context.client.get(
+        "/api/v1/rankings/snapshots/999999",
+        headers=_headers(workflow_context),
+    )
+    assert missing_snapshot.status_code == 404
+    assert missing_snapshot.json()["error"]["code"] == "RANKING_SNAPSHOT_NOT_FOUND"
+
+
 def test_workflow_rising_chart_analyzes_only_configured_rank(
     workflow_context: WorkflowContext,
     monkeypatch: pytest.MonkeyPatch,

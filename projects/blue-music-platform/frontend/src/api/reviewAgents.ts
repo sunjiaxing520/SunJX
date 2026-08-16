@@ -78,6 +78,10 @@ export function listReviewRuns(agentId: number): Promise<ReviewList> {
   return apiRequest<ReviewList>(`/review-agents/${agentId}/reviews?limit=20`)
 }
 
+export function getReviewRun(agentId: number, reviewId: number): Promise<ReviewResult> {
+  return apiRequest<ReviewResult>(`/review-agents/${agentId}/reviews/${reviewId}`)
+}
+
 export function listReviewRevisionMessages(
   agentId: number,
   reviewId: number,

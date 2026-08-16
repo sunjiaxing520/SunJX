@@ -28,6 +28,7 @@ from app.services.review_agents import (
     create_review_revision_preview,
     create_review_agent,
     get_review_agent,
+    get_review_run,
     list_review_agents,
     list_review_lyrics_options,
     list_review_runs,
@@ -127,6 +128,16 @@ def review_agent_review_history(
     limit: int = Query(default=20, ge=1, le=100),
 ) -> ReviewListResponse:
     return list_review_runs(db, agent_id, user, limit)
+
+
+@router.get("/{agent_id}/reviews/{review_id}", response_model=ReviewResultResponse)
+def review_agent_review_detail(
+    agent_id: int,
+    review_id: int,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> ReviewResultResponse:
+    return get_review_run(db, agent_id, review_id, user)
 
 
 @router.get(

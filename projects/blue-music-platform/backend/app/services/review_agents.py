@@ -299,6 +299,15 @@ def list_review_runs(
     )
 
 
+def get_review_run(
+    db: Session,
+    agent_id: int,
+    review_id: int,
+    user: User,
+) -> ReviewResultResponse:
+    return review_result_response(_get_review_run(db, agent_id, review_id, user))
+
+
 def list_review_revision_messages(
     db: Session,
     agent_id: int,
@@ -468,6 +477,24 @@ def _review_revision_source(
     review_id: int,
     user: User,
 ) -> tuple[ReviewRun, LyricsVersion]:
+    run = _get_review_run(db, agent_id, review_id, user)
+    version = db.get(LyricsVersion, run.lyrics_version_id) if run.lyrics_version_id else None
+    if version is None:
+        raise AppException(
+            code="REVIEW_LYRICS_VERSION_NOT_FOUND",
+            message="被审核的歌词版本不存在，无法继续修改",
+            status_code=409,
+            detail={"review_id": review_id, "lyrics_version_id": run.lyrics_version_id},
+        )
+    return run, version
+
+
+def _get_review_run(
+    db: Session,
+    agent_id: int,
+    review_id: int,
+    user: User,
+) -> ReviewRun:
     require_review_agent_access(db, agent_id, user)
     run = db.scalar(
         select(ReviewRun).where(
@@ -481,15 +508,7 @@ def _review_revision_source(
             message="审核记录不存在",
             status_code=404,
         )
-    version = db.get(LyricsVersion, run.lyrics_version_id) if run.lyrics_version_id else None
-    if version is None:
-        raise AppException(
-            code="REVIEW_LYRICS_VERSION_NOT_FOUND",
-            message="被审核的歌词版本不存在，无法继续修改",
-            status_code=409,
-            detail={"review_id": review_id, "lyrics_version_id": run.lyrics_version_id},
-        )
-    return run, version
+    return run
 
 
 def _review_revision_guidance(run: ReviewRun) -> str:

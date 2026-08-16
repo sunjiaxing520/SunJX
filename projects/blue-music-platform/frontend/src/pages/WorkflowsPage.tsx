@@ -37,7 +37,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 
 import {
   createWorkflowTemplate,
@@ -54,6 +53,7 @@ import { listReviewAgents } from '../api/reviewAgents'
 import { hasAgentAccess } from '../auth/permissions'
 import { useAuth } from '../auth/useAuth'
 import { CollapsibleList } from '../components/CollapsibleList'
+import { WorkflowStepOutputDrawer } from '../components/WorkflowStepOutputDrawer'
 import { errorMessage } from '../lib/errors'
 import {
   toggleWorkflowStep,
@@ -231,7 +231,6 @@ function DataHandoffs({ steps }: { steps: WorkflowStepType[] }) {
 export function WorkflowsPage() {
   const { user } = useAuth()
   const { message } = App.useApp()
-  const navigate = useNavigate()
   const [form] = Form.useForm<WorkflowFormValues>()
   const selectedSteps = Form.useWatch('steps', form) ?? []
   const collectionChart = Form.useWatch('collection_chart', form) ?? 'top500'
@@ -249,6 +248,10 @@ export function WorkflowsPage() {
   const [deletingRunIds, setDeletingRunIds] = useState<number[]>([])
   const [reviewDecisionRunId, setReviewDecisionRunId] = useState<number | null>(null)
   const [reviewRevisionDrafts, setReviewRevisionDrafts] = useState<Record<number, string>>({})
+  const [outputSelection, setOutputSelection] = useState<{
+    runId: number
+    stepId: number
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const allowedSteps = useMemo(() => {
@@ -622,14 +625,16 @@ export function WorkflowsPage() {
     },
   ]
 
-  const openStepResult = (step: WorkflowRunStep) => {
-    if (!step.task_id) return
-    if (step.step_type === 'collection') navigate('/rankings')
-    if (step.step_type === 'analysis') navigate(`/analysis?task_id=${step.task_id}`)
-    if (step.step_type === 'lyrics') navigate(`/lyrics?task_id=${step.task_id}`)
-    if (step.step_type === 'review') navigate('/review-agents')
-    if (step.step_type === 'music') navigate(`/music?task_id=${step.task_id}`)
+  const openStepResult = (run: WorkflowRun, step: WorkflowRunStep) => {
+    setOutputSelection({ runId: run.id, stepId: step.id })
   }
+
+  const outputRun = outputSelection
+    ? runs.find((run) => run.id === outputSelection.runId) ?? null
+    : null
+  const outputStep = outputRun && outputSelection
+    ? outputRun.steps.find((step) => step.id === outputSelection.stepId) ?? null
+    : null
 
   const runItems = runs.map((run) => {
     const statusMeta = STATUS_META[run.status]
@@ -711,8 +716,8 @@ export function WorkflowsPage() {
                           : '产出已删除'
                         : STATUS_META[step.status].label}
                   </span>
-                  {step.task_id && (
-                    <Button type="link" size="small" onClick={() => openStepResult(step)}>
+                  {(step.task_id || step.output_id || step.result_detail) && (
+                    <Button type="link" size="small" onClick={() => openStepResult(run, step)}>
                       {step.status === 'completed' ? '查看产出' : '查看任务'}
                     </Button>
                   )}
@@ -776,8 +781,8 @@ export function WorkflowsPage() {
                   打回 AI 修改并重审
                 </Button>
                 {lyricsStep?.task_id && (
-                  <Button onClick={() => navigate(`/lyrics?task_id=${lyricsStep.task_id}`)}>
-                    打开歌词详情
+                  <Button onClick={() => openStepResult(run, lyricsStep)}>
+                    查看当前歌词
                   </Button>
                 )}
                 <Button
@@ -1154,6 +1159,12 @@ export function WorkflowsPage() {
           </div>
         )}
       </section>
+      <WorkflowStepOutputDrawer
+        open={Boolean(outputSelection && outputRun && outputStep)}
+        run={outputRun}
+        step={outputStep}
+        onClose={() => setOutputSelection(null)}
+      />
     </div>
   )
 }

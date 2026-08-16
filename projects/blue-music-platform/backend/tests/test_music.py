@@ -549,6 +549,14 @@ def test_lyrics_assistant_and_review_agent_respect_member_memory_privacy(
     assert review.json()["result"]["overall_score"] >= 0
     assert review.json()["result"]["dimensions"]
 
+    review_detail = music_context.client.get(
+        f"/api/v1/review-agents/{review_agent.json()['id']}"
+        f"/reviews/{review.json()['id']}",
+        headers=member_headers,
+    )
+    assert review_detail.status_code == 200
+    assert review_detail.json() == review.json()
+
     unrelated_preview = music_context.client.post(
         f"/api/v1/review-agents/{review_agent.json()['id']}"
         f"/reviews/{review.json()['id']}/assistant-previews/{preview.json()['id']}/confirm",

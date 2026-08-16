@@ -725,6 +725,8 @@ function ReviewRunView({
 }) {
   const { message } = App.useApp()
   const [expanded, setExpanded] = useState(false)
+  const [assistantExpanded, setAssistantExpanded] = useState(false)
+  const [showAllRevisionMessages, setShowAllRevisionMessages] = useState(false)
   const [revisionMessages, setRevisionMessages] = useState<LyricsAssistantMessage[]>([])
   const [revisionInstruction, setRevisionInstruction] = useState('')
   const [revisionHistoryLoaded, setRevisionHistoryLoaded] = useState(false)
@@ -766,9 +768,16 @@ function ReviewRunView({
     run.lyrics_version_id,
   ])
 
-  useEffect(() => {
-    void loadRevisionHistory()
-  }, [loadRevisionHistory])
+  const visibleRevisionMessages = showAllRevisionMessages
+    ? revisionMessages
+    : revisionMessages.slice(-2)
+  const hiddenRevisionMessageCount = revisionMessages.length - visibleRevisionMessages.length
+
+  const toggleRevisionAssistant = () => {
+    const nextExpanded = !assistantExpanded
+    setAssistantExpanded(nextExpanded)
+    if (nextExpanded) void loadRevisionHistory()
+  }
 
   const requestRevision = async () => {
     const instruction = revisionInstruction.trim()
@@ -781,6 +790,7 @@ function ReviewRunView({
         const history = await listReviewRevisionMessages(agentId, run.id)
         setRevisionMessages(history.items)
         setRevisionHistoryLoaded(true)
+        setShowAllRevisionMessages(false)
       } catch {
         setRevisionMessages((current) => [...current, preview])
       }
@@ -818,77 +828,114 @@ function ReviewRunView({
           {score !== null && <span className="review-run-score">{score}<small> / {historicalPassScore} 分</small></span>}
         </Space>
       </div>
-      <div className="review-revision-assistant">
+      <div className={`review-revision-assistant${assistantExpanded ? '' : ' collapsed'}`}>
         <div className="review-revision-heading">
           <div>
             <MessageCircleMore size={16} />
             <strong>AI 修改</strong>
-            <Typography.Text type="secondary">已自动带入本次审核意见</Typography.Text>
+            <Typography.Text type="secondary">
+              {assistantExpanded
+                ? '已自动带入本次审核意见'
+                : revisionMessages.length
+                  ? `已省略 ${revisionMessages.length} 条对话`
+                  : '展开后查看对话并继续修改'}
+            </Typography.Text>
           </div>
-          {savedVersionNumber !== null && <Tag color="success">当前作品 V{savedVersionNumber}</Tag>}
+          <Space size={6}>
+            {savedVersionNumber !== null && <Tag color="success">当前作品 V{savedVersionNumber}</Tag>}
+            <Button
+              type="text"
+              size="small"
+              icon={assistantExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              aria-expanded={assistantExpanded}
+              aria-controls={`review-revision-assistant-${run.id}`}
+              onClick={toggleRevisionAssistant}
+            >
+              {assistantExpanded ? '收起 AI 修改' : '展开 AI 修改'}
+            </Button>
+          </Space>
         </div>
-        {run.lyrics_version_id ? (
-          <>
-            {revisionHistoryLoading && !revisionMessages.length ? (
-              <Skeleton active paragraph={{ rows: 2 }} title={false} />
-            ) : revisionMessages.length > 0 && (
-              <div className="review-revision-history" aria-label="审核修改对话记录">
-                {revisionMessages.map((item) => (
-                  <div className={`review-revision-message ${item.role}`} key={item.id}>
-                    <strong>{item.role === 'user' ? '你' : 'AI 助手'}</strong>
-                    <span>{item.content}</span>
-                    {item.preview && (
-                      <div className="review-revision-preview">
-                        <div className="review-revision-preview-heading">
-                          <div>
-                            <strong>{item.preview.title}</strong>
-                            <small>{item.preview.style_prompt}</small>
-                          </div>
-                          <Button
-                            type={currentPreviewId === item.id ? 'default' : 'primary'}
-                            size="small"
-                            icon={<Check size={14} />}
-                            loading={confirmingPreviewId === item.id}
-                            disabled={currentPreviewId === item.id || confirmingPreviewId !== null}
-                            onClick={() => void saveRevision(item.id)}
-                          >
-                            {currentPreviewId === item.id ? '当前作品' : '保存并设为当前作品'}
-                          </Button>
+        {assistantExpanded && (
+          <div id={`review-revision-assistant-${run.id}`}>
+            {run.lyrics_version_id ? (
+              <>
+                {revisionHistoryLoading && !revisionMessages.length ? (
+                  <Skeleton active paragraph={{ rows: 2 }} title={false} />
+                ) : revisionMessages.length > 0 && (
+                  <>
+                    <div className="review-revision-history" aria-label="审核修改对话记录">
+                      {visibleRevisionMessages.map((item) => (
+                        <div className={`review-revision-message ${item.role}`} key={item.id}>
+                          <strong>{item.role === 'user' ? '你' : 'AI 助手'}</strong>
+                          <span>{item.content}</span>
+                          {item.preview && (
+                            <div className="review-revision-preview">
+                              <div className="review-revision-preview-heading">
+                                <div>
+                                  <strong>{item.preview.title}</strong>
+                                  <small>{item.preview.style_prompt}</small>
+                                </div>
+                                <Button
+                                  type={currentPreviewId === item.id ? 'default' : 'primary'}
+                                  size="small"
+                                  icon={<Check size={14} />}
+                                  loading={confirmingPreviewId === item.id}
+                                  disabled={currentPreviewId === item.id || confirmingPreviewId !== null}
+                                  onClick={() => void saveRevision(item.id)}
+                                >
+                                  {currentPreviewId === item.id ? '当前作品' : '保存并设为当前作品'}
+                                </Button>
+                              </div>
+                              <pre>{item.preview.content}</pre>
+                            </div>
+                          )}
                         </div>
-                        <pre>{item.preview.content}</pre>
+                      ))}
+                    </div>
+                    {revisionMessages.length > 2 && (
+                      <div className="review-revision-history-toggle">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={showAllRevisionMessages ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          onClick={() => setShowAllRevisionMessages((current) => !current)}
+                        >
+                          {showAllRevisionMessages
+                            ? '只看最新 2 条'
+                            : `展开更早 ${hiddenRevisionMessageCount} 条`}
+                        </Button>
                       </div>
                     )}
-                  </div>
-                ))}
-              </div>
+                  </>
+                )}
+                <Space.Compact block className="review-revision-input">
+                  <Input.TextArea
+                    autoSize={{ minRows: 1, maxRows: 4 }}
+                    maxLength={2000}
+                    value={revisionInstruction}
+                    placeholder="告诉 AI 需要怎样修改这份歌词"
+                    aria-label="审核后歌词修改要求"
+                    onChange={(event) => setRevisionInstruction(event.target.value)}
+                    onPressEnter={(event) => {
+                      if (event.shiftKey) return
+                      event.preventDefault()
+                      if (revisionInstruction.trim() && !revisionLoading) void requestRevision()
+                    }}
+                  />
+                  <Button
+                    type="primary"
+                    icon={<Send size={15} />}
+                    loading={revisionLoading}
+                    disabled={!revisionInstruction.trim()}
+                    aria-label="发送审核修改要求"
+                    onClick={() => void requestRevision()}
+                  />
+                </Space.Compact>
+              </>
+            ) : (
+              <Alert type="warning" showIcon message="这条历史审核未关联歌词版本，无法继续修改" />
             )}
-            <Space.Compact block className="review-revision-input">
-              <Input.TextArea
-                autoSize={{ minRows: 1, maxRows: 4 }}
-                maxLength={2000}
-                value={revisionInstruction}
-                placeholder="告诉 AI 需要怎样修改这份歌词"
-                aria-label="审核后歌词修改要求"
-                onFocus={() => void loadRevisionHistory()}
-                onChange={(event) => setRevisionInstruction(event.target.value)}
-                onPressEnter={(event) => {
-                  if (event.shiftKey) return
-                  event.preventDefault()
-                  if (revisionInstruction.trim() && !revisionLoading) void requestRevision()
-                }}
-              />
-              <Button
-                type="primary"
-                icon={<Send size={15} />}
-                loading={revisionLoading}
-                disabled={!revisionInstruction.trim()}
-                aria-label="发送审核修改要求"
-                onClick={() => void requestRevision()}
-              />
-            </Space.Compact>
-          </>
-        ) : (
-          <Alert type="warning" showIcon message="这条历史审核未关联歌词版本，无法继续修改" />
+          </div>
         )}
       </div>
       <div className="review-run-toggle">

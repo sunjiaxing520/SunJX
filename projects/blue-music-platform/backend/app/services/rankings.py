@@ -274,6 +274,18 @@ def list_collection_tasks(db: Session, limit: int = 15) -> list[CollectionTaskRe
     return [collection_task_response(task) for task in tasks]
 
 
+def get_collection_task(db: Session, task_id: int) -> CollectionTaskResponse:
+    task = db.get(CollectionTask, task_id)
+    if task is None:
+        raise AppException(
+            code="CRAWLER_TASK_NOT_FOUND",
+            message="采集运行记录不存在或已经被删除",
+            status_code=404,
+            detail={"task_id": task_id},
+        )
+    return collection_task_response(task)
+
+
 def delete_collection_task(db: Session, task_id: int) -> None:
     delete_collection_tasks(db, [task_id])
 
@@ -335,6 +347,18 @@ def list_snapshots(db: Session, limit: int = 15) -> list[RankingSnapshotResponse
         .limit(limit)
     ).all()
     return [snapshot_response(snapshot) for snapshot in snapshots]
+
+
+def get_snapshot(db: Session, snapshot_id: int) -> RankingSnapshotResponse:
+    snapshot = db.get(RankingSnapshot, snapshot_id)
+    if snapshot is None:
+        raise AppException(
+            code="RANKING_SNAPSHOT_NOT_FOUND",
+            message="榜单快照不存在或已经过期",
+            status_code=404,
+            detail={"snapshot_id": snapshot_id},
+        )
+    return snapshot_response(snapshot)
 
 
 def list_ranking_entries(

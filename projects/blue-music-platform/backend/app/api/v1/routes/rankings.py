@@ -16,6 +16,8 @@ from app.services.rankings import (
     create_collection,
     delete_collection_task,
     delete_collection_tasks,
+    get_collection_task,
+    get_snapshot,
     list_collection_tasks,
     list_ranking_entries,
     list_snapshots,
@@ -48,6 +50,15 @@ def collection_history(
     return list_collection_tasks(db, limit)
 
 
+@router.get("/collections/{task_id}", response_model=CollectionTaskResponse)
+def collection_detail(
+    task_id: int,
+    db: DatabaseSession,
+    user: CrawlerUser,
+) -> CollectionTaskResponse:
+    return get_collection_task(db, task_id)
+
+
 @router.delete("/collections", response_model=CollectionTaskDeleteResponse)
 def collection_bulk_delete(
     payload: CollectionTaskDeleteRequest,
@@ -74,6 +85,15 @@ def snapshot_history(
     limit: int = Query(default=15, ge=1, le=100),
 ) -> list[RankingSnapshotResponse]:
     return list_snapshots(db, limit)
+
+
+@router.get("/snapshots/{snapshot_id}", response_model=RankingSnapshotResponse)
+def snapshot_detail(
+    snapshot_id: int,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> RankingSnapshotResponse:
+    return get_snapshot(db, snapshot_id)
 
 
 @router.get("/entries", response_model=RankingEntryPage)
