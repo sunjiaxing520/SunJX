@@ -1462,10 +1462,88 @@ textarea {
 }
 
 .review-agent-members-editor {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
   gap: 10px;
+}
+
+.review-agent-member-box {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dfe2e6;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.review-agent-member-toolbar {
+  display: flex;
+  margin-bottom: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-agent-member-grid {
+  display: grid;
+  width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 3px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.review-agent-member-option.ant-checkbox-wrapper {
+  display: flex;
+  min-width: 0;
+  min-height: 52px;
+  margin: 0;
+  padding: 8px 10px;
+  align-items: center;
+  border: 1px solid #dfe2e6;
+  border-radius: 5px;
+  background: var(--paper);
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.review-agent-member-option.ant-checkbox-wrapper:hover {
+  border-color: #d28a7f;
+}
+
+.review-agent-member-option.ant-checkbox-wrapper.selected {
+  border-color: #c85445;
+  background: #fff5f2;
+}
+
+.review-agent-member-copy {
+  display: flex;
+  min-width: 0;
+  margin-left: 2px;
+  flex-direction: column;
+}
+
+.review-agent-member-copy strong,
+.review-agent-member-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-agent-member-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.review-agent-member-copy small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.review-agent-member-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .review-agent-settings-editor {

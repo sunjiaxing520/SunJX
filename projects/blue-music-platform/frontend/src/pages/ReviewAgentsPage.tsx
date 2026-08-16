@@ -3,6 +3,7 @@ import {
   Alert,
   App,
   Button,
+  Checkbox,
   Collapse,
   Descriptions,
   Empty,
@@ -107,6 +108,14 @@ export function ReviewAgentsPage() {
     () => agents.find((agent) => agent.id === activeAgentId) ?? null,
     [activeAgentId, agents],
   )
+  const memberAccounts = useMemo(
+    () => users.filter((account) => account.role === 'member'),
+    [users],
+  )
+  const selectedMemberCount = useMemo(
+    () => memberAccounts.filter((account) => memberIds.includes(account.id)).length,
+    [memberAccounts, memberIds],
+  )
 
   const replaceAgent = useCallback((nextAgent: ReviewAgent) => {
     setAgents((current) => current.map((agent) => agent.id === nextAgent.id ? nextAgent : agent))
@@ -167,7 +176,7 @@ export function ReviewAgentsPage() {
   }, [activeAgent])
 
   useEffect(() => {
-    if (!isAdmin || users.length || loadingUsers) return
+    if (!isAdmin) return
     let cancelled = false
     const loadUsers = async () => {
       setLoadingUsers(true)
@@ -184,7 +193,7 @@ export function ReviewAgentsPage() {
     return () => {
       cancelled = true
     }
-  }, [isAdmin, loadingUsers, users.length])
+  }, [isAdmin])
 
   const openCreate = () => {
     setAgentName('')
@@ -423,20 +432,49 @@ export function ReviewAgentsPage() {
                         label: '成员权限',
                         children: (
                           <div className="review-agent-members-editor">
-                            <Select
-                              mode="multiple"
-                              value={memberIds}
-                              loading={loadingUsers}
-                              maxTagCount="responsive"
-                              placeholder="选择允许使用此审核智能体的成员"
-                              options={users
-                                .filter((account) => account.role !== 'super_admin')
-                                .map((account) => ({ value: account.id, label: account.username }))}
-                              onChange={(values) => setMemberIds(values.map(Number))}
-                            />
-                            <Button icon={<Users size={16} />} loading={savingMembers} onClick={() => void saveMembers()}>
-                              保存成员权限
-                            </Button>
+                            <div className="review-agent-member-box">
+                              <div className="review-agent-member-toolbar">
+                                <Typography.Text strong>可分配成员</Typography.Text>
+                                <Typography.Text type="secondary">
+                                  已选 {selectedMemberCount} / {memberAccounts.length}
+                                </Typography.Text>
+                              </div>
+                              {loadingUsers ? (
+                                <Skeleton active paragraph={{ rows: 2 }} title={false} />
+                              ) : memberAccounts.length ? (
+                                <Checkbox.Group
+                                  className="review-agent-member-grid"
+                                  value={memberIds}
+                                  onChange={(values) => setMemberIds(values.map(Number))}
+                                >
+                                  {memberAccounts.map((account) => (
+                                    <Checkbox
+                                      className={`review-agent-member-option ${memberIds.includes(account.id) ? 'selected' : ''}`}
+                                      key={account.id}
+                                      value={account.id}
+                                    >
+                                      <span className="review-agent-member-copy">
+                                        <strong>{account.username}</strong>
+                                        <small>成员 ID {account.id}</small>
+                                      </span>
+                                    </Checkbox>
+                                  ))}
+                                </Checkbox.Group>
+                              ) : (
+                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可分配成员" />
+                              )}
+                            </div>
+                            <div className="review-agent-member-actions">
+                              <Button
+                                type="primary"
+                                icon={<Users size={16} />}
+                                loading={savingMembers}
+                                disabled={loadingUsers}
+                                onClick={() => void saveMembers()}
+                              >
+                                保存成员权限
+                              </Button>
+                            </div>
                           </div>
                         ),
                       },
