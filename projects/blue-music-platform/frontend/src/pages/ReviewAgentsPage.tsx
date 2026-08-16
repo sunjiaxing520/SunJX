@@ -21,6 +21,8 @@ import {
 import {
   Bot,
   BrainCircuit,
+  ChevronDown,
+  ChevronUp,
   FileSearch,
   MessageCircleMore,
   Plus,
@@ -658,6 +660,7 @@ export function ReviewAgentsPage() {
 }
 
 function ReviewRunView({ run, passScore }: { run: ReviewResult; passScore: number }) {
+  const [expanded, setExpanded] = useState(false)
   const score = typeof run.result.overall_score === 'number' ? run.result.overall_score : null
   const historicalPassScore = typeof run.result.pass_score === 'number' ? run.result.pass_score : passScore
   const passed = typeof run.result.passed === 'boolean'
@@ -682,22 +685,38 @@ function ReviewRunView({ run, passScore }: { run: ReviewResult; passScore: numbe
           {score !== null && <span className="review-run-score">{score}<small> / {historicalPassScore} 分</small></span>}
         </Space>
       </div>
-      <Typography.Paragraph>{summary}</Typography.Paragraph>
-      {dimensions.length > 0 && (
-        <div className="review-dimension-list">
-          {dimensions.map((dimension) => (
-            <div key={`${dimension.name}-${dimension.score}`}>
-              <strong>{dimension.name}</strong>
-              <Tag color={dimension.score >= historicalPassScore ? 'success' : dimension.score >= 60 ? 'warning' : 'error'}>{dimension.score} 分</Tag>
-              <span>{dimension.feedback}</span>
+      <div className="review-run-toggle">
+        <Button
+          type="text"
+          size="small"
+          icon={expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          aria-expanded={expanded}
+          aria-controls={`review-run-detail-${run.id}`}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? '隐藏审核结果' : '展开审核结果'}
+        </Button>
+      </div>
+      {expanded && (
+        <div className="review-run-detail" id={`review-run-detail-${run.id}`}>
+          <Typography.Paragraph>{summary}</Typography.Paragraph>
+          {dimensions.length > 0 && (
+            <div className="review-dimension-list">
+              {dimensions.map((dimension) => (
+                <div key={`${dimension.name}-${dimension.score}`}>
+                  <strong>{dimension.name}</strong>
+                  <Tag color={dimension.score >= historicalPassScore ? 'success' : dimension.score >= 60 ? 'warning' : 'error'}>{dimension.score} 分</Tag>
+                  <span>{dimension.feedback}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+          <ReviewList label="优点" values={strengths} />
+          <ReviewList label="扣分原因" values={deductions} tone="risk" />
+          <ReviewList label="修改建议" values={suggestions} />
+          <ReviewList label="风险提示" values={risks} tone="risk" />
         </div>
       )}
-      <ReviewList label="优点" values={strengths} />
-      <ReviewList label="扣分原因" values={deductions} tone="risk" />
-      <ReviewList label="修改建议" values={suggestions} />
-      <ReviewList label="风险提示" values={risks} tone="risk" />
     </article>
   )
 }

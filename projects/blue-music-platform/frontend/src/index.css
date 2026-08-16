@@ -1617,6 +1617,22 @@ textarea {
   font-size: 11px;
 }
 
+.review-run-toggle {
+  display: flex;
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+
+.review-run-toggle .ant-btn {
+  padding-inline: 6px;
+  color: #626873;
+  font-size: 12px;
+}
+
+.review-run-detail {
+  min-width: 0;
+}
+
 .review-run-score {
   display: inline-flex;
   min-width: 52px;

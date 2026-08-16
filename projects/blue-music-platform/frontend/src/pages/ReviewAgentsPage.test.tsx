@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as reviewAgentApi from '../api/reviewAgents'
 import * as userApi from '../api/users'
-import type { ReviewAgent, User } from '../types/api'
+import type { ReviewAgent, ReviewResult, User } from '../types/api'
 import { ReviewAgentsPage } from './ReviewAgentsPage'
 
 class ResizeObserverMock {
@@ -101,6 +101,30 @@ const accounts: User[] = [
   },
 ]
 
+const reviewRun: ReviewResult = {
+  id: 77,
+  agent_id: 10,
+  lyrics_version_id: 31,
+  requested_by_id: 1,
+  instruction: null,
+  provider: 'kimi',
+  model: 'kimi-k3',
+  result: {
+    overall_score: 72,
+    pass_score: 80,
+    passed: false,
+    summary: '整体结构完整，但副歌记忆点不足。',
+    dimensions: [
+      { name: '韵律', score: 72, feedback: '部分句尾押韵不够自然。' },
+    ],
+    strengths: ['主歌叙事清楚'],
+    deduction_reasons: ['副歌核心句辨识度不足'],
+    revision_suggestions: ['缩短副歌句子并增加重复'],
+    risk_notes: [],
+  },
+  created_at: '2026-08-16T09:00:00Z',
+}
+
 afterEach(cleanup)
 
 beforeEach(() => {
@@ -145,5 +169,31 @@ describe('ReviewAgentsPage member permissions', () => {
     await waitFor(() => {
       expect(reviewAgentApi.updateReviewAgentMembers).toHaveBeenCalledWith(10, [3])
     })
+  })
+
+  it('keeps review reports collapsed until requested', async () => {
+    const user = userEvent.setup()
+    vi.mocked(reviewAgentApi.listReviewRuns).mockResolvedValue({ items: [reviewRun], total: 1 })
+    render(
+      <App>
+        <ReviewAgentsPage />
+      </App>,
+    )
+
+    await screen.findByText('审核 #77')
+    expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
+
+    const expandButton = screen.getByRole('button', { name: '展开审核结果' })
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+    await user.click(expandButton)
+
+    expect(screen.getByText('整体结构完整，但副歌记忆点不足。')).toBeInTheDocument()
+    expect(screen.getByText('副歌核心句辨识度不足')).toBeInTheDocument()
+
+    const hideButton = screen.getByRole('button', { name: '隐藏审核结果' })
+    expect(hideButton).toHaveAttribute('aria-expanded', 'true')
+    await user.click(hideButton)
+
+    expect(screen.queryByText('整体结构完整，但副歌记忆点不足。')).not.toBeInTheDocument()
   })
 })
