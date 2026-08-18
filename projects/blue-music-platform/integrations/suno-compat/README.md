@@ -1,34 +1,47 @@
 # Suno Compatibility Integration
 
-This directory makes the reviewed `gcui-art/suno-api` compatibility runtime
-reproducible without committing a Suno Cookie or internal token.
+This directory vendors the reviewed `gcui-art/suno-api` compatibility runtime
+in full, without committing a Suno Cookie or internal token.
 
-## Pinned Source
+## Vendored Source
 
 - Upstream: `https://github.com/gcui-art/suno-api`
 - Commit: `a2e6a823428903af715d3835d1cb44ffa336021d`
-- Blue Music patch:
+- Full modified source: `runtime/` (authoritative copy)
+- Historical patch (reference only):
   `0001-Add-isolated-Blue-Music-compatibility-runtime.patch`
 
-The patch removes automated CAPTCHA solving, browser automation, fingerprint
-evasion, and the related dependencies. The resulting service binds to
-`127.0.0.1`, requires an internal Bearer token, rejects inbound Cookies, and
-returns a human-verification error when Suno requests hCaptcha.
+`runtime/` is the complete source tree exactly as deployed on this machine,
+including the follow-up hCaptcha handling change documented in
+`runtime/CAPTCHA_CHANGE_AND_ROLLBACK.md`. It excludes `.git`, `node_modules`,
+build output (`compat-dist/`, `.next/`), `logs/`, and the secret-bearing
+`.env.local`.
+
+The modifications remove automated CAPTCHA solving (2Captcha), browser
+automation (Playwright), fingerprint evasion, and the related dependencies.
+The resulting service binds to `127.0.0.1`, requires an internal Bearer token,
+rejects inbound Cookies, and returns a human-verification error
+(`SUNO_HUMAN_VERIFICATION_REQUIRED`) when Suno requests hCaptcha.
 
 ## Recreate The Runtime
 
-Run from PowerShell:
+Copy `runtime/` to the deployment directory (this machine uses
+`D:\DevTools\SunoCompat`), then install and build:
 
 ```powershell
-cd D:\SunJX\projects\blue-music-platform\integrations\suno-compat
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\configure-local.ps1
+cd D:\DevTools\SunoCompat
+npm.cmd ci
+npm.cmd run build
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\SunJX\projects\blue-music-platform\integrations\suno-compat\configure-local.ps1
 ```
 
-`install.ps1` clones the pinned upstream revision into
-`D:\DevTools\SunoCompat`, applies the reviewed patch, installs dependencies,
-and builds the lightweight compatibility server. It refuses to overwrite an
-existing directory.
+`configure-local.ps1` generates one random internal token and writes it to the
+two ignored local environment files that need it. It does not configure the
+Suno Cookie and never prints the token.
+
+The legacy `install.ps1` (clone pinned upstream + apply patch) is kept for
+reference; `runtime/` is the authoritative source because it also contains the
+post-patch hCaptcha handling change.
 
 `configure-local.ps1` generates one random internal token and writes it to the
 two ignored local environment files that need it. It does not configure the
