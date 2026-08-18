@@ -48,3 +48,21 @@
 
 - 未运行构建或测试，因为本次没有修改运行代码、依赖或配置。
 - 本记录不包含任何 Cookie、Token、API Key 或账户信息。
+
+---
+
+## 2026-08-18 反转记录：恢复自动人机验证
+
+经用户明确授权，本文件此前"不实施自动代答"的结论正式反转：
+
+- 已恢复上游 `getCaptcha()` 完整求解链路（rebrowser-playwright、2Captcha 坐标求解、
+  可选 ghost-cursor）及上游请求头；依赖 `@2captcha/captcha-solver`、
+  `rebrowser-playwright-core`、`@playwright/browser-chromium`、
+  `ghost-cursor-playwright`、`user-agents`、`yn` 已加入 `package.json`。
+- 新增兜底：`TWOCAPTCHA_KEY` 未配置时，`getCaptcha()` 仍抛出人工验证错误，映射为
+  `SUNO_HUMAN_VERIFICATION_REQUIRED`，本文件第"人工处理步骤"节继续有效。
+- 实测依据：恢复上游请求头前，生成接口返回误导性 403"无模型权限"；恢复后确认为
+  真实 hCaptcha 拦截（409），人工验证无法支撑常态化生成。
+- 2Captcha Key 只写入本机 `.env.local`，不进入 Git、日志或聊天。
+- 回退方向：如需回到纯人工验证，清空 `.env.local` 中的 `TWOCAPTCHA_KEY` 并重启服务
+  即可，无需改代码。

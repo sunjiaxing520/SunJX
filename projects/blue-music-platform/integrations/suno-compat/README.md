@@ -17,11 +17,12 @@ including the follow-up hCaptcha handling change documented in
 build output (`compat-dist/`, `.next/`), `logs/`, and the secret-bearing
 `.env.local`.
 
-The modifications remove automated CAPTCHA solving (2Captcha), browser
-automation (Playwright), fingerprint evasion, and the related dependencies.
-The resulting service binds to `127.0.0.1`, requires an internal Bearer token,
-rejects inbound Cookies, and returns a human-verification error
-(`SUNO_HUMAN_VERIFICATION_REQUIRED`) when Suno requests hCaptcha.
+The modifications keep the service bound to `127.0.0.1`, require an internal
+Bearer token, and reject inbound Cookies. hCaptcha handling (updated
+2026-08-18, owner-authorized): with `TWOCAPTCHA_KEY` configured, the upstream
+automatic solver (rebrowser-playwright + 2Captcha) solves challenges; without
+a key the service falls back to the manual flow and returns
+`SUNO_HUMAN_VERIFICATION_REQUIRED` when Suno requests hCaptcha.
 
 ## Recreate The Runtime
 

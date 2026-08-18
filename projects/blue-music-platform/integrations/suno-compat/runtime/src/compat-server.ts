@@ -100,7 +100,7 @@ async function handleRequest(
       status: cookieConfigured ? 'ready' : 'waiting_cookie',
       service: 'blue-music-suno-compat',
       upstream: 'gcui-art/suno-api',
-      captcha_mode: 'human_verification',
+      captcha_mode: process.env.TWOCAPTCHA_KEY ? 'auto_solve_2captcha' : 'human_verification',
       cookie_configured: cookieConfigured,
       routes: exposedRoutes
     });

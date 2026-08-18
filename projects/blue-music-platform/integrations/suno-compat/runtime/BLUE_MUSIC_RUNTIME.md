@@ -10,11 +10,13 @@ compatibility service for Blue Music.
 - Every API route requires `Authorization: Bearer <INTERNAL_API_TOKEN>`.
 - Incoming `Cookie` headers are rejected.
 - The Suno Cookie exists only in `.env.local` and is never returned by an API.
-- Automated CAPTCHA solving, browser automation, fingerprint evasion, and
-  2Captcha dependencies are removed.
-- When Suno requires hCaptcha, the service returns HTTP `409` with
-  `SUNO_HUMAN_VERIFICATION_REQUIRED`. An administrator must complete the
-  challenge through the normal Suno website and then refresh the local Cookie.
+- hCaptcha handling (updated 2026-08-18, owner-authorized): when
+  `TWOCAPTCHA_KEY` is configured, the upstream automatic solver
+  (rebrowser-playwright + 2Captcha) solves challenges and generation proceeds
+  unattended. Without a key, or when solving fails, the service returns HTTP
+  `409` with `SUNO_HUMAN_VERIFICATION_REQUIRED` and an administrator completes
+  the challenge through the normal Suno website, then refreshes the local
+  Cookie. The 2Captcha key lives only in `.env.local`.
 
 ## Build And Run
 
