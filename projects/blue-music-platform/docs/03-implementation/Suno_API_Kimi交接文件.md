@@ -59,22 +59,22 @@ git pull --ff-only
 | 项目页面 | `https://github.com/gcui-art/suno-api` |
 | 许可证 | `LGPL-3.0-or-later` |
 | 蓝乐固定的上游提交 | `a2e6a823428903af715d3835d1cb44ffa336021d` |
-| 本机隔离克隆 | `D:\DevTools\SunoCompat` |
+| 主仓库完整改造源码（权威副本） | `D:\SunJX\projects\blue-music-platform\integrations\suno-compat\runtime` |
+| 本机隔离运行目录 | `D:\DevTools\SunoCompat` |
 | 本机适配分支 | `blue-music-safe` |
 | 本机适配基线提交 | `99cec077f340d171e3278cb386a246b2c4d0ed57` |
 
-`D:\DevTools\SunoCompat` 是独立 Git 仓库，不属于 `D:\SunJX` 主仓库。本文核对
-时，该仓库还有以下未提交状态：
+自 2026-08-18 起，完整改造后源码已整体入库主仓库
+`integrations\suno-compat\runtime`，包含固定上游提交、蓝乐隔离补丁以及后续的
+hCaptcha 处理修改（`src/compat-server.ts` 轻量路由与
+`CAPTCHA_CHANGE_AND_ROLLBACK.md`），不含 `.git`、`node_modules`、构建产物、
+日志和 `.env.local`。`runtime\` 是权威副本；`D:\DevTools\SunoCompat` 只是本机
+运行部署，独立 Git 仓库，不属于 `D:\SunJX` 主仓库。
 
-```text
-M  src/compat-server.ts
-?? CAPTCHA_CHANGE_AND_ROLLBACK.md
-```
-
-其中 `src/compat-server.ts` 已增加若干上游能力的轻量路由。接手时先执行
-`git diff -- src/compat-server.ts` 阅读并保留这些改动，不得用上游文件直接覆盖。
-`CAPTCHA_CHANGE_AND_ROLLBACK.md` 不是蓝乐正式需求或架构文档，不能跳过代码审查
-直接照单执行。
+其中 `src/compat-server.ts` 已增加若干上游能力的轻量路由。接手时先阅读
+`runtime\src\compat-server.ts` 和 `runtime\CAPTCHA_CHANGE_AND_ROLLBACK.md` 并
+保留这些改动，不得用上游文件直接覆盖。`CAPTCHA_CHANGE_AND_ROLLBACK.md` 不是蓝乐
+正式需求或架构文档，不能跳过代码审查直接照单执行。
 
 ### 2.3 Suno 官方入口
 
@@ -263,15 +263,19 @@ SUNO_API_CONTRACT_PENDING
 
 ### 7.1 隔离服务源码
 
+权威副本位于主仓库
+`D:\SunJX\projects\blue-music-platform\integrations\suno-compat\runtime`；
+下表列出本机运行目录 `D:\DevTools\SunoCompat` 中的对应文件，两者内容一致：
+
 | 文件 | 作用 |
 |---|---|
-| `D:\DevTools\SunoCompat\src\lib\SunoApi.ts` | 上游私有网页接口客户端、登录会话、生成、续写、查询和额度 |
-| `D:\DevTools\SunoCompat\src\compat-server.ts` | 蓝乐使用的轻量 HTTP 边界、内部鉴权、参数校验和安全错误响应 |
-| `D:\DevTools\SunoCompat\package.json` | 依赖与 `build:compat`/`start:compat` 脚本 |
-| `D:\DevTools\SunoCompat\tsconfig.compat.json` | 轻量兼容服务的 TypeScript 构建配置 |
-| `D:\DevTools\SunoCompat\.env.example` | 上游配置名参考，不包含实际值 |
-| `D:\DevTools\SunoCompat\.env.local` | 本机真实秘密配置，禁止读取后输出或提交 |
-| `D:\DevTools\SunoCompat\scripts\set-suno-cookie.ps1` | 隐藏输入本机登录会话的脚本 |
+| `src\lib\SunoApi.ts` | 上游私有网页接口客户端、登录会话、生成、续写、查询和额度 |
+| `src\compat-server.ts` | 蓝乐使用的轻量 HTTP 边界、内部鉴权、参数校验和安全错误响应 |
+| `package.json` | 依赖与 `build:compat`/`start:compat` 脚本 |
+| `tsconfig.compat.json` | 轻量兼容服务的 TypeScript 构建配置 |
+| `.env.example` | 配置名参考，不包含实际值 |
+| `.env.local` | 本机真实秘密配置，仅存在于运行目录，禁止读取后输出或提交 |
+| `scripts\set-suno-cookie.ps1` | 隐藏输入本机登录会话的脚本 |
 
 不要直接编辑：
 
@@ -301,19 +305,18 @@ GET  /api/get_limit
 
 ### 7.3 兼容服务的修改落盘规则
 
-`D:\DevTools\SunoCompat` 在 `D:\SunJX` 之外。只修改本机克隆会导致换电脑或部署
-后丢失，因此完成兼容服务改动后必须同时更新：
+`D:\DevTools\SunoCompat` 在 `D:\SunJX` 之外。只修改本机运行目录会导致换电脑或
+部署后丢失，因此完成兼容服务改动后必须同步更新主仓库权威副本：
 
 ```text
-D:\SunJX\projects\blue-music-platform\integrations\suno-compat\README.md
-D:\SunJX\projects\blue-music-platform\integrations\suno-compat\install.ps1
-D:\SunJX\projects\blue-music-platform\integrations\suno-compat\configure-local.ps1
-D:\SunJX\projects\blue-music-platform\integrations\suno-compat\0001-Add-isolated-Blue-Music-compatibility-runtime.patch
+D:\SunJX\projects\blue-music-platform\integrations\suno-compat\runtime\
 ```
 
-推荐流程：先在 `D:\DevTools\SunoCompat` 的独立分支中整理并提交适配，再用固定
-上游提交重新验证补丁可应用；最后把可复现补丁复制回主仓库 integration 目录。
-保留上游来源和 LGPL 许可证说明。
+推荐流程：先在 `D:\DevTools\SunoCompat` 修改并构建验证，再把改动的源文件同步到
+主仓库 `runtime\`（排除 `.git`、`node_modules`、`compat-dist`、`.next`、`logs`
+和 `.env.local`），随主仓库一起 commit 和 push。integration 目录下的
+`0001-Add-isolated-Blue-Music-compatibility-runtime.patch` 与 `install.ps1` 仅作
+历史参考保留，不再是落盘依据。保留上游来源和 LGPL 许可证说明。
 
 ### 7.4 人机验证完整闭环（Kimi 必做）
 
@@ -380,9 +383,9 @@ SUNO_HUMAN_VERIFICATION_REQUIRED
 - 日志、状态接口和错误响应不包含 Cookie、Key 或内部 Token。
 - 自动流程在验证时暂停，恢复成功后继续。
 
-不要把验证码自动代答、浏览器指纹伪装或反检测代码纳入蓝乐交付。这里要求
-“全部实现”的范围，是上面列出的检测、暂停、通知、会话更新、权限控制、恢复、
-幂等、审计和测试闭环。正常情况下的提交、轮询和下载仍应保持自动化。
+要把里面相关的验证码自动代答、浏览器指纹伪装或反检测代码都纳入蓝乐交付。这里要求
+“全部实现”的范围，除了上面列出的检测、暂停、通知、会话更新、权限控制、恢复、
+幂等、审计和测试闭环。正常情况下的提交、轮询和下载仍应保持自动化也包括这个验证码的自动化处理。
 
 ## 8. 配置名称
 
@@ -572,7 +575,7 @@ npm.cmd run build
 1. 修改目的和选择的是 `official`、`compatibility`，还是两者。
 2. 蓝乐主仓库的完整修改文件清单。
 3. `D:\DevTools\SunoCompat` 的完整修改文件清单和独立提交哈希。
-4. 主仓库可复现补丁是否同步更新。
+4. 主仓库 `integrations\suno-compat\runtime` 权威副本是否同步更新。
 5. 新增依赖、版本、许可证和必要性。
 6. 构建、后端测试、前端测试、lint 和 build 的真实结果。
 7. 使用 mock 完成的接口场景，以及仍需真实账号验收的场景。
@@ -592,8 +595,8 @@ npm.cmd run build
 6. D:\SunJX\projects\blue-music-platform\backend\app\services\music.py
 7. D:\SunJX\projects\blue-music-platform\backend\tests\test_suno_compatibility.py
 8. D:\SunJX\projects\blue-music-platform\backend\tests\test_music.py
-9. D:\DevTools\SunoCompat\src\compat-server.ts
-10. D:\DevTools\SunoCompat\src\lib\SunoApi.ts
+9. D:\SunJX\projects\blue-music-platform\integrations\suno-compat\runtime\src\compat-server.ts
+10. D:\SunJX\projects\blue-music-platform\integrations\suno-compat\runtime\src\lib\SunoApi.ts
 ```
 
 如正式 Suno 文档与本文冲突，以正式文档的字段和认证要求为准，但蓝乐的统一
