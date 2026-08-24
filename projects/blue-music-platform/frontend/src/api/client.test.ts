@@ -32,6 +32,11 @@ describe('apiRequest', () => {
       requestId: 'req-test-001',
     })
 
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/dashboard',
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    )
+
     const diagnostics = localStorage.getItem('blue_music_diagnostic_events') ?? ''
     expect(diagnostics).toContain('req-test-001')
     expect(diagnostics).not.toContain('secret-token')

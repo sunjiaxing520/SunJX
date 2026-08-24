@@ -27,6 +27,7 @@
 19. `03-implementation/P8.1_上游产出选择器维护说明.md`
 20. `03-implementation/接手评估.md`
 21. `03-implementation/06_实现方向与接口设计.md`
+22. `03-implementation/公网临时体验维护说明.md`
 
 ## 目录说明
 
