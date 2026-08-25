@@ -399,6 +399,10 @@ export function WorkflowsPage() {
         instrumental: values.music_instrumental,
         requirements: optionalText(values.music_requirements),
       },
+      reference: {
+        source_entry_id: null,
+        instruction: null,
+      },
     },
   })
 

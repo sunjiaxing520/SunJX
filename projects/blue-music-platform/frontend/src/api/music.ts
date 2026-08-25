@@ -3,12 +3,14 @@ import type {
   MusicAdaptPayload,
   MusicExtendPayload,
   MusicProviderSettings,
+  MusicReferenceSongList,
   MusicResultList,
   MusicTask,
   MusicTaskList,
   SunoQuota,
   SunoProviderStatus,
   TaskDeleteResult,
+  WorkflowRun,
 } from '../types/api'
 import { apiBlobRequest, apiRequest } from './client'
 
@@ -27,6 +29,22 @@ export function createMusicTask(payload: MusicCreatePayload) {
   return apiRequest<MusicTask>('/music/tasks', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export function listMusicReferenceSongs(query = '', limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (query.trim()) params.set('query', query.trim())
+  return apiRequest<MusicReferenceSongList>(`/music/reference-songs?${params.toString()}`)
+}
+
+export function createMusicReferenceRun(sourceEntryId: number, instruction?: string) {
+  return apiRequest<WorkflowRun>('/music/reference-runs', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_entry_id: sourceEntryId,
+      instruction: instruction?.trim() || null,
+    }),
   })
 }
 

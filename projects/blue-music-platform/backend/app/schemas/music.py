@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -44,6 +44,37 @@ class MusicCreateRequest(BaseModel):
         if conflicts:
             raise ValueError(f"目标风格和排除风格不能重复：{'、'.join(conflicts)}")
         return self
+
+
+class MusicReferenceSongResponse(BaseModel):
+    entry_id: int
+    source_song_id: str
+    title: str
+    artist: str
+    cover_url: str | None
+    source_url: str | None
+    duration_seconds: int | None
+    chart_name: str
+    snapshot_date: date
+    rank: int
+
+
+class MusicReferenceSongListResponse(BaseModel):
+    items: list[MusicReferenceSongResponse]
+    total: int
+
+
+class MusicReferenceRunCreateRequest(BaseModel):
+    source_entry_id: int = Field(gt=0)
+    instruction: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("instruction")
+    @classmethod
+    def clean_instruction(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class MusicExtendRequest(BaseModel):

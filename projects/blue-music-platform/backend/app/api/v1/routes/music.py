@@ -2,14 +2,19 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.adapters.music_generation import (
     MusicProviderError,
     SunoCompatibilityMusicProvider,
 )
-from app.api.dependencies import DatabaseSession, SuperAdmin, require_agent_permission
+from app.api.dependencies import (
+    CurrentUser,
+    DatabaseSession,
+    SuperAdmin,
+    require_agent_permission,
+)
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.models import AgentType, User, UserRole
@@ -19,6 +24,8 @@ from app.schemas.music import (
     MusicExtendRequest,
     MusicProviderSettingsResponse,
     MusicProviderSettingsUpdate,
+    MusicReferenceRunCreateRequest,
+    MusicReferenceSongListResponse,
     MusicResultListResponse,
     MusicTaskDeleteRequest,
     MusicTaskDeleteResponse,
@@ -27,6 +34,7 @@ from app.schemas.music import (
     SunoQuotaResponse,
     SunoProviderStatusResponse,
 )
+from app.schemas.workflow import WorkflowRunResponse
 from app.services.music import (
     resume_after_human_verification,
     create_extension_task,
@@ -42,6 +50,7 @@ from app.services.music import (
     get_music_provider_settings,
     latest_music_quota,
     list_music_results,
+    list_music_reference_songs,
     list_music_tasks,
     refresh_music_quota,
     resolve_storage_path,
@@ -50,6 +59,7 @@ from app.services.music import (
     update_music_provider_settings,
 )
 from app.services.users import music_task_quota_response
+from app.services.workflows import execute_workflow_run, start_reference_workflow_run
 
 
 router = APIRouter(prefix="/music")
@@ -189,6 +199,35 @@ def music_create(
 ) -> MusicTaskResponse:
     task = create_music_task(db, payload, user.id)
     return dispatch_music_task(db, task.id)
+
+
+@router.get(
+    "/reference-songs",
+    response_model=MusicReferenceSongListResponse,
+)
+def music_reference_songs(
+    db: DatabaseSession,
+    user: MusicUser,
+    query: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> MusicReferenceSongListResponse:
+    return list_music_reference_songs(db, query, limit)
+
+
+@router.post(
+    "/reference-runs",
+    response_model=WorkflowRunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def music_reference_run_create(
+    payload: MusicReferenceRunCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> WorkflowRunResponse:
+    run = start_reference_workflow_run(db, payload, user)
+    background_tasks.add_task(execute_workflow_run, run.id, db.get_bind())
+    return run
 
 
 @router.get("/tasks", response_model=MusicTaskListResponse)

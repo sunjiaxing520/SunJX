@@ -26,7 +26,7 @@ from app.models import (
 )
 from app.schemas.analysis import AnalysisCreateRequest
 from app.schemas.lyrics import LyricsAssistantMessageRequest, LyricsCreateRequest
-from app.schemas.music import MusicCreateRequest
+from app.schemas.music import MusicCreateRequest, MusicReferenceRunCreateRequest
 from app.schemas.ranking import CollectionCreateRequest
 from app.schemas.review_agent import ReviewCreateRequest
 from app.schemas.workflow import (
@@ -62,6 +62,15 @@ STEP_AGENT = {
     WorkflowStepType.LYRICS.value: AgentType.LYRICS,
     WorkflowStepType.MUSIC.value: AgentType.MUSIC,
 }
+REFERENCE_WORKFLOW_STEPS = [
+    WorkflowStepType.ANALYSIS.value,
+    WorkflowStepType.LYRICS.value,
+    WorkflowStepType.MUSIC.value,
+]
+REFERENCE_DEFAULT_REQUIREMENTS = (
+    "生成一首完整的新歌曲。只借鉴参考分析中的抽象曲风、情绪、节奏、结构和配器方向，"
+    "不得复制来源歌曲的具体歌词、旋律、标志性段落或歌手声线。"
+)
 
 
 @dataclass(frozen=True)
@@ -267,27 +276,7 @@ def start_workflow_run(
     user: User,
 ) -> WorkflowRunResponse:
     recover_stale_workflow_runs(db)
-    active_run = db.scalar(
-        select(WorkflowRun)
-        .where(
-            WorkflowRun.status.in_(
-                (
-                    TaskStatus.PENDING.value,
-                    TaskStatus.RUNNING.value,
-                    TaskStatus.PAUSED.value,
-                )
-            )
-        )
-        .order_by(WorkflowRun.created_at)
-        .limit(1)
-    )
-    if active_run is not None:
-        raise AppException(
-            code="WORKFLOW_ALREADY_RUNNING",
-            message="已有自动流程正在运行，请等待完成后再启动下一条",
-            status_code=409,
-            detail={"run_id": active_run.id},
-        )
+    _ensure_no_active_workflow_run(db)
 
     template = _get_template(db, template_id)
     _ensure_step_permissions(db, user, template.steps)
@@ -311,6 +300,78 @@ def start_workflow_run(
     db.add(run)
     db.commit()
     return get_workflow_run(db, run.id)
+
+
+def start_reference_workflow_run(
+    db: Session,
+    payload: MusicReferenceRunCreateRequest,
+    user: User,
+) -> WorkflowRunResponse:
+    recover_stale_workflow_runs(db)
+    _ensure_no_active_workflow_run(db)
+    entry = db.get(RankingEntry, payload.source_entry_id)
+    if entry is None:
+        raise AppException(
+            code="MUSIC_REFERENCE_SONG_NOT_FOUND",
+            message="参考歌曲不存在或采集记录已经过期",
+            status_code=404,
+        )
+    _ensure_step_permissions(db, user, REFERENCE_WORKFLOW_STEPS)
+    instruction = payload.instruction
+    requirements = _reference_requirements(instruction)
+    configuration = WorkflowConfiguration.model_validate(
+        {
+            "analysis": {"window_days": 7},
+            "lyrics": {"requirements": requirements},
+            "music": {"requirements": requirements},
+            "reference": {
+                "source_entry_id": entry.id,
+                "instruction": instruction,
+            },
+        }
+    )
+    run = WorkflowRun(
+        template_id=None,
+        template_name=f"参考创作 · {entry.title}"[:100],
+        configuration=configuration.model_dump(mode="json"),
+        status=TaskStatus.PENDING.value,
+        requested_by_id=user.id,
+        steps=[
+            WorkflowRunStep(
+                step_type=step_type,
+                position=position,
+                status=TaskStatus.PENDING.value,
+            )
+            for position, step_type in enumerate(REFERENCE_WORKFLOW_STEPS)
+        ],
+    )
+    db.add(run)
+    db.commit()
+    return get_workflow_run(db, run.id)
+
+
+def _ensure_no_active_workflow_run(db: Session) -> None:
+    active_run = db.scalar(
+        select(WorkflowRun)
+        .where(
+            WorkflowRun.status.in_(
+                (
+                    TaskStatus.PENDING.value,
+                    TaskStatus.RUNNING.value,
+                    TaskStatus.PAUSED.value,
+                )
+            )
+        )
+        .order_by(WorkflowRun.created_at)
+        .limit(1)
+    )
+    if active_run is not None:
+        raise AppException(
+            code="WORKFLOW_ALREADY_RUNNING",
+            message="已有自动流程正在运行，请等待完成后再启动下一条",
+            status_code=409,
+            detail={"run_id": active_run.id},
+        )
 
 
 def _load_run(db: Session, run_id: int) -> WorkflowRun | None:
@@ -668,7 +729,17 @@ def _execute_step(
 
     if step_type == WorkflowStepType.ANALYSIS.value:
         entry_ids: list[int] = []
-        if collected_snapshot_id is not None:
+        reference_entry_id = configuration.reference.source_entry_id
+        if reference_entry_id is not None:
+            reference_entry = db.get(RankingEntry, reference_entry_id)
+            if reference_entry is None:
+                raise AppException(
+                    code="MUSIC_REFERENCE_SONG_NOT_FOUND",
+                    message="参考歌曲不存在或采集记录已经过期",
+                    status_code=404,
+                )
+            entry_ids = [reference_entry.id]
+        elif collected_snapshot_id is not None:
             entry_query = select(RankingEntry.id).where(
                 RankingEntry.snapshot_id == collected_snapshot_id
             )
@@ -696,6 +767,7 @@ def _execute_step(
                 window_days=(
                     1
                     if configuration.collection.chart == "rising"
+                    and reference_entry_id is None
                     else configuration.analysis.window_days
                 ),
             ),
@@ -798,6 +870,12 @@ def _execute_step(
         status_code=422,
         detail={"step_type": step_type},
     )
+
+
+def _reference_requirements(instruction: str | None) -> str:
+    if instruction:
+        return f"{REFERENCE_DEFAULT_REQUIREMENTS}\n用户补充要求：{instruction}"
+    return REFERENCE_DEFAULT_REQUIREMENTS
 
 
 def _execute_review_step(

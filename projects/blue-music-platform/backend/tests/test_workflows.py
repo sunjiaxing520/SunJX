@@ -668,6 +668,75 @@ def test_workflow_passes_lyrics_output_into_suno_music(
     assert provider.generated[0].lyrics == music["lyrics"]
 
 
+def test_reference_creation_searches_song_and_runs_complete_default_flow(
+    workflow_context: WorkflowContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = FakeSunoProvider()
+    monkeypatch.setattr(
+        "app.services.music.get_music_provider",
+        lambda *_args, **_kwargs: provider,
+    )
+    monkeypatch.setattr(
+        "app.services.music._archive_audio",
+        lambda *_args, **_kwargs: StoredMusicObject(
+            backend="local",
+            key="workflow/reference.mp3",
+        ),
+    )
+    collected = _collect_sample(workflow_context, date.today(), limit=8)
+    assert collected.status_code == 201
+    entries = workflow_context.client.get(
+        "/api/v1/rankings/entries",
+        headers=_headers(workflow_context),
+        params={"snapshot_id": collected.json()["snapshot_id"], "page_size": 20},
+    ).json()["items"]
+    source = entries[0]
+
+    search = workflow_context.client.get(
+        "/api/v1/music/reference-songs",
+        headers=_headers(workflow_context),
+        params={"query": source["title"], "limit": 10},
+    )
+    assert search.status_code == 200
+    assert search.json()["items"][0]["entry_id"] == source["id"]
+
+    started = workflow_context.client.post(
+        "/api/v1/music/reference-runs",
+        headers=_headers(workflow_context),
+        json={"source_entry_id": source["id"], "instruction": ""},
+    )
+    assert started.status_code == 202
+    run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{started.json()['id']}",
+        headers=_headers(workflow_context),
+    ).json()
+
+    assert run["status"] == "completed"
+    assert run["template_id"] is None
+    assert run["configuration"]["reference"] == {
+        "source_entry_id": source["id"],
+        "instruction": None,
+    }
+    assert [step["step_type"] for step in run["steps"]] == [
+        "analysis",
+        "lyrics",
+        "music",
+    ]
+    analysis = workflow_context.client.get(
+        f"/api/v1/analysis/tasks/{run['steps'][0]['task_id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert analysis["selected_entry_count"] == 1
+    music = workflow_context.client.get(
+        f"/api/v1/music/tasks/{run['steps'][2]['task_id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert "生成一首完整的新歌曲" in music["requirements"]
+    assert music["results"][0]["id"] == run["steps"][2]["output_id"]
+    assert provider.generated[0].lyrics == music["lyrics"]
+
+
 def test_workflow_review_pauses_after_one_failed_review_and_can_continue(
     workflow_context: WorkflowContext,
 ) -> None:

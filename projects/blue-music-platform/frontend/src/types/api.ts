@@ -243,6 +243,10 @@ export interface WorkflowConfiguration {
     instrumental: boolean
     requirements: string | null
   }
+  reference: {
+    source_entry_id: number | null
+    instruction: string | null
+  }
 }
 
 export interface WorkflowTemplatePayload {
@@ -586,6 +590,24 @@ export interface MusicCreatePayload {
   instrumental?: boolean
   negative_tags?: string[]
   requirements?: string
+}
+
+export interface MusicReferenceSong {
+  entry_id: number
+  source_song_id: string
+  title: string
+  artist: string
+  cover_url: string | null
+  source_url: string | null
+  duration_seconds: number | null
+  chart_name: string
+  snapshot_date: string
+  rank: number
+}
+
+export interface MusicReferenceSongList {
+  items: MusicReferenceSong[]
+  total: number
 }
 
 export interface MusicExtendPayload {

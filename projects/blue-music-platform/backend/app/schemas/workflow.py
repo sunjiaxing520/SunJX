@@ -53,6 +53,11 @@ class WorkflowMusicConfig(BaseModel):
     requirements: str | None = Field(default=None, max_length=2000)
 
 
+class WorkflowReferenceConfig(BaseModel):
+    source_entry_id: int | None = Field(default=None, gt=0)
+    instruction: str | None = Field(default=None, max_length=2000)
+
+
 class WorkflowConfiguration(BaseModel):
     collection: WorkflowCollectionConfig = Field(
         default_factory=WorkflowCollectionConfig
@@ -61,6 +66,7 @@ class WorkflowConfiguration(BaseModel):
     lyrics: WorkflowLyricsConfig = Field(default_factory=WorkflowLyricsConfig)
     review: WorkflowReviewConfig = Field(default_factory=WorkflowReviewConfig)
     music: WorkflowMusicConfig = Field(default_factory=WorkflowMusicConfig)
+    reference: WorkflowReferenceConfig = Field(default_factory=WorkflowReferenceConfig)
 
 
 class WorkflowTemplateWrite(BaseModel):

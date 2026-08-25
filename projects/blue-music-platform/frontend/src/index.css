@@ -2744,6 +2744,144 @@ textarea {
   box-shadow: 0 8px 24px rgb(31 37 45 / 4%);
 }
 
+.music-reference-workspace {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+}
+
+.music-reference-browser,
+.music-reference-chat {
+  min-width: 0;
+  padding: 18px;
+}
+
+.music-reference-browser {
+  border-right: 1px solid var(--line);
+  background: #fafafa;
+}
+
+.music-reference-song-list {
+  display: flex;
+  max-height: 370px;
+  overflow-y: auto;
+  margin-top: 12px;
+  flex-direction: column;
+}
+
+.music-reference-song {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  border-bottom: 1px solid #e7e8ea;
+  color: inherit;
+  background: transparent;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.music-reference-song:hover {
+  background: #f0f4f7;
+}
+
+.music-reference-song.is-selected {
+  box-shadow: inset 3px 0 #257461;
+  background: #edf7f3;
+}
+
+.music-reference-cover {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid #dfe2e5;
+  border-radius: 6px;
+  color: #257461;
+  background: #fff;
+}
+
+.music-reference-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.music-reference-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.music-reference-copy strong,
+.music-reference-copy small,
+.music-reference-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-reference-copy strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.music-reference-copy small,
+.music-reference-copy span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.music-reference-chat {
+  display: flex;
+  min-height: 330px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.music-reference-message {
+  width: fit-content;
+  max-width: min(88%, 640px);
+  padding: 9px 12px;
+  border-radius: 6px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.music-reference-message.is-assistant {
+  border: 1px solid #dfe2e5;
+  background: #f6f7f8;
+}
+
+.music-reference-message.is-user {
+  align-self: flex-end;
+  color: #17443a;
+  background: #e8f4ef;
+}
+
+.music-reference-chat > .ant-btn {
+  align-self: flex-end;
+}
+
+.music-reference-progress {
+  display: flex;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  flex-direction: column;
+  gap: 14px;
+}
+
 .music-result-list {
   border-top: 1px solid var(--line);
 }
@@ -3136,6 +3274,27 @@ textarea {
 }
 
 @media (max-width: 768px) {
+  .music-reference-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .music-reference-browser {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .music-reference-song-list {
+    max-height: 270px;
+  }
+
+  .music-reference-chat {
+    min-height: 300px;
+  }
+
+  .music-reference-chat > .ant-btn {
+    width: 100%;
+  }
+
   .app-header {
     height: 62px;
     padding: 0 14px;

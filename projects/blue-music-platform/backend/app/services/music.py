@@ -26,6 +26,8 @@ from app.models import (
     MusicProviderSettings,
     MusicResult,
     MusicTask,
+    RankingEntry,
+    RankingSnapshot,
     TaskStatus,
     User,
     UserRole,
@@ -36,6 +38,8 @@ from app.schemas.music import (
     MusicExtendRequest,
     MusicProviderSettingsResponse,
     MusicProviderSettingsUpdate,
+    MusicReferenceSongListResponse,
+    MusicReferenceSongResponse,
     MusicResultListResponse,
     MusicResultResponse,
     MusicTaskDeleteResponse,
@@ -562,6 +566,53 @@ def list_music_results(db: Session, limit: int = 30) -> MusicResultListResponse:
         items=[music_result_response(result) for result in results],
         total=total,
     )
+
+
+def list_music_reference_songs(
+    db: Session,
+    query: str | None,
+    limit: int = 20,
+) -> MusicReferenceSongListResponse:
+    statement = (
+        select(RankingEntry, RankingSnapshot)
+        .join(RankingSnapshot, RankingSnapshot.id == RankingEntry.snapshot_id)
+        .order_by(
+            RankingSnapshot.collected_at.desc(),
+            RankingEntry.id.desc(),
+        )
+    )
+    cleaned_query = (query or "").strip()
+    if cleaned_query:
+        pattern = f"%{cleaned_query}%"
+        statement = statement.where(
+            RankingEntry.title.ilike(pattern) | RankingEntry.artist.ilike(pattern)
+        )
+
+    candidates = db.execute(statement.limit(max(limit * 8, 80))).all()
+    items: list[MusicReferenceSongResponse] = []
+    seen: set[str] = set()
+    for entry, snapshot in candidates:
+        identity = entry.source_song_id or f"{entry.title}\n{entry.artist}"
+        if identity in seen:
+            continue
+        seen.add(identity)
+        items.append(
+            MusicReferenceSongResponse(
+                entry_id=entry.id,
+                source_song_id=entry.source_song_id,
+                title=entry.title,
+                artist=entry.artist,
+                cover_url=entry.cover_url,
+                source_url=entry.source_url,
+                duration_seconds=entry.duration_seconds,
+                chart_name=snapshot.chart_name,
+                snapshot_date=snapshot.snapshot_date,
+                rank=entry.rank,
+            )
+        )
+        if len(items) >= limit:
+            break
+    return MusicReferenceSongListResponse(items=items, total=len(items))
 
 
 def delete_music_task(db: Session, task_id: int) -> None:

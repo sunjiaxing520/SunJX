@@ -13,6 +13,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Steps,
   Switch,
   Table,
   Tag,
@@ -40,6 +41,7 @@ import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import {
   completeMusicHumanVerification,
   adaptMusicResult,
+  createMusicReferenceRun,
   createMusicTask,
   deleteMusicResult,
   deleteMusicTask,
@@ -48,6 +50,7 @@ import {
   extendMusicResult,
   getSunoProviderStatus,
   listMusicResults,
+  listMusicReferenceSongs,
   listMusicTasks,
   loadMusicAudio,
   refreshSunoQuota,
@@ -55,6 +58,7 @@ import {
   regenerateMusicTask,
   updateMusicProviderSettings,
 } from '../api/music'
+import { getWorkflowRun, listWorkflowRuns } from '../api/workflows'
 import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { LyricsOutputPreview } from '../components/LyricsOutputPreview'
@@ -73,9 +77,11 @@ import type {
   MusicAdaptPayload,
   MusicCreatePayload,
   MusicExtendPayload,
+  MusicReferenceSong,
   MusicResult,
   MusicTask,
   SunoProviderStatus,
+  WorkflowRun,
   WorkflowTaskStatus,
 } from '../types/api'
 
@@ -127,6 +133,12 @@ const STATUS_COLORS: Record<WorkflowTaskStatus, string> = {
   failed: 'error',
 }
 
+const REFERENCE_STEP_LABELS = {
+  analysis: '参考分析',
+  lyrics: '完整作词',
+  music: '音乐生成',
+} as const
+
 export function MusicPage() {
   const { message } = App.useApp()
   const { user } = useAuth()
@@ -137,6 +149,12 @@ export function MusicPage() {
   const [lyricsVersions, setLyricsVersions] = useState<LyricsOutputSource[]>([])
   const [lyricsFavorites, setLyricsFavorites] = useState<FavoriteItem[]>([])
   const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false)
+  const [referenceSongs, setReferenceSongs] = useState<MusicReferenceSong[]>([])
+  const [selectedReferenceSong, setSelectedReferenceSong] = useState<MusicReferenceSong | null>(null)
+  const [referenceInstruction, setReferenceInstruction] = useState('')
+  const [referenceSearching, setReferenceSearching] = useState(false)
+  const [referenceStarting, setReferenceStarting] = useState(false)
+  const [referenceRun, setReferenceRun] = useState<WorkflowRun | null>(null)
   const [tasks, setTasks] = useState<MusicTask[]>([])
   const [results, setResults] = useState<MusicResult[]>([])
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
@@ -167,17 +185,35 @@ export function MusicPage() {
     [lyricsPickerItems, selectedLyricsVersionId],
   )
 
+  const searchReferenceSongs = useCallback(async (query = '') => {
+    setReferenceSearching(true)
+    try {
+      const response = await listMusicReferenceSongs(query)
+      setReferenceSongs(response.items)
+      setSelectedReferenceSong((current) => (
+        current && response.items.some((item) => item.entry_id === current.entry_id)
+          ? current
+          : null
+      ))
+    } catch (searchError) {
+      setError(errorMessage(searchError))
+    } finally {
+      setReferenceSearching(false)
+    }
+  }, [])
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [provider, lyrics, taskHistory, resultHistory, favoriteHistory, lyricsFavoriteHistory] = await Promise.all([
+      const [provider, lyrics, taskHistory, resultHistory, favoriteHistory, lyricsFavoriteHistory, workflowHistory] = await Promise.all([
         getSunoProviderStatus(),
         listLyricsTasks(),
         listMusicTasks(),
         listMusicResults(),
         listFavorites('music'),
         listFavorites('lyrics'),
+        listWorkflowRuns(),
       ])
       const versions = lyrics.items.flatMap((task) => task.versions.map((version) => ({
         ...version,
@@ -191,6 +227,10 @@ export function MusicPage() {
       setResults(resultHistory.items)
       setFavorites(favoriteHistory.items)
       setLyricsFavorites(lyricsFavoriteHistory.items)
+      const latestReferenceRun = workflowHistory.items.find((run) => (
+        run.template_id === null && run.configuration.reference.source_entry_id !== null
+      ))
+      if (latestReferenceRun) setReferenceRun(latestReferenceRun)
       setActiveTask((current) =>
         current ? taskHistory.items.find((task) => task.id === current.id) ?? current : null,
       )
@@ -203,7 +243,8 @@ export function MusicPage() {
 
   useEffect(() => {
     void load()
-  }, [load])
+    void searchReferenceSongs()
+  }, [load, searchReferenceSongs])
 
   const hasActiveTask = tasks.some((task) => task.status === 'pending' || task.status === 'running')
   const quotaExhausted = Boolean(
@@ -216,6 +257,51 @@ export function MusicPage() {
     const timer = window.setInterval(() => void load(true), 5000)
     return () => window.clearInterval(timer)
   }, [hasActiveTask, load])
+
+  const referenceRunActive = referenceRun?.status === 'pending' || referenceRun?.status === 'running'
+  const referenceRunId = referenceRun?.id
+  useEffect(() => {
+    if (!referenceRunId || !referenceRunActive) return
+    let cancelled = false
+    const refreshRun = async () => {
+      try {
+        const current = await getWorkflowRun(referenceRunId)
+        if (cancelled) return
+        setReferenceRun(current)
+        if (current.status === 'completed' || current.status === 'failed') {
+          await load(true)
+        }
+      } catch (pollError) {
+        if (!cancelled) setError(errorMessage(pollError))
+      }
+    }
+    void refreshRun()
+    const timer = window.setInterval(() => void refreshRun(), 4000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [load, referenceRunActive, referenceRunId])
+
+  const startReferenceCreation = async () => {
+    if (!selectedReferenceSong) {
+      message.warning('请先选择参考歌曲')
+      return
+    }
+    setReferenceStarting(true)
+    try {
+      const run = await createMusicReferenceRun(
+        selectedReferenceSong.entry_id,
+        referenceInstruction,
+      )
+      setReferenceRun(run)
+      message.success(`参考创作 #${run.id} 已开始`)
+    } catch (startError) {
+      message.error(errorMessage(startError))
+    } finally {
+      setReferenceStarting(false)
+    }
+  }
 
   const selectLyricsVersion = (versionId: number) => {
     const version = lyricsVersions.find((item) => item.id === versionId)
@@ -596,6 +682,109 @@ export function MusicPage() {
           </Descriptions>
         </section>
       )}
+
+      <section className="content-section music-reference-section">
+        <div className="section-title-row">
+          <div>
+            <Typography.Title level={2}>一键参考创作</Typography.Title>
+            <Typography.Text type="secondary">搜索榜单歌曲，直接生成一首新的完整歌曲</Typography.Text>
+          </div>
+          {referenceRun && (
+            <Tag color={STATUS_COLORS[referenceRun.status]}>
+              流程 #{referenceRun.id} · {STATUS_LABELS[referenceRun.status]}
+            </Tag>
+          )}
+        </div>
+        <div className="music-reference-workspace">
+          <div className="music-reference-browser">
+            <Input.Search
+              allowClear
+              enterButton="搜索"
+              loading={referenceSearching}
+              placeholder="输入歌名或歌手"
+              onSearch={(value) => void searchReferenceSongs(value)}
+            />
+            <div className="music-reference-song-list" aria-label="参考歌曲搜索结果">
+              {referenceSongs.length ? referenceSongs.map((song) => (
+                <button
+                  key={song.entry_id}
+                  type="button"
+                  className={`music-reference-song${selectedReferenceSong?.entry_id === song.entry_id ? ' is-selected' : ''}`}
+                  aria-pressed={selectedReferenceSong?.entry_id === song.entry_id}
+                  onClick={() => setSelectedReferenceSong(song)}
+                >
+                  <span className="music-reference-cover">
+                    {song.cover_url
+                      ? <img src={song.cover_url} alt="" />
+                      : <FileAudio size={18} />}
+                  </span>
+                  <span className="music-reference-copy">
+                    <strong>{song.title}</strong>
+                    <small>{song.artist}</small>
+                    <span>{song.chart_name} · 第 {song.rank} 名 · {song.snapshot_date}</span>
+                  </span>
+                </button>
+              )) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到可参考的榜单歌曲" />
+              )}
+            </div>
+          </div>
+
+          <div className="music-reference-chat">
+            <div className="music-reference-message is-assistant">
+              {selectedReferenceSong
+                ? `已选择《${selectedReferenceSong.title}》· ${selectedReferenceSong.artist}`
+                : '请先从左侧选择参考歌曲'}
+            </div>
+            {referenceInstruction.trim() && (
+              <div className="music-reference-message is-user">{referenceInstruction.trim()}</div>
+            )}
+            <Input.TextArea
+              value={referenceInstruction}
+              rows={5}
+              maxLength={2000}
+              showCount
+              placeholder="可以说想怎么调整；留空则自动生成完整歌曲"
+              onChange={(event) => setReferenceInstruction(event.target.value)}
+            />
+            <Button
+              type="primary"
+              icon={<Sparkles size={16} />}
+              loading={referenceStarting}
+              disabled={!selectedReferenceSong || quotaExhausted || referenceRunActive}
+              onClick={() => void startReferenceCreation()}
+            >
+              一键生成完整歌曲
+            </Button>
+            {referenceRun && (
+              <div className="music-reference-progress">
+                <Steps
+                  size="small"
+                  responsive={false}
+                  items={referenceRun.steps.map((step) => ({
+                    title: REFERENCE_STEP_LABELS[step.step_type as keyof typeof REFERENCE_STEP_LABELS] ?? step.step_type,
+                    status: step.status === 'completed'
+                      ? 'finish'
+                      : step.status === 'failed'
+                        ? 'error'
+                        : step.status === 'running'
+                          ? 'process'
+                          : 'wait',
+                  }))}
+                />
+                {referenceRun.status === 'failed' && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    title={referenceRun.error_message ?? '参考创作失败'}
+                    description={referenceRun.error_code ? `错误码：${referenceRun.error_code}` : undefined}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       <section className="content-section music-create-section">
         <div className="section-title-row">

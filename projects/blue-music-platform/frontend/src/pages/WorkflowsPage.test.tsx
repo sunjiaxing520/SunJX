@@ -82,6 +82,7 @@ const configuration = {
   },
   review: { agent_id: null, instruction: null },
   music: { title: null, style_prompt: null, instrumental: false, requirements: null },
+  reference: { source_entry_id: null, instruction: null },
 }
 
 const run: WorkflowRun = {
