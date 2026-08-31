@@ -42,6 +42,7 @@ vi.mock('../api/lyricsMemory', () => ({
   deleteLyricsMemoryEvent: vi.fn(),
   deleteLyricsMemoryEvents: vi.fn(),
   deleteLyricsMemorySnapshot: vi.fn(),
+  distillNextLegacyLyricsMemory: vi.fn(),
   getLyricsMemoryEvent: vi.fn(),
   getLyricsMemoryOverview: vi.fn(),
   getLyricsMemoryPreview: vi.fn(),
@@ -84,15 +85,28 @@ const event: LyricsMemoryEventSummary = {
 
 const memory: Record<string, unknown> = {
   admin_rules: [{ id: 20, title: '副歌要求', content: '副歌首句要有记忆点' }],
-  '1_true_creation_requirements': [{ id: 11, content: event.content_preview }],
+  '1_true_creation_requirements': [{
+    task_id: 43,
+    requirement_summary: '以重逢为核心，用递进情绪完成流行歌表达',
+  }],
   '2_true_modification_requirements': [],
-  '3_requirement_context': { accepted_evidence: [] },
-  '4_creation_distillation_expert': { items: [] },
-  '5_ranking_lyrics_patterns': [],
+  '3_requirement_context': [{ task_id: 43, source_kind: 'initial_creation', title: '重逢' }],
+  '4_creation_distillation_expert': {
+    accepted_evidence: [{
+      task_id: 43,
+      strategy_summary: '主歌从疏离推进到重逢，副歌集中释放情绪',
+      result_summary: '已确认为情绪完整的有效版本',
+      reusable_patterns: ['主歌铺陈后在副歌完成情绪跃升'],
+      highlight_summary: '副歌首句具有辨识度',
+    }],
+  },
+  '5_ranking_lyrics_patterns': { available: false, items: [] },
 }
 
 const preview: LyricsMemoryPreview = {
   capsule_char_count: 2680,
+  distilled_insight_count: 6,
+  pending_legacy_count: 0,
   memory,
 }
 
@@ -152,6 +166,11 @@ beforeEach(() => {
   })
   vi.mocked(lyricsMemoryApi.getLyricsMemoryPreview).mockResolvedValue(preview)
   vi.mocked(lyricsMemoryApi.getLyricsMemorySnapshot).mockResolvedValue(snapshotDetail)
+  vi.mocked(lyricsMemoryApi.distillNextLegacyLyricsMemory).mockResolvedValue({
+    processed_count: 1,
+    processed_event_ids: [19],
+    pending_legacy_count: 0,
+  })
   vi.mocked(lyricsMemoryApi.applyLyricsMemoryChatProposal).mockResolvedValue({
     message: { ...proposalMessage, is_applied: true, applied_at: '2026-08-31T09:30:00Z' },
     created_event_ids: [25],
@@ -162,19 +181,27 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('LyricsMemoryPage', () => {
-  it('shows the overview and loads the hidden prompt preview only on request', async () => {
+  it('shows distilled memory by default and keeps original evidence secondary', async () => {
     const user = userEvent.setup()
     render(<App><LyricsMemoryPage /></App>)
 
     expect(await screen.findByRole('heading', { name: '歌词记忆' })).toBeInTheDocument()
     expect(screen.getByText('24')).toBeInTheDocument()
-    expect(lyricsMemoryApi.getLyricsMemoryPreview).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: '当前提炼记忆' })).toBeInTheDocument()
+    expect(lyricsMemoryApi.getLyricsMemoryPreview).toHaveBeenCalledOnce()
+
+    await user.click(screen.getByText('1. 已确认创作需求提炼'))
+    expect(await screen.findByText('需求摘要')).toBeInTheDocument()
+    expect(screen.getByText('以重逢为核心，用递进情绪完成流行歌表达')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: /原始证据/ }))
+    expect(await screen.findByText('仅追溯')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '预览注入内容' }))
 
     expect(await screen.findByText('实际注入内容')).toBeInTheDocument()
-    expect(screen.getByText('管理员固定规则')).toBeInTheDocument()
-    expect(lyricsMemoryApi.getLyricsMemoryPreview).toHaveBeenCalledOnce()
+    expect(screen.getAllByText('管理员固定规则').length).toBeGreaterThan(0)
+    expect(lyricsMemoryApi.getLyricsMemoryPreview).toHaveBeenCalledTimes(2)
   })
 
   it('keeps an AI memory proposal pending until the admin confirms it', async () => {
@@ -186,6 +213,24 @@ describe('LyricsMemoryPage', () => {
     expect(await screen.findByText(proposalMessage.content)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认应用' })).toBeInTheDocument()
     expect(lyricsMemoryApi.applyLyricsMemoryChatProposal).not.toHaveBeenCalled()
+  })
+
+  it('distills legacy results one at a time only after an admin action', async () => {
+    const user = userEvent.setup()
+    vi.mocked(lyricsMemoryApi.getLyricsMemoryPreview)
+      .mockResolvedValueOnce({ ...preview, pending_legacy_count: 1 })
+      .mockResolvedValue({ ...preview, distilled_insight_count: 7 })
+    render(<App><LyricsMemoryPage /></App>)
+
+    const distillButton = await screen.findByRole('button', { name: '提炼下一条历史结果' })
+    expect(lyricsMemoryApi.distillNextLegacyLyricsMemory).not.toHaveBeenCalled()
+
+    await user.click(distillButton)
+
+    await waitFor(() => {
+      expect(lyricsMemoryApi.distillNextLegacyLyricsMemory).toHaveBeenCalledOnce()
+    })
+    expect((await screen.findAllByText('7')).length).toBeGreaterThan(0)
   })
 
   it('opens a named retained memory snapshot without expanding all cards inline', async () => {

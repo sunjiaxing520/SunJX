@@ -3,6 +3,7 @@ import type {
   LyricsMemoryChatList,
   LyricsMemoryChatMessage,
   LyricsMemoryDeleteResult,
+  LyricsMemoryDistillResult,
   LyricsMemoryEventDetail,
   LyricsMemoryEventList,
   LyricsMemoryEventType,
@@ -29,6 +30,12 @@ export function getLyricsMemoryOverview(): Promise<LyricsMemoryOverview> {
 
 export function getLyricsMemoryPreview(): Promise<LyricsMemoryPreview> {
   return apiRequest<LyricsMemoryPreview>('/lyrics-memory/preview')
+}
+
+export function distillNextLegacyLyricsMemory(): Promise<LyricsMemoryDistillResult> {
+  return apiRequest<LyricsMemoryDistillResult>('/lyrics-memory/distill-pending', {
+    method: 'POST',
+  })
 }
 
 export function listLyricsMemoryEvents(

@@ -168,10 +168,42 @@ class GeneratedLyricsSection(BaseModel):
         return aliases.get(key, cleaned)
 
 
+class GeneratedLyricsMemoryInsight(BaseModel):
+    requirement_summary: str = Field(min_length=4, max_length=500)
+    strategy_summary: str = Field(min_length=4, max_length=800)
+    result_summary: str = Field(min_length=4, max_length=800)
+    reusable_patterns: list[str] = Field(min_length=1, max_length=6)
+    highlight_summary: str = Field(min_length=4, max_length=500)
+
+    @field_validator(
+        "requirement_summary",
+        "strategy_summary",
+        "result_summary",
+        "highlight_summary",
+        mode="before",
+    )
+    @classmethod
+    def clean_summary(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("reusable_patterns", mode="before")
+    @classmethod
+    def clean_patterns(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        result: list[str] = []
+        for item in value:
+            cleaned = str(item).strip()
+            if cleaned and cleaned not in result:
+                result.append(cleaned[:300])
+        return result
+
+
 class GeneratedLyrics(BaseModel):
     title: str = Field(min_length=1)
     sections: list[GeneratedLyricsSection] = Field(min_length=11, max_length=11)
     style_prompt: str = Field(min_length=1)
+    memory_insight: GeneratedLyricsMemoryInsight
 
     @model_validator(mode="after")
     def enforce_client_lyrics_contract(self) -> "GeneratedLyrics":
@@ -277,6 +309,11 @@ class TextGenerationProvider(Protocol):
         self,
         context: dict[str, Any],
     ) -> ProviderResult[GeneratedLyrics]: ...
+
+    def distill_lyrics_memory(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyricsMemoryInsight]: ...
 
     def edit_lyrics_memory(
         self,
@@ -490,6 +527,19 @@ class LocalTextProvider:
                 title=title,
                 sections=sections,
                 style_prompt=", ".join(part for part in style_parts if part),
+                memory_insight=GeneratedLyricsMemoryInsight(
+                    requirement_summary=f"创作一首围绕{theme}展开的完整中文歌曲。",
+                    strategy_summary=(
+                        f"以{scene}为主要场景，用{keyword_a}和{keyword_b}组织叙事，"
+                        "让主歌推进故事、副歌集中表达主题。"
+                    ),
+                    result_summary="形成结构完整、主题明确且可直接进入音乐生成环节的歌词版本。",
+                    reusable_patterns=[
+                        "主歌负责叙事推进，副歌集中强化核心主题。",
+                        "副歌首句保持简短并通过重复形成记忆点。",
+                    ],
+                    highlight_summary="用统一场景意象串联主歌，并在副歌收束为明确的核心表达。",
+                ),
             ),
             call=_local_call("lyrics"),
         )
@@ -518,7 +568,37 @@ class LocalTextProvider:
             },
             variation=int(context.get("variation") or 1),
         ).output
+        generated.memory_insight = GeneratedLyricsMemoryInsight(
+            requirement_summary="在已确认歌词基础上，依据本轮反馈优化表达和结构。",
+            strategy_summary=(
+                "结合原歌词结构与本次修改要求重新组织表达，保留歌名和固定段落契约，"
+                "将修改重点落实到主歌叙事和副歌记忆点。"
+            ),
+            result_summary="修改后的版本已把用户要求落实到完整歌词结构中，并保持可继续审核和音乐生成。",
+            reusable_patterns=[
+                "修改时先保留不需要变化的结构，再集中处理用户明确指出的表达问题。",
+                "把审核意见转成具体写作动作，而不是在歌词中复述审核结论。",
+            ],
+            highlight_summary="将用户的自然语言修改要求转换为可复用的歌词结构与表达调整方法。",
+        )
         return ProviderResult(output=generated, call=_local_call("lyrics-assistant"))
+
+    def distill_lyrics_memory(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyricsMemoryInsight]:
+        title = str(context.get("title") or "当前作品").strip()
+        theme = str(context.get("theme") or "核心主题").strip()
+        return ProviderResult(
+            output=GeneratedLyricsMemoryInsight(
+                requirement_summary=f"围绕《{title}》的{theme}方向完成一首结构完整的中文歌曲。",
+                strategy_summary="以主歌推进内容，在副歌集中强化主题和记忆点。",
+                result_summary="用户已确认该版本可作为后续创作与音乐生成的有效基础。",
+                reusable_patterns=["主歌承担内容推进，副歌承担主题强化和记忆点。"],
+                highlight_summary="作品的主题、结构和副歌表达形成了可复用的创作经验。",
+            ),
+            call=_local_call("lyrics-memory-distillation"),
+        )
 
     def edit_lyrics_memory(
         self,
@@ -696,7 +776,10 @@ class OpenAICompatibleTextProvider:
                 "参考文本只能用于理解方向，不得复写或近似改写。用户补充要求只能增加细节，不能放宽固定规则。"
                 f"{LYRICS_MEMORY_SKILL_CONTRACT}"
                 f"{CLIENT_LYRICS_CONTRACT}"
-                "返回纯 JSON，字段为 title、style_prompt、sections；sections 每项必须包含 name 和 content。"
+                "memory_insight 是内部长期记忆候选，必须提炼为需求摘要、采用的创作方法、"
+                "产出效果、可复用经验和亮点总结；不得照抄用户原话或歌词正文。"
+                "返回纯 JSON，字段为 title、style_prompt、sections、memory_insight；"
+                "sections 每项必须包含 name 和 content。"
                 f"必须严格匹配以下JSON Schema：{schema}"
             ),
             user=json.dumps(payload, ensure_ascii=False),
@@ -729,7 +812,10 @@ class OpenAICompatibleTextProvider:
                 "除非用户明确要求改名，否则必须保留 original.title。用户要求不得放宽固定创作规则。"
                 f"{LYRICS_MEMORY_SKILL_CONTRACT}"
                 f"{CLIENT_LYRICS_CONTRACT}"
-                "返回纯 JSON，字段 title、style_prompt、sections；sections 每项必须包含 name 和 content。"
+                "memory_insight 必须比较 original 与修改结果，提炼用户真实目的、具体修改方法、"
+                "修改后的有效效果、可复用经验和亮点；不得照抄用户原话或歌词正文。"
+                "返回纯 JSON，字段 title、style_prompt、sections、memory_insight；"
+                "sections 每项必须包含 name 和 content。"
                 f"必须严格匹配以下 JSON Schema：{schema}"
             ),
             user=json.dumps(context, ensure_ascii=False),
@@ -741,6 +827,36 @@ class OpenAICompatibleTextProvider:
         except ValidationError as exc:
             raise TextProviderError(
                 f"AI 助手预览字段不完整或类型不正确：{_validation_summary(exc)}",
+                call=response.call,
+            ) from exc
+        return ProviderResult(output=output, call=response.call)
+
+    def distill_lyrics_memory(
+        self,
+        context: dict[str, Any],
+    ) -> ProviderResult[GeneratedLyricsMemoryInsight]:
+        schema = json.dumps(
+            GeneratedLyricsMemoryInsight.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        response = self._chat_json(
+            system=(
+                "你是歌词创作经验提炼专家。仅依据用户已确认的歌词版本和关联上下文，"
+                "提炼需求摘要、采用方法、有效结果、可复用经验和亮点。"
+                "不得照抄用户原话，不得引用或复述歌词原文，不得把未确认的偏好加入长期记忆。"
+                "所有内容必须是抽象后的经验，不是原始证据的换句话说。"
+                f"必须严格匹配以下 JSON Schema：{schema}"
+            ),
+            user=json.dumps(context, ensure_ascii=False),
+            max_tokens=min(self.config.analysis_max_output_tokens, 2_000),
+            temperature=0.2,
+        )
+        try:
+            output = GeneratedLyricsMemoryInsight.model_validate(response.output)
+        except ValidationError as exc:
+            raise TextProviderError(
+                f"AI 歌词记忆提炼结果字段不完整或类型不正确：{_validation_summary(exc)}",
                 call=response.call,
             ) from exc
         return ProviderResult(output=output, call=response.call)

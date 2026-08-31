@@ -459,7 +459,15 @@ export interface LyricsMemoryOverview {
 
 export interface LyricsMemoryPreview {
   capsule_char_count: number
+  distilled_insight_count: number
+  pending_legacy_count: number
   memory: Record<string, unknown>
+}
+
+export interface LyricsMemoryDistillResult {
+  processed_count: number
+  processed_event_ids: number[]
+  pending_legacy_count: number
 }
 
 export interface LyricsMemoryDeleteResult {

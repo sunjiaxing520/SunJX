@@ -12,6 +12,7 @@ from app.schemas.lyrics_memory import (
     LyricsMemoryChatMessageResponse,
     LyricsMemoryChatRequest,
     LyricsMemoryDeleteResponse,
+    LyricsMemoryDistillResponse,
     LyricsMemoryEventDetailResponse,
     LyricsMemoryEventListResponse,
     LyricsMemoryEventType,
@@ -33,6 +34,7 @@ from app.services.lyrics_memory import (
     delete_lyrics_memory_event,
     delete_lyrics_memory_events,
     delete_lyrics_memory_snapshot,
+    distill_next_legacy_lyrics_memory,
     get_lyrics_memory_event,
     get_lyrics_memory_overview,
     get_lyrics_memory_snapshot,
@@ -63,6 +65,22 @@ def lyrics_memory_preview(
     admin: SuperAdmin,
 ) -> LyricsMemoryPreviewResponse:
     return preview_lyrics_memory(db)
+
+
+@router.post("/distill-pending", response_model=LyricsMemoryDistillResponse)
+def lyrics_memory_distill_pending(
+    request: Request,
+    db: DatabaseSession,
+    admin: SuperAdmin,
+) -> LyricsMemoryDistillResponse:
+    result = distill_next_legacy_lyrics_memory(db)
+    _audit(
+        request,
+        admin.id,
+        "lyrics_memory_legacy_distilled",
+        result.processed_event_ids,
+    )
+    return result
 
 
 @router.get("/chat", response_model=LyricsMemoryChatListResponse)

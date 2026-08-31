@@ -7,6 +7,7 @@ from app.adapters import text_generation
 from app.adapters.text_generation import (
     GeneratedDirection,
     GeneratedLyrics,
+    LocalTextProvider,
     OpenAICompatibleTextProvider,
     TextProviderConfig,
     TextProviderError,
@@ -35,6 +36,19 @@ def _lyrics_sections() -> list[dict[str, str]]:
     ]
 
 
+def _memory_insight_payload() -> dict[str, object]:
+    return {
+        "requirement_summary": "围绕成长主题创作一首完整中文歌曲。",
+        "strategy_summary": "用通勤场景推进主歌叙事，在副歌集中强化向前的力量。",
+        "result_summary": "形成主题明确、结构完整且副歌记忆点清晰的歌词版本。",
+        "reusable_patterns": [
+            "主歌使用连续场景推进叙事。",
+            "副歌用简短首句集中表达主题。",
+        ],
+        "highlight_summary": "把日常通勤意象转化为持续向前的情绪线索。",
+    }
+
+
 class FakeResponse:
     def raise_for_status(self) -> None:
         return None
@@ -50,6 +64,7 @@ class FakeResponse:
                                 "title": "测试歌名",
                                 "style_prompt": "流行, 温柔",
                                 "sections": _lyrics_sections(),
+                                "memory_insight": _memory_insight_payload(),
                             },
                             ensure_ascii=False,
                         )
@@ -131,6 +146,8 @@ def test_openai_compatible_provider_returns_usage_metadata(
     assert "歌词创作提炼 Skill" in system_prompt
     assert "用户主动确认的结果" in system_prompt
     assert "真实榜单歌词证据" in system_prompt
+    assert "不得照抄用户原话或歌词正文" in system_prompt
+    assert result.output.memory_insight.result_summary.startswith("形成主题明确")
 
     captured_request.clear()
     monkeypatch.setattr(settings, "AI_BASE_URL", "https://api.example.com/v1")
@@ -199,6 +216,64 @@ def test_lyrics_memory_editor_returns_confirmable_operations(
     system_prompt = captured_request["messages"][0]["content"]
     assert "等待管理员再次确认" in system_prompt
     assert "不得删除数据库记录" in system_prompt
+
+
+def test_lyrics_memory_distillation_returns_abstract_insight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request: dict[str, object] = {}
+
+    class DistillationResponse(FakeResponse):
+        def json(self) -> dict[str, object]:
+            body = super().json()
+            body["choices"] = [{
+                "message": {
+                    "content": json.dumps(_memory_insight_payload(), ensure_ascii=False)
+                }
+            }]
+            return body
+
+    def fake_post(*args, **kwargs):
+        captured_request.update(kwargs.get("json") or {})
+        return DistillationResponse()
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="kimi",
+            protocol="openai_compatible",
+            base_url="https://api.moonshot.cn/v1",
+            api_key="test-key",
+            model="kimi-k2.5",
+            max_retries=1,
+        )
+    )
+
+    result = provider.distill_lyrics_memory(
+        {
+            "title": "测试歌名",
+            "user_request_evidence": "副歌更有力量",
+            "accepted_lyrics": "这是不应该被照抄的歌词",
+        }
+    )
+
+    assert result.output.result_summary.startswith("形成主题明确")
+    system_prompt = captured_request["messages"][0]["content"]
+    assert "不得照抄用户原话" in system_prompt
+    assert "不得引用或复述歌词原文" in system_prompt
+
+
+def test_local_revision_memory_does_not_copy_the_instruction() -> None:
+    instruction = "副歌更有力量"
+    result = LocalTextProvider().revise_lyrics(
+        {
+            "instruction": instruction,
+            "original": {"title": "向光而行"},
+            "task": {"theme": "成长"},
+        }
+    )
+
+    assert instruction not in result.output.memory_insight.requirement_summary
 
 
 def test_provider_config_controls_json_and_token_parameter(
@@ -473,6 +548,7 @@ def test_lyrics_sections_require_name_and_content(
                                     "title": "缺少字段",
                                     "style_prompt": "流行",
                                     "sections": sections,
+                                    "memory_insight": _memory_insight_payload(),
                                 },
                                 ensure_ascii=False,
                             )
@@ -511,6 +587,7 @@ def test_generated_lyrics_enforces_client_structure() -> None:
             "title": "向光而行",
             "style_prompt": "励志流行",
             "sections": _lyrics_sections(),
+            "memory_insight": _memory_insight_payload(),
         }
     )
 

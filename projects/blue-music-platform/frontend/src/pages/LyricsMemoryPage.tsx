@@ -46,6 +46,7 @@ import {
   deleteLyricsMemoryEvent,
   deleteLyricsMemoryEvents,
   deleteLyricsMemorySnapshot,
+  distillNextLegacyLyricsMemory,
   getLyricsMemoryEvent,
   getLyricsMemoryOverview,
   getLyricsMemoryPreview,
@@ -75,8 +76,8 @@ const EVENT_META: Record<
   LyricsMemoryEventType,
   { label: string; color: string }
 > = {
-  creation_request: { label: '真实创作需求', color: 'blue' },
-  modification_request: { label: '真实修改需求', color: 'purple' },
+  creation_request: { label: '创作原始证据', color: 'blue' },
+  modification_request: { label: '修改原始证据', color: 'purple' },
   accepted_result: { label: '确认结果', color: 'green' },
   ranking_lyrics_insight: { label: '榜单歌词规律', color: 'gold' },
   admin_rule: { label: '管理员规则', color: 'volcano' },
@@ -84,10 +85,10 @@ const EVENT_META: Record<
 
 const MEMORY_SECTIONS = [
   { key: 'admin_rules', label: '管理员固定规则' },
-  { key: '1_true_creation_requirements', label: '1. 真实创作需求' },
-  { key: '2_true_modification_requirements', label: '2. 真实修改需求' },
-  { key: '3_requirement_context', label: '3. 需求上下文' },
-  { key: '4_creation_distillation_expert', label: '4. 创作提炼经验' },
+  { key: '1_true_creation_requirements', label: '1. 已确认创作需求提炼' },
+  { key: '2_true_modification_requirements', label: '2. 已确认修改需求提炼' },
+  { key: '3_requirement_context', label: '3. 经验形成场景' },
+  { key: '4_creation_distillation_expert', label: '4. 有效创作经验' },
   { key: '5_ranking_lyrics_patterns', label: '5. 榜单歌词规律' },
 ] as const
 
@@ -99,6 +100,27 @@ const OPERATION_LABELS: Record<LyricsMemoryOperation['action'], string> = {
 }
 
 const PAGE_SIZE = 15
+
+const MEMORY_FIELD_LABELS: Record<string, string> = {
+  task: '用途',
+  task_id: '任务',
+  title: '歌名',
+  rule: '规则内容',
+  source: '来源',
+  source_kind: '形成阶段',
+  theme: '主题',
+  genre_tags: '风格',
+  mood_tags: '情绪',
+  available: '是否已有经验',
+  requirement_summary: '需求摘要',
+  strategy_summary: '采用方法',
+  result_summary: '有效结果',
+  reusable_patterns: '可复用经验',
+  highlight_summary: '亮点总结',
+  accepted_evidence: '已确认的提炼经验',
+  items: '规律条目',
+  summary: '总结',
+}
 
 function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
@@ -115,6 +137,46 @@ function memorySectionCount(value: unknown): number {
   return value ? 1 : 0
 }
 
+function memoryFieldLabel(key: string): string {
+  return MEMORY_FIELD_LABELS[key] ?? key
+}
+
+function isTraceOnlyEvent(eventType: LyricsMemoryEventType): boolean {
+  return eventType === 'creation_request' || eventType === 'modification_request'
+}
+
+function MemoryValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === '') {
+    return <Typography.Text type="secondary">暂无内容</Typography.Text>
+  }
+  if (value === 'initial_creation') return <span>首次创作</span>
+  if (value === 'revision') return <span>确认修改</span>
+  if (typeof value === 'boolean') return <span>{value ? '是' : '否'}</span>
+  if (typeof value === 'string' || typeof value === 'number') return <span>{value}</span>
+  if (Array.isArray(value)) {
+    if (!value.length) return <Typography.Text type="secondary">暂无内容</Typography.Text>
+    return (
+      <div className="lyrics-memory-value-list">
+        {value.map((item, index) => (
+          <div className="lyrics-memory-value-item" key={index}>
+            <MemoryValue value={item} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="lyrics-memory-field-list">
+      {Object.entries(value as Record<string, unknown>).map(([key, item]) => (
+        <div className="lyrics-memory-field" key={key}>
+          <strong>{memoryFieldLabel(key)}</strong>
+          <div><MemoryValue value={item} /></div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function MemoryCapsuleView({ memory }: { memory: Record<string, unknown> }) {
   return (
     <Collapse
@@ -129,11 +191,7 @@ function MemoryCapsuleView({ memory }: { memory: Record<string, unknown> }) {
               <Tag>{memorySectionCount(value)} 项</Tag>
             </span>
           ),
-          children: (
-            <pre className="lyrics-memory-json">
-              {JSON.stringify(value ?? null, null, 2)}
-            </pre>
-          ),
+          children: <MemoryValue value={value} />,
         }
       })}
     />
@@ -170,7 +228,7 @@ export function LyricsMemoryPage() {
   const [loading, setLoading] = useState(true)
   const [eventLoading, setEventLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('events')
+  const [activeTab, setActiveTab] = useState('memory')
   const [eventType, setEventType] = useState<'all' | LyricsMemoryEventType>('all')
   const [usefulness, setUsefulness] = useState<'all' | 'active' | 'inactive'>('all')
   const [searchInput, setSearchInput] = useState('')
@@ -183,6 +241,7 @@ export function LyricsMemoryPage() {
   const [preview, setPreview] = useState<LyricsMemoryPreview | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [distillingLegacy, setDistillingLegacy] = useState(false)
   const [actionId, setActionId] = useState<number | null>(null)
   const [deletingMany, setDeletingMany] = useState(false)
   const [ruleOpen, setRuleOpen] = useState(false)
@@ -231,17 +290,28 @@ export function LyricsMemoryPage() {
     setSnapshots(result.items)
   }, [])
 
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true)
+    try {
+      const result = await getLyricsMemoryPreview()
+      setPreview(result)
+      return result
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [])
+
   const loadInitial = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      await Promise.all([loadOverview(), loadChat(), loadSnapshots()])
+      await Promise.all([loadOverview(), loadChat(), loadSnapshots(), loadPreview()])
     } catch (loadError) {
       setError(errorMessage(loadError))
     } finally {
       setLoading(false)
     }
-  }, [loadChat, loadOverview, loadSnapshots])
+  }, [loadChat, loadOverview, loadPreview, loadSnapshots])
 
   useEffect(() => {
     void loadInitial()
@@ -254,7 +324,7 @@ export function LyricsMemoryPage() {
   const refreshAll = async () => {
     setError(null)
     try {
-      await Promise.all([loadOverview(), loadEvents(), loadChat(), loadSnapshots()])
+      await Promise.all([loadOverview(), loadEvents(), loadChat(), loadSnapshots(), loadPreview()])
       message.success('歌词记忆已刷新')
     } catch (refreshError) {
       setError(errorMessage(refreshError))
@@ -277,14 +347,28 @@ export function LyricsMemoryPage() {
 
   const openPreview = async () => {
     setPreviewOpen(true)
-    setPreviewLoading(true)
     try {
-      setPreview(await getLyricsMemoryPreview())
+      await loadPreview()
     } catch (previewError) {
       message.error(errorMessage(previewError))
       setPreviewOpen(false)
+    }
+  }
+
+  const distillNextLegacy = async () => {
+    setDistillingLegacy(true)
+    try {
+      const result = await distillNextLegacyLyricsMemory()
+      await Promise.all([loadPreview(), loadOverview(), loadEvents()])
+      if (result.processed_count > 0) {
+        message.success(`已提炼 1 条历史确认结果，剩余 ${result.pending_legacy_count} 条`)
+      } else {
+        message.info('已没有待提炼的历史结果')
+      }
+    } catch (distillError) {
+      message.error(errorMessage(distillError))
     } finally {
-      setPreviewLoading(false)
+      setDistillingLegacy(false)
     }
   }
 
@@ -442,7 +526,7 @@ export function LyricsMemoryPage() {
       ),
     },
     {
-      title: '记忆摘要',
+      title: '证据摘要',
       dataIndex: 'content_preview',
       render: (value: string, event) => (
         <button className="lyrics-memory-summary-button" onClick={() => void openDetail(event.id)}>
@@ -461,10 +545,12 @@ export function LyricsMemoryPage() {
       render: (value: string | null) => value ?? '历史数据',
     },
     {
-      title: '状态',
+      title: '记忆状态',
       dataIndex: 'is_useful',
       width: 92,
-      render: (value: boolean, event) => (
+      render: (value: boolean, event) => isTraceOnlyEvent(event.event_type) ? (
+        <Tag>仅追溯</Tag>
+      ) : (
         <Tooltip title={value ? '停用后不再注入模型' : '恢复到隐藏记忆'}>
           <Switch
             size="small"
@@ -489,27 +575,27 @@ export function LyricsMemoryPage() {
       fixed: 'right',
       render: (_, event) => (
         <Space size={2}>
-          <Tooltip title="查看完整记忆">
+          <Tooltip title="查看完整证据">
             <Button
               type="text"
               icon={<Eye size={16} />}
-              aria-label="查看完整记忆"
+              aria-label="查看完整证据"
               onClick={() => void openDetail(event.id)}
             />
           </Tooltip>
           <Popconfirm
-            title="永久删除这条记忆？"
+            title="永久删除这条证据？"
             okText="删除"
             cancelText="取消"
             onConfirm={() => void removeEvent(event.id)}
           >
-            <Tooltip title="删除记忆">
+            <Tooltip title="删除证据">
               <Button
                 type="text"
                 danger
                 icon={<Trash2 size={16} />}
                 loading={actionId === event.id}
-                aria-label="删除记忆"
+                aria-label="删除证据"
               />
             </Tooltip>
           </Popconfirm>
@@ -525,6 +611,50 @@ export function LyricsMemoryPage() {
       value,
     })),
   ]
+
+  const currentMemoryPanel = (
+    <div className="lyrics-memory-current-panel">
+      <div className="lyrics-memory-current-heading">
+        <div>
+          <Typography.Title level={2}>当前提炼记忆</Typography.Title>
+          <Typography.Text type="secondary">
+            只展示从用户已确认歌词中提炼的需求、方法和有效结果
+          </Typography.Text>
+        </div>
+        <Space wrap>
+          {(preview?.pending_legacy_count ?? 0) > 0 && (
+            <Button
+              icon={<BrainCircuit size={16} />}
+              loading={distillingLegacy}
+              onClick={() => void distillNextLegacy()}
+            >
+              提炼下一条历史结果
+            </Button>
+          )}
+          <Button icon={<Eye size={16} />} onClick={() => void openPreview()}>
+            抽屉查看
+          </Button>
+        </Space>
+      </div>
+      <div className="lyrics-memory-current-summary">
+        <div><span>已形成提炼记忆</span><strong>{preview?.distilled_insight_count ?? 0}</strong></div>
+        <div><span>历史待提炼</span><strong>{preview?.pending_legacy_count ?? 0}</strong></div>
+        <div><span>当前注入字符</span><strong>{(preview?.capsule_char_count ?? 0).toLocaleString()}</strong></div>
+      </div>
+      {(preview?.pending_legacy_count ?? 0) > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          title={`${preview?.pending_legacy_count} 条历史确认结果还没有结构化提炼，当前不会注入 AI`}
+        />
+      )}
+      {preview ? (
+        <MemoryCapsuleView memory={preview.memory} />
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={previewLoading ? '正在读取提炼记忆' : '暂无提炼记忆'} />
+      )}
+    </div>
+  )
 
   const eventPanel = (
     <div className="lyrics-memory-panel">
@@ -558,7 +688,7 @@ export function LyricsMemoryPage() {
           <Input.Search
             value={searchInput}
             allowClear
-            placeholder="搜索记忆"
+            placeholder="搜索原始证据"
             style={{ width: 220 }}
             onChange={(event) => setSearchInput(event.target.value)}
             onSearch={(value) => {
@@ -573,7 +703,7 @@ export function LyricsMemoryPage() {
         <div className="lyrics-memory-bulk-bar">
           <span>已选择 {selectedIds.length} 条</span>
           <Popconfirm
-            title={`永久删除选中的 ${selectedIds.length} 条记忆？`}
+            title={`永久删除选中的 ${selectedIds.length} 条证据？`}
             okText="删除"
             cancelText="取消"
             onConfirm={() => void removeSelected()}
@@ -600,7 +730,7 @@ export function LyricsMemoryPage() {
           onChange: setPage,
         }}
         scroll={{ x: 980 }}
-        locale={{ emptyText: '暂无符合条件的歌词记忆' }}
+        locale={{ emptyText: '暂无符合条件的原始证据' }}
         className="lyrics-memory-table"
       />
     </div>
@@ -755,7 +885,7 @@ export function LyricsMemoryPage() {
       <div className="page-heading-row">
         <div>
           <Typography.Title level={1}>歌词记忆</Typography.Title>
-          <Typography.Text type="secondary">作词偏好证据、对话调整与保留版本</Typography.Text>
+          <Typography.Text type="secondary">提炼后的团队作词经验、调整与保留版本</Typography.Text>
         </div>
         <Space wrap>
           <Tooltip title="刷新歌词记忆">
@@ -780,15 +910,15 @@ export function LyricsMemoryPage() {
       <div className="metrics-grid lyrics-memory-metrics">
         <div className="metric-card">
           <span className="metric-icon metric-icon-blue"><Database size={20} /></span>
-          <div><span>全部记忆</span><strong>{overview?.total_events ?? 0}</strong></div>
+          <div><span>原始证据</span><strong>{overview?.total_events ?? 0}</strong></div>
         </div>
         <div className="metric-card">
           <span className="metric-icon metric-icon-green"><CheckCircle2 size={20} /></span>
-          <div><span>使用中</span><strong>{overview?.active_events ?? 0}</strong></div>
+          <div><span>已形成提炼</span><strong>{preview?.distilled_insight_count ?? 0}</strong></div>
         </div>
         <div className="metric-card">
           <span className="metric-icon metric-icon-yellow"><Ban size={20} /></span>
-          <div><span>已停用</span><strong>{overview?.inactive_events ?? 0}</strong></div>
+          <div><span>历史待提炼</span><strong>{preview?.pending_legacy_count ?? 0}</strong></div>
         </div>
         <div className="metric-card">
           <span className="metric-icon metric-icon-coral"><BrainCircuit size={20} /></span>
@@ -800,7 +930,8 @@ export function LyricsMemoryPage() {
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
-          { key: 'events', label: <span><Database size={15} /> 记忆证据</span>, children: eventPanel },
+          { key: 'memory', label: <span><BrainCircuit size={15} /> 提炼记忆</span>, children: currentMemoryPanel },
+          { key: 'events', label: <span><Database size={15} /> 原始证据</span>, children: eventPanel },
           { key: 'chat', label: <span><MessageSquareText size={15} /> 对话调整</span>, children: chatPanel },
           { key: 'snapshots', label: <span><FileClock size={15} /> 保留记忆</span>, children: snapshotPanel },
         ]}
@@ -808,21 +939,25 @@ export function LyricsMemoryPage() {
       />
 
       <Drawer
-        title={detail ? `${EVENT_META[detail.event_type].label} #${detail.id}` : '记忆详情'}
+        title={detail ? `${EVENT_META[detail.event_type].label} #${detail.id}` : '原始证据详情'}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         size={720}
         loading={detailLoading}
         extra={detail && (
           <Space>
-            <Switch
-              size="small"
-              checked={detail.is_useful}
-              loading={actionId === detail.id}
-              onChange={(checked) => void toggleUsefulness(detail.id, checked)}
-            />
+            {isTraceOnlyEvent(detail.event_type) ? (
+              <Tag>仅追溯</Tag>
+            ) : (
+              <Switch
+                size="small"
+                checked={detail.is_useful}
+                loading={actionId === detail.id}
+                onChange={(checked) => void toggleUsefulness(detail.id, checked)}
+              />
+            )}
             <Popconfirm
-              title="永久删除这条记忆？"
+              title="永久删除这条证据？"
               okText="删除"
               cancelText="取消"
               onConfirm={() => void removeEvent(detail.id)}
@@ -839,7 +974,11 @@ export function LyricsMemoryPage() {
               size="small"
               column={2}
               items={[
-                { key: 'status', label: '状态', children: detail.is_useful ? '使用中' : '已停用' },
+                {
+                  key: 'status',
+                  label: '记忆状态',
+                  children: isTraceOnlyEvent(detail.event_type) ? '仅作原始证据' : detail.is_useful ? '使用中' : '已停用',
+                },
                 { key: 'user', label: '记录人', children: detail.created_by_username ?? '历史数据' },
                 { key: 'task', label: '任务', children: detail.task_id ? `#${detail.task_id}` : '—' },
                 { key: 'version', label: '歌词版本', children: detail.source_version_id ? `#${detail.source_version_id}` : '—' },
@@ -847,7 +986,7 @@ export function LyricsMemoryPage() {
               ]}
             />
             <section>
-              <Typography.Title level={3}>清洗后内容</Typography.Title>
+              <Typography.Title level={3}>清洗后证据</Typography.Title>
               <pre>{detail.cleaned_content}</pre>
             </section>
             <Collapse

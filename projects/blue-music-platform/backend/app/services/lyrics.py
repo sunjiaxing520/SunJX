@@ -4,7 +4,11 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.adapters.text_generation import TextGenerationProvider, TextProviderError
+from app.adapters.text_generation import (
+    GeneratedLyricsMemoryInsight,
+    TextGenerationProvider,
+    TextProviderError,
+)
 from app.core.exceptions import AppException
 from app.core.logging import LOGGER_NAME
 from app.models import (
@@ -215,6 +219,7 @@ def _generate_version(
             content=generated.content,
             style_prompt=generated.style_prompt,
             sections=[section.model_dump() for section in generated.sections],
+            memory_insight=generated.memory_insight.model_dump(),
         )
         db.add(version)
         record_api_usage(
@@ -563,6 +568,7 @@ def create_lyrics_assistant_preview(
                 "content": generated.content,
                 "style_prompt": generated.style_prompt,
                 "sections": [section.model_dump() for section in generated.sections],
+                "memory_insight": generated.memory_insight.model_dump(),
             },
             provider=provider.name,
             model=provider.model,
@@ -631,6 +637,12 @@ def confirm_lyrics_assistant_preview(
             code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
         )
     source_version = db.get(LyricsVersion, message.source_version_id)
+    raw_memory_insight = message.preview.get("memory_insight")
+    memory_insight = (
+        GeneratedLyricsMemoryInsight.model_validate(raw_memory_insight).model_dump()
+        if raw_memory_insight is not None
+        else None
+    )
     previous_user_message = db.scalar(
         select(LyricsAssistantMessage)
         .where(
@@ -662,6 +674,7 @@ def confirm_lyrics_assistant_preview(
         content=preview.content,
         style_prompt=preview.style_prompt,
         sections=preview.sections,
+        memory_insight=memory_insight,
         is_saved=True,
     )
     db.add(version)

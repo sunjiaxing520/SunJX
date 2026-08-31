@@ -50,7 +50,15 @@ class LyricsMemoryOverviewResponse(BaseModel):
 
 class LyricsMemoryPreviewResponse(BaseModel):
     capsule_char_count: int
+    distilled_insight_count: int
+    pending_legacy_count: int
     memory: dict[str, Any]
+
+
+class LyricsMemoryDistillResponse(BaseModel):
+    processed_count: int
+    processed_event_ids: list[int]
+    pending_legacy_count: int
 
 
 class LyricsMemoryUsefulnessRequest(BaseModel):
