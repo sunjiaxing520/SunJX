@@ -415,6 +415,120 @@ export interface LyricsVersion {
   created_at: string
 }
 
+export type LyricsMemoryEventType =
+  | 'creation_request'
+  | 'modification_request'
+  | 'accepted_result'
+  | 'ranking_lyrics_insight'
+  | 'admin_rule'
+
+export interface LyricsMemoryEventSummary {
+  id: number
+  event_type: LyricsMemoryEventType
+  task_id: number | null
+  source_version_id: number | null
+  created_by_id: number | null
+  created_by_username: string | null
+  content_preview: string
+  context_preview: Record<string, unknown>
+  is_useful: boolean
+  created_at: string
+}
+
+export interface LyricsMemoryEventDetail extends LyricsMemoryEventSummary {
+  raw_content: string
+  cleaned_content: string
+  context: Record<string, unknown>
+}
+
+export interface LyricsMemoryEventList {
+  items: LyricsMemoryEventSummary[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface LyricsMemoryOverview {
+  total_events: number
+  active_events: number
+  inactive_events: number
+  category_counts: Record<string, number>
+  last_updated_at: string | null
+  capsule_char_count: number
+}
+
+export interface LyricsMemoryPreview {
+  capsule_char_count: number
+  memory: Record<string, unknown>
+}
+
+export interface LyricsMemoryDeleteResult {
+  deleted_count: number
+  deleted_event_ids: number[]
+}
+
+export type LyricsMemoryOperationType =
+  | 'add_rule'
+  | 'update_rule'
+  | 'disable_event'
+  | 'enable_event'
+
+export interface LyricsMemoryOperation {
+  action: LyricsMemoryOperationType
+  event_id: number | null
+  title: string | null
+  content: string | null
+  reason: string
+}
+
+export interface LyricsMemoryProposal {
+  reply: string
+  operations: LyricsMemoryOperation[]
+}
+
+export interface LyricsMemoryChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  proposal: LyricsMemoryProposal | null
+  is_applied: boolean
+  provider: string | null
+  model: string | null
+  created_by_id: number | null
+  created_at: string
+  applied_at: string | null
+}
+
+export interface LyricsMemoryChatList {
+  items: LyricsMemoryChatMessage[]
+}
+
+export interface LyricsMemoryApplyResult {
+  message: LyricsMemoryChatMessage
+  created_event_ids: number[]
+  updated_event_ids: number[]
+}
+
+export interface LyricsMemorySnapshotSummary {
+  id: number
+  name: string
+  source_event_count: number
+  capsule_char_count: number
+  created_by_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LyricsMemorySnapshotDetail extends LyricsMemorySnapshotSummary {
+  memory: Record<string, unknown>
+}
+
+export interface LyricsMemorySnapshotList {
+  items: LyricsMemorySnapshotSummary[]
+  total: number
+  limit: number
+}
+
 export interface LyricsAssistantPreview {
   title: string
   content: string

@@ -5,7 +5,11 @@ from app.models.analysis import AnalysisReport, AnalysisTask, AnalysisTaskEntry
 from app.models.agent_permission import AgentType, UserAgentPermission
 from app.models.favorite import FavoriteItem
 from app.models.lyrics import LyricsAssistantMessage, LyricsTask, LyricsVersion
-from app.models.lyrics_memory import LyricsMemoryEvent
+from app.models.lyrics_memory import (
+    LyricsMemoryChatMessage,
+    LyricsMemoryEvent,
+    LyricsMemorySnapshot,
+)
 from app.models.music import (
     MusicProviderQuotaSnapshot,
     MusicProviderSettings,
@@ -33,7 +37,9 @@ __all__ = [
     "CollectionTask",
     "FavoriteItem",
     "LyricsAssistantMessage",
+    "LyricsMemoryChatMessage",
     "LyricsMemoryEvent",
+    "LyricsMemorySnapshot",
     "LyricsTask",
     "LyricsVersion",
     "MusicResult",

@@ -38,6 +38,9 @@ const UsersPage = lazy(() =>
 const AiProvidersPage = lazy(() =>
   import('./pages/AiProvidersPage').then((module) => ({ default: module.AiProvidersPage })),
 )
+const LyricsMemoryPage = lazy(() =>
+  import('./pages/LyricsMemoryPage').then((module) => ({ default: module.LyricsMemoryPage })),
+)
 const WorkflowsPage = lazy(() =>
   import('./pages/WorkflowsPage').then((module) => ({ default: module.WorkflowsPage })),
 )
@@ -86,6 +89,7 @@ export default function AppRoutes() {
             <Route element={<AdminRoute />}>
               <Route path="admin/users" element={<UsersPage />} />
               <Route path="admin/ai-providers" element={<AiProvidersPage />} />
+              <Route path="admin/lyrics-memory" element={<LyricsMemoryPage />} />
             </Route>
           </Route>
         </Route>

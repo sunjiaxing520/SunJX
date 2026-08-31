@@ -138,6 +138,69 @@ def test_openai_compatible_provider_returns_usage_metadata(
     assert "thinking" not in captured_request
 
 
+def test_lyrics_memory_editor_returns_confirmable_operations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request: dict[str, object] = {}
+
+    class MemoryResponse(FakeResponse):
+        def json(self) -> dict[str, object]:
+            body = super().json()
+            body["choices"] = [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "reply": "建议新增一条副歌规则。",
+                                "operations": [
+                                    {
+                                        "action": "add_rule",
+                                        "event_id": None,
+                                        "title": "副歌长度",
+                                        "content": "副歌核心句保持简短。",
+                                        "reason": "管理员明确要求",
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+            return body
+
+    def fake_post(*args, **kwargs):
+        captured_request.update(kwargs.get("json") or {})
+        return MemoryResponse()
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    provider = OpenAICompatibleTextProvider(
+        TextProviderConfig(
+            template_key="kimi",
+            protocol="openai_compatible",
+            base_url="https://api.moonshot.cn/v1",
+            api_key="test-key",
+            model="kimi-k3",
+            max_tokens_parameter="max_completion_tokens",
+            max_retries=1,
+        )
+    )
+
+    result = provider.edit_lyrics_memory(
+        {
+            "instruction": "副歌短一点",
+            "current_memory": {},
+            "event_catalog": [],
+        }
+    )
+
+    assert result.output.operations[0].action == "add_rule"
+    assert result.output.operations[0].title == "副歌长度"
+    system_prompt = captured_request["messages"][0]["content"]
+    assert "等待管理员再次确认" in system_prompt
+    assert "不得删除数据库记录" in system_prompt
+
+
 def test_provider_config_controls_json_and_token_parameter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

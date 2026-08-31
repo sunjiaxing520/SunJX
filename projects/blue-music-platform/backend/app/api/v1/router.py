@@ -8,6 +8,7 @@ from app.api.v1.routes import (
     favorites,
     health,
     lyrics,
+    lyrics_memory,
     music,
     rankings,
     review_agents,
@@ -25,6 +26,7 @@ api_router.include_router(ai_providers.router, tags=["ai-provider-management"])
 api_router.include_router(rankings.router, tags=["rankings"])
 api_router.include_router(analysis.router, tags=["analysis"])
 api_router.include_router(lyrics.router, tags=["lyrics"])
+api_router.include_router(lyrics_memory.router, tags=["lyrics-memory"])
 api_router.include_router(music.router, tags=["music"])
 api_router.include_router(review_agents.router, tags=["review-agents"])
 api_router.include_router(workflows.router, tags=["workflows"])
