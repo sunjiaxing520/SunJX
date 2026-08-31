@@ -6,12 +6,33 @@ import pytest
 from app.adapters import text_generation
 from app.adapters.text_generation import (
     GeneratedDirection,
+    GeneratedLyrics,
     OpenAICompatibleTextProvider,
     TextProviderConfig,
     TextProviderError,
 )
 from app.core.config import settings
 from app.schemas.analysis import CreationDirection
+
+
+def _lyrics_sections() -> list[dict[str, str]]:
+    verse1 = "迎着清晨奔向远方\n把新的故事写在路旁"
+    verse2 = "穿过风雨依然晴朗\n每一步都有坚定方向"
+    chorus1 = "抬头看见同一道光\n让心里的愿望自由生长"
+    chorus2 = "换一句会被统一首句\n让我们的歌继续回响"
+    return [
+        {"name": "Verse 1", "content": verse1},
+        {"name": "Verse 2", "content": verse2},
+        {"name": "Chorus1", "content": chorus1},
+        {"name": "Chorus2", "content": chorus2},
+        {"name": "Interlude", "content": "纯音乐"},
+        {"name": "Verse 2", "content": "这段会被统一"},
+        {"name": "Chorus1", "content": "这段会被统一"},
+        {"name": "Chorus2", "content": "这段会被统一"},
+        {"name": "Chorus1", "content": "这段会被统一"},
+        {"name": "Chorus2", "content": "这段会被统一"},
+        {"name": "Outro", "content": "不应保留"},
+    ]
 
 
 class FakeResponse:
@@ -28,11 +49,7 @@ class FakeResponse:
                             {
                                 "title": "测试歌名",
                                 "style_prompt": "流行, 温柔",
-                                "sections": [
-                                    {"name": "Verse", "content": "第一段"},
-                                    {"name": "Chorus", "content": "副歌"},
-                                    {"name": "Outro", "content": "尾声"},
-                                ],
+                                "sections": _lyrics_sections(),
                             },
                             ensure_ascii=False,
                         )
@@ -106,6 +123,11 @@ def test_openai_compatible_provider_returns_usage_metadata(
     assert result.call.usage_quantity == 200
     assert captured_request["max_tokens"] == settings.AI_LYRICS_MAX_OUTPUT_TOKENS
     assert captured_request["thinking"] == {"type": "disabled"}
+    system_prompt = captured_request["messages"][0]["content"]
+    assert "资深中文词曲作者" in system_prompt
+    assert "Verse 1、Verse 2、Chorus1、Chorus2、Interlude" in system_prompt
+    assert "Interlude 和 Outro 的 content 必须是空字符串" in system_prompt
+    assert "所有有歌词的句子必须统一押同一个韵脚" in system_prompt
 
     captured_request.clear()
     monkeypatch.setattr(settings, "AI_BASE_URL", "https://api.example.com/v1")
@@ -371,6 +393,8 @@ def test_lyrics_sections_require_name_and_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_post(url, **kwargs):
+        sections = _lyrics_sections()
+        sections[0].pop("content")
         return httpx.Response(
             200,
             json={
@@ -382,11 +406,7 @@ def test_lyrics_sections_require_name_and_content(
                                 {
                                     "title": "缺少字段",
                                     "style_prompt": "流行",
-                                    "sections": [
-                                        {"name": "Verse"},
-                                        {"name": "Chorus", "content": "副歌"},
-                                        {"name": "Outro", "content": "尾声"},
-                                    ],
+                                    "sections": sections,
                                 },
                                 ensure_ascii=False,
                             )
@@ -417,3 +437,34 @@ def test_lyrics_sections_require_name_and_content(
     )
     assert error.value.call is not None
     assert error.value.call.request_id == "provider-invalid-lyrics-123"
+
+
+def test_generated_lyrics_enforces_client_structure() -> None:
+    generated = GeneratedLyrics.model_validate(
+        {
+            "title": "向光而行",
+            "style_prompt": "励志流行",
+            "sections": _lyrics_sections(),
+        }
+    )
+
+    assert [section.name for section in generated.sections] == [
+        "Verse 1",
+        "Verse 2",
+        "Chorus1",
+        "Chorus2",
+        "Interlude",
+        "Verse 2",
+        "Chorus1",
+        "Chorus2",
+        "Chorus1",
+        "Chorus2",
+        "Outro",
+    ]
+    assert generated.sections[4].content == ""
+    assert generated.sections[-1].content == ""
+    assert generated.sections[1].content == generated.sections[5].content
+    assert generated.sections[2].content == generated.sections[6].content
+    assert generated.sections[2].content.splitlines()[0] == (
+        generated.sections[3].content.splitlines()[0]
+    )

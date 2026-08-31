@@ -371,13 +371,15 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
         json={
             "analysis_report_id": analysis_body["report"]["id"],
             "direction_index": 0,
+            "title_hint": "向光成长",
             "theme": "在成长中学会告别",
         },
     )
     assert lyrics.status_code == 201
     lyrics_body = lyrics.json()
     assert lyrics_body["status"] == "completed"
-    assert "[Chorus]" in lyrics_body["versions"][0]["content"]
+    assert lyrics_body["versions"][0]["title"] == "向光成长"
+    assert "[Chorus1]" in lyrics_body["versions"][0]["content"]
     assert lyrics_body["versions"][0]["title"] in lyrics_body["versions"][0]["content"]
 
     regenerated = workflow_context.client.post(

@@ -9,7 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.core.ai_values import (
     TempoValue,
@@ -79,6 +79,31 @@ class ProviderResult(Generic[OutputT]):
     call: ProviderCallMetadata
 
 
+CLIENT_LYRICS_SECTION_ORDER = (
+    "Verse 1",
+    "Verse 2",
+    "Chorus1",
+    "Chorus2",
+    "Interlude",
+    "Verse 2",
+    "Chorus1",
+    "Chorus2",
+    "Chorus1",
+    "Chorus2",
+    "Outro",
+)
+CLIENT_LYRICS_EMPTY_SECTIONS = {"Interlude", "Outro"}
+CLIENT_LYRICS_CONTRACT = (
+    "固定创作规则：围绕歌曲主题和歌名营造完整氛围；如果 title_hint 非空，title 必须严格使用该歌名，"
+    "否则先创作一个简洁歌名并围绕它写作。sections 必须严格按以下顺序返回且不得增删："
+    "Verse 1、Verse 2、Chorus1、Chorus2、Interlude、Verse 2、Chorus1、Chorus2、"
+    "Chorus1、Chorus2、Outro。Interlude 和 Outro 的 content 必须是空字符串，不得填写歌词或说明。"
+    "同名重复段落的歌词必须完全一致。Chorus1 和 Chorus2 的第一句必须完全相同、简洁且有记忆点。"
+    "所有有歌词的句子必须统一押同一个韵脚；统一韵脚是相同韵母体系，不要求句末使用同一个汉字。"
+    "返回前自行检查段落顺序、空段、副歌首句和全曲韵脚，不得输出检查过程或额外说明。"
+)
+
+
 class GeneratedDirection(BaseModel):
     name: str
     language: str = "中文"
@@ -116,13 +141,58 @@ class GeneratedAnalysis(BaseModel):
 
 class GeneratedLyricsSection(BaseModel):
     name: str = Field(min_length=1)
-    content: str = Field(min_length=1)
+    content: str
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_section_name(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        cleaned = value.strip().strip("[]［］").replace("_", " ").replace("-", " ")
+        key = re.sub(r"\s+", "", cleaned).casefold()
+        aliases = {
+            "verse1": "Verse 1",
+            "verse2": "Verse 2",
+            "chorus1": "Chorus1",
+            "chorus2": "Chorus2",
+            "interlude": "Interlude",
+            "outro": "Outro",
+        }
+        return aliases.get(key, cleaned)
 
 
 class GeneratedLyrics(BaseModel):
     title: str = Field(min_length=1)
-    sections: list[GeneratedLyricsSection] = Field(min_length=3, max_length=12)
+    sections: list[GeneratedLyricsSection] = Field(min_length=11, max_length=11)
     style_prompt: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def enforce_client_lyrics_contract(self) -> "GeneratedLyrics":
+        names = tuple(section.name for section in self.sections)
+        if names != CLIENT_LYRICS_SECTION_ORDER:
+            expected = " -> ".join(CLIENT_LYRICS_SECTION_ORDER)
+            raise ValueError(f"歌词段落顺序必须严格为：{expected}")
+
+        canonical_content: dict[str, str] = {}
+        for section in self.sections:
+            if section.name in CLIENT_LYRICS_EMPTY_SECTIONS:
+                section.content = ""
+                continue
+            lines = [line.strip() for line in section.content.splitlines() if line.strip()]
+            if not lines:
+                raise ValueError(f"{section.name} 必须包含歌词")
+            normalized = "\n".join(lines)
+            canonical_content.setdefault(section.name, normalized)
+
+        chorus1_lines = canonical_content["Chorus1"].splitlines()
+        chorus2_lines = canonical_content["Chorus2"].splitlines()
+        chorus2_lines[0] = chorus1_lines[0]
+        canonical_content["Chorus2"] = "\n".join(chorus2_lines)
+
+        for section in self.sections:
+            if section.name not in CLIENT_LYRICS_EMPTY_SECTIONS:
+                section.content = canonical_content[section.name]
+        return self
 
     @property
     def content(self) -> str:
@@ -331,56 +401,43 @@ class LocalTextProvider:
         if not title:
             title = f"{keyword_a}{time_suffix}"[:18]
 
+        verse1 = (
+            f"{scene}把灯一盏一盏点成光\n"
+            f"我带着{keyword_b}走过旧街旁\n"
+            f"关于{theme}不再只剩感伤\n"
+            f"把{title}写成继续前行的章"
+        )
+        verse2 = (
+            f"风把远处的云推向晴朗\n"
+            f"我把迟疑留在昨天的墙\n"
+            f"哪怕前路仍有雨落肩膀\n"
+            f"也要朝着{keyword_a}坚定远航"
+        )
+        hook = f"向着{keyword_a}迎面的光"
+        chorus1 = (
+            f"{hook}\n"
+            f"让每一步都有自己的方向\n"
+            f"穿过人海也不隐藏愿望\n"
+            f"终会抵达心里相信的地方"
+        )
+        chorus2 = (
+            f"{hook}\n"
+            f"让所有故事在此刻回响\n"
+            f"握紧勇气不再害怕风浪\n"
+            f"终会成为自己期待的模样"
+        )
         sections = [
-            {
-                "name": "Intro",
-                "content": f"{scene}把灯一盏一盏点亮\n我听见{keyword_b}还留在远方",
-            },
-            {
-                "name": "Verse",
-                "content": (
-                    f"走过熟悉的街口 人群换了方向\n"
-                    f"关于{theme} 我练习若无其事地讲\n"
-                    f"那些没寄出的句子 还折在旧时光\n"
-                    f"风吹开一页 又轻轻替我合上"
-                ),
-            },
-            {
-                "name": "Pre Chorus",
-                "content": (
-                    f"如果{keyword_a}也有声音\n"
-                    f"会不会替我承认 我还没有忘记"
-                ),
-            },
-            {
-                "name": "Chorus",
-                "content": (
-                    f"在{keyword_a}{time_suffix} 我还是我\n"
-                    f"只是学会把想念 写得轻描淡写\n"
-                    f"等城市安静 等最后一班车经过\n"
-                    f"我终于能对昨天 说一声来过"
-                ),
-            },
-            {
-                "name": "Verse",
-                "content": (
-                    f"窗外的雨停下来 天空慢慢清澈\n"
-                    f"原来有些答案 不必等谁认可\n"
-                    f"我把遗憾留给路口 把勇气带着\n"
-                    f"下一段旅程 也值得认真生活"
-                ),
-            },
-            {
-                "name": "Bridge",
-                "content": (
-                    f"不是所有故事 都要圆满才深刻\n"
-                    f"谢谢那段沉默 让我听见真正的我"
-                ),
-            },
-            {
-                "name": "Outro",
-                "content": f"当{keyword_b}散进风里\n我会带着{keyword_a}继续走下去",
-            },
+            {"name": "Verse 1", "content": verse1},
+            {"name": "Verse 2", "content": verse2},
+            {"name": "Chorus1", "content": chorus1},
+            {"name": "Chorus2", "content": chorus2},
+            {"name": "Interlude", "content": ""},
+            {"name": "Verse 2", "content": verse2},
+            {"name": "Chorus1", "content": chorus1},
+            {"name": "Chorus2", "content": chorus2},
+            {"name": "Chorus1", "content": chorus1},
+            {"name": "Chorus2", "content": chorus2},
+            {"name": "Outro", "content": ""},
         ]
         style_parts = [
             *genres,
@@ -575,10 +632,11 @@ class OpenAICompatibleTextProvider:
         )
         response = self._chat_json(
             system=(
-                "你是中文原创作词助手。根据创作方案写一首可供音乐生成API使用的原创歌词。"
-                "参考文本只能用于理解方向，不得复写或近似改写。返回纯JSON，字段为 title、"
-                "style_prompt、sections；sections 每项包含 name 和 content，使用 Intro、Verse、"
-                "Pre Chorus、Chorus、Bridge、Outro 等标准段落名。"
+                "你是一位资深中文词曲作者。根据创作方案写一首可供音乐生成 API 使用的完整原创歌曲。"
+                "context 中 theme 表示歌曲主题或类型，例如励志、爱情、兄弟等；必须围绕歌名和主题表达氛围。"
+                "参考文本只能用于理解方向，不得复写或近似改写。用户补充要求只能增加细节，不能放宽固定规则。"
+                f"{CLIENT_LYRICS_CONTRACT}"
+                "返回纯 JSON，字段为 title、style_prompt、sections；sections 每项必须包含 name 和 content。"
                 f"必须严格匹配以下JSON Schema：{schema}"
             ),
             user=json.dumps(payload, ensure_ascii=False),
@@ -608,7 +666,9 @@ class OpenAICompatibleTextProvider:
                 "你是中文原创歌词修改助手。你会收到正式歌词、创作上下文、此前预览和用户的修改要求。"
                 "若上下文包含 review_guidance，必须根据其中的审核总结、扣分原因和修改建议进行修改。"
                 "只根据用户明确要求进行原创性修改，不得复写或近似改写任何外部歌曲。"
-                "返回纯 JSON，字段 title、style_prompt、sections；sections 每项包含 name 和 content。"
+                "除非用户明确要求改名，否则必须保留 original.title。用户要求不得放宽固定创作规则。"
+                f"{CLIENT_LYRICS_CONTRACT}"
+                "返回纯 JSON，字段 title、style_prompt、sections；sections 每项必须包含 name 和 content。"
                 f"必须严格匹配以下 JSON Schema：{schema}"
             ),
             user=json.dumps(context, ensure_ascii=False),

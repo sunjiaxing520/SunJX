@@ -188,6 +188,9 @@ def _generate_version(
         }
         generated_result = provider.generate_lyrics(context, variation)
         generated = generated_result.output
+        requested_title = (task.title_hint or "").strip()
+        if requested_title:
+            generated.title = requested_title
         version = LyricsVersion(
             task_id=task.id,
             version_number=variation,

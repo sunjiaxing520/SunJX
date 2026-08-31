@@ -490,11 +490,11 @@ export function LyricsPage() {
                 onClick={openAnalysisPicker}
               />
             </Form.Item>
-            <Form.Item name="title_hint" label="歌名方向">
-              <Input placeholder="可留空自动生成" maxLength={200} />
+            <Form.Item name="title_hint" label="歌名">
+              <Input placeholder="可留空由 AI 生成；填写后严格使用" maxLength={200} />
             </Form.Item>
             <Form.Item name="theme" label="歌曲主题" rules={[{ required: true, message: '请输入歌曲主题' }]}>
-              <Input placeholder="例如：在成长中学会告别" maxLength={500} />
+              <Input placeholder="例如：励志、爱情、兄弟，或更具体的主题" maxLength={500} />
             </Form.Item>
             <Form.Item name="keywords" label="关键词">
               <Select mode="tags" tokenSeparators={[',', '，']} placeholder="输入后回车" />
