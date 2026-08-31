@@ -128,6 +128,9 @@ def test_openai_compatible_provider_returns_usage_metadata(
     assert "Verse 1、Verse 2、Chorus1、Chorus2、Interlude" in system_prompt
     assert "Interlude 和 Outro 的 content 必须是空字符串" in system_prompt
     assert "所有有歌词的句子必须统一押同一个韵脚" in system_prompt
+    assert "歌词创作提炼 Skill" in system_prompt
+    assert "用户主动确认的结果" in system_prompt
+    assert "真实榜单歌词证据" in system_prompt
 
     captured_request.clear()
     monkeypatch.setattr(settings, "AI_BASE_URL", "https://api.example.com/v1")

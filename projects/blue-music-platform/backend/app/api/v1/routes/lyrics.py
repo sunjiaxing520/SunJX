@@ -106,7 +106,7 @@ def lyrics_save(
     db: DatabaseSession,
     user: LyricsUser,
 ) -> LyricsVersionResponse:
-    return save_lyrics_version(db, version_id)
+    return save_lyrics_version(db, version_id, user.id)
 
 
 @router.get(
@@ -143,7 +143,7 @@ def lyrics_assistant_confirm(
     db: DatabaseSession,
     user: LyricsUser,
 ) -> LyricsVersionResponse:
-    return confirm_lyrics_assistant_preview(db, message_id)
+    return confirm_lyrics_assistant_preview(db, message_id, user.id)
 
 
 @router.get(

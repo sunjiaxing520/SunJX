@@ -31,6 +31,12 @@ from app.schemas.lyrics import (
 )
 from app.services.api_usage import record_api_usage, task_api_usage
 from app.services.ai_providers import resolve_text_provider
+from app.services.lyrics_memory import (
+    build_lyrics_skill_context,
+    capture_accepted_result,
+    capture_creation_request,
+    capture_modification_request,
+)
 from app.services.task_recovery import recover_stale_text_tasks
 
 
@@ -139,6 +145,13 @@ def create_lyrics_task(
     db.add(task)
     db.commit()
     db.refresh(task)
+    capture_creation_request(
+        db,
+        task,
+        user_id,
+        request_data=payload.model_dump(include=payload.model_fields_set),
+    )
+    db.commit()
     _generate_version(db, task, variation=1, provider=provider)
     return get_lyrics_task(db, task.id)
 
@@ -185,6 +198,10 @@ def _generate_version(
             "vocal_style": task.vocal_style,
             "requirements": task.requirements,
             "reference_text": task.reference_text,
+            "lyrics_skill_memory": build_lyrics_skill_context(
+                db,
+                current_task_id=task.id,
+            ),
         }
         generated_result = provider.generate_lyrics(context, variation)
         generated = generated_result.output
@@ -411,7 +428,11 @@ def delete_lyrics_tasks(
     )
 
 
-def save_lyrics_version(db: Session, version_id: int) -> LyricsVersionResponse:
+def save_lyrics_version(
+    db: Session,
+    version_id: int,
+    user_id: int | None = None,
+) -> LyricsVersionResponse:
     version = db.get(LyricsVersion, version_id)
     if version is None:
         raise AppException(
@@ -423,6 +444,9 @@ def save_lyrics_version(db: Session, version_id: int) -> LyricsVersionResponse:
         .values(is_saved=False)
     )
     version.is_saved = True
+    task = db.get(LyricsTask, version.task_id)
+    if task is not None:
+        capture_accepted_result(db, task, version, user_id)
     db.commit()
     db.refresh(version)
     return lyrics_version_response(version)
@@ -476,6 +500,17 @@ def create_lyrics_assistant_preview(
         created_by_id=user_id,
     )
     db.add(user_message)
+    db.flush()
+    capture_modification_request(
+        db,
+        task,
+        version,
+        payload.instruction,
+        user_id,
+        review_guidance=review_guidance,
+        review_run_id=review_run_id,
+        message_id=user_message.id,
+    )
     db.commit()
 
     try:
@@ -507,6 +542,10 @@ def create_lyrics_assistant_preview(
                     "sections": version.sections,
                 },
                 "history": history,
+                "lyrics_skill_memory": build_lyrics_skill_context(
+                    db,
+                    current_task_id=task.id,
+                ),
                 "review_guidance": review_guidance,
                 "instruction": payload.instruction,
                 "variation": len(task.versions) + len(history) + 1,
@@ -569,6 +608,7 @@ def create_lyrics_assistant_preview(
 def confirm_lyrics_assistant_preview(
     db: Session,
     message_id: int,
+    user_id: int | None = None,
 ) -> LyricsVersionResponse:
     message = db.get(LyricsAssistantMessage, message_id)
     if message is None or message.role != "assistant" or message.preview is None:
@@ -590,6 +630,18 @@ def confirm_lyrics_assistant_preview(
         raise AppException(
             code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
         )
+    source_version = db.get(LyricsVersion, message.source_version_id)
+    previous_user_message = db.scalar(
+        select(LyricsAssistantMessage)
+        .where(
+            LyricsAssistantMessage.source_version_id == message.source_version_id,
+            LyricsAssistantMessage.review_run_id == message.review_run_id,
+            LyricsAssistantMessage.role == "user",
+            LyricsAssistantMessage.id < message.id,
+        )
+        .order_by(LyricsAssistantMessage.id.desc())
+        .limit(1)
+    )
     next_version = (
         db.scalar(
             select(func.max(LyricsVersion.version_number)).where(
@@ -613,6 +665,17 @@ def confirm_lyrics_assistant_preview(
         is_saved=True,
     )
     db.add(version)
+    db.flush()
+    capture_accepted_result(
+        db,
+        task,
+        version,
+        user_id if user_id is not None else message.created_by_id,
+        instruction=(
+            previous_user_message.content if previous_user_message is not None else None
+        ),
+        source_version=source_version,
+    )
     db.commit()
     db.refresh(version)
     return lyrics_version_response(version)
