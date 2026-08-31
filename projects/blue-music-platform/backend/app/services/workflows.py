@@ -150,6 +150,13 @@ def _ensure_step_permissions(
 ) -> None:
     if user.role == UserRole.SUPER_ADMIN:
         return
+    if WorkflowStepType.COLLECTION.value in steps:
+        raise AppException(
+            code="WORKFLOW_PERMISSION_DENIED",
+            message="榜单采集步骤仅限超级管理员使用",
+            status_code=403,
+            detail={"missing_steps": [WorkflowStepType.COLLECTION.value]},
+        )
     permissions = set(
         db.scalars(
             select(UserAgentPermission.agent).where(

@@ -1,9 +1,6 @@
-from typing import Annotated
+from fastapi import APIRouter, Query, Response, status
 
-from fastapi import APIRouter, Depends, Query, Response, status
-
-from app.api.dependencies import CurrentUser, DatabaseSession, require_agent_permission
-from app.models import AgentType, User
+from app.api.dependencies import CurrentUser, DatabaseSession, SuperAdmin
 from app.schemas.ranking import (
     CollectionCreateRequest,
     CollectionTaskDeleteRequest,
@@ -25,7 +22,6 @@ from app.services.rankings import (
 
 
 router = APIRouter(prefix="/rankings")
-CrawlerUser = Annotated[User, Depends(require_agent_permission(AgentType.CRAWLER))]
 
 
 @router.post(
@@ -36,7 +32,7 @@ CrawlerUser = Annotated[User, Depends(require_agent_permission(AgentType.CRAWLER
 def run_collection(
     payload: CollectionCreateRequest,
     db: DatabaseSession,
-    user: CrawlerUser,
+    user: SuperAdmin,
 ) -> CollectionTaskResponse:
     return create_collection(db, payload, user.id)
 
@@ -44,7 +40,7 @@ def run_collection(
 @router.get("/collections", response_model=list[CollectionTaskResponse])
 def collection_history(
     db: DatabaseSession,
-    user: CrawlerUser,
+    user: SuperAdmin,
     limit: int = Query(default=15, ge=1, le=100),
 ) -> list[CollectionTaskResponse]:
     return list_collection_tasks(db, limit)
@@ -54,7 +50,7 @@ def collection_history(
 def collection_detail(
     task_id: int,
     db: DatabaseSession,
-    user: CrawlerUser,
+    user: SuperAdmin,
 ) -> CollectionTaskResponse:
     return get_collection_task(db, task_id)
 
@@ -63,7 +59,7 @@ def collection_detail(
 def collection_bulk_delete(
     payload: CollectionTaskDeleteRequest,
     db: DatabaseSession,
-    user: CrawlerUser,
+    user: SuperAdmin,
 ) -> CollectionTaskDeleteResponse:
     return delete_collection_tasks(db, payload.task_ids)
 
@@ -72,7 +68,7 @@ def collection_bulk_delete(
 def collection_delete(
     task_id: int,
     db: DatabaseSession,
-    user: CrawlerUser,
+    user: SuperAdmin,
 ) -> Response:
     delete_collection_task(db, task_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

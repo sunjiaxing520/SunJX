@@ -239,7 +239,7 @@ export function DashboardPage() {
         <div>
           {[
             { label: '运行自动流程', path: '/workflows', icon: WorkflowIcon },
-            { label: '采集榜单', path: '/rankings', icon: BarChart3 },
+            { label: '查看榜单', path: '/rankings', icon: BarChart3 },
             { label: '新建歌词', path: '/lyrics', icon: FileMusic },
             { label: '试听音乐', path: '/music', icon: Music2 },
           ].map(({ label, path, icon: Icon }) => (

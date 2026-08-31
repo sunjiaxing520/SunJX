@@ -32,14 +32,16 @@ import { errorMessage } from '../lib/errors'
 import type { AgentType, User } from '../types/api'
 
 const AGENT_OPTIONS: { label: string; value: AgentType }[] = [
-  { label: '榜单采集', value: 'crawler' },
   { label: '内容分析', value: 'analysis' },
   { label: '歌词创作', value: 'lyrics' },
   { label: '音乐创作', value: 'music' },
 ]
-const AGENT_LABELS = Object.fromEntries(
-  AGENT_OPTIONS.map((item) => [item.value, item.label]),
-) as Record<AgentType, string>
+const AGENT_LABELS: Record<AgentType, string> = {
+  crawler: '榜单采集（仅管理员）',
+  analysis: '内容分析',
+  lyrics: '歌词创作',
+  music: '音乐创作',
+}
 
 interface AccountFormValues {
   username: string
@@ -125,7 +127,7 @@ export function UsersPage() {
 
   const openPermissions = (user: User) => {
     setPermissionUser(user)
-    setSelectedAgents(user.agent_permissions)
+    setSelectedAgents(user.agent_permissions.filter((agent) => agent !== 'crawler'))
   }
 
   const submitPermissions = async () => {
@@ -218,9 +220,11 @@ export function UsersPage() {
       render: (agents: AgentType[], user) =>
         user.role === 'super_admin' ? (
           <span className="muted-copy">全部 Agent</span>
-        ) : agents.length ? (
+        ) : agents.some((agent) => agent !== 'crawler') ? (
           <Space size={[4, 4]} wrap>
-            {agents.map((agent) => <Tag key={agent}>{AGENT_LABELS[agent]}</Tag>)}
+            {agents
+              .filter((agent) => agent !== 'crawler')
+              .map((agent) => <Tag key={agent}>{AGENT_LABELS[agent]}</Tag>)}
           </Space>
         ) : (
           <span className="muted-copy">未分配</span>

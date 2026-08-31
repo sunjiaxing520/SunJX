@@ -256,13 +256,13 @@ export function WorkflowsPage() {
 
   const allowedSteps = useMemo(() => {
     if (!user) return new Set<WorkflowStepType>()
-    const values = new Set(
-      WORKFLOW_STEP_ORDER.filter((step) =>
-        step === 'review'
-          ? reviewAgents.length > 0 && hasAgentAccess(user, 'lyrics')
-          : Boolean(STEP_AGENT[step] && hasAgentAccess(user, STEP_AGENT[step]!)),
-      ),
-    )
+    const values = new Set(WORKFLOW_STEP_ORDER.filter((step) => {
+      if (step === 'collection') return user.role === 'super_admin'
+      if (step === 'review') {
+        return reviewAgents.length > 0 && hasAgentAccess(user, 'lyrics')
+      }
+      return Boolean(STEP_AGENT[step] && hasAgentAccess(user, STEP_AGENT[step]!))
+    }))
     if (!values.has('analysis')) {
       values.delete('lyrics')
       values.delete('review')

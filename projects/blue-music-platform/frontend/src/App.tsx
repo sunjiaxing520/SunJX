@@ -70,9 +70,7 @@ export default function AppRoutes() {
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
             <Route path="workflows" element={<WorkflowsPage />} />
-            <Route element={<AgentRoute agent="crawler" />}>
-              <Route path="rankings" element={<RankingsPage />} />
-            </Route>
+            <Route path="rankings" element={<RankingsPage />} />
             <Route element={<AgentRoute agent="analysis" />}>
               <Route path="analysis" element={<AnalysisPage />} />
             </Route>

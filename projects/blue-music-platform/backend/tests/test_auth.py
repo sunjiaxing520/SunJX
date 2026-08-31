@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.security import hash_password, validate_security_settings, verify_password
 from app.main import create_app
-from app.models import AgentType, User, UserRole
+from app.models import AgentType, User, UserAgentPermission, UserRole
 
 
 class AuthContext(NamedTuple):
@@ -65,13 +65,13 @@ def auth_context() -> AuthContext:
             db.close()
 
     test_app.dependency_overrides[get_db] = override_get_db
-    CrawlerUser = Annotated[
+    AnalysisUser = Annotated[
         User,
-        Depends(require_agent_permission(AgentType.CRAWLER)),
+        Depends(require_agent_permission(AgentType.ANALYSIS)),
     ]
 
-    @test_app.get("/test/crawler")
-    def crawler_test_endpoint(current_user: CrawlerUser) -> dict[str, int]:
+    @test_app.get("/test/analysis")
+    def analysis_test_endpoint(current_user: AnalysisUser) -> dict[str, int]:
         return {"user_id": current_user.id}
 
     with TestClient(test_app) as client:
@@ -241,7 +241,7 @@ def test_member_dashboard_only_lists_permitted_agents(
     auth_context.client.put(
         f"/api/v1/users/{member['id']}/agent-permissions",
         headers=_authorization(admin_token),
-        json={"agents": ["crawler", "lyrics"]},
+        json={"agents": ["analysis", "lyrics"]},
     )
     member_token = _login(
         auth_context.client,
@@ -256,7 +256,7 @@ def test_member_dashboard_only_lists_permitted_agents(
 
     assert response.status_code == 200
     assert [agent["agent"] for agent in response.json()["agents"]] == [
-        "crawler",
+        "analysis",
         "lyrics",
     ]
 
@@ -274,16 +274,16 @@ def test_admin_manages_member_permissions_status_and_password(
     )
 
     denied = auth_context.client.get(
-        "/test/crawler",
+        "/test/analysis",
         headers=_authorization(member_token),
     )
     permission_update = auth_context.client.put(
         f"/api/v1/users/{member_id}/agent-permissions",
         headers=_authorization(admin_token),
-        json={"agents": ["crawler", "lyrics"]},
+        json={"agents": ["analysis", "lyrics"]},
     )
     allowed = auth_context.client.get(
-        "/test/crawler",
+        "/test/analysis",
         headers=_authorization(member_token),
     )
     password_reset = auth_context.client.put(
@@ -296,7 +296,7 @@ def test_admin_manages_member_permissions_status_and_password(
     assert denied.json()["error"]["code"] == "AGENT_PERMISSION_DENIED"
     assert permission_update.status_code == 200
     assert permission_update.json()["agent_permissions"] == [
-        "crawler",
+        "analysis",
         "lyrics",
     ]
     assert allowed.status_code == 200
@@ -322,6 +322,74 @@ def test_admin_manages_member_permissions_status_and_password(
     assert deactivated.json()["is_active"] is False
     assert blocked.status_code == 403
     assert blocked.json()["error"]["code"] == "USER_INACTIVE"
+
+
+def test_members_only_read_ranking_results(auth_context: AuthContext) -> None:
+    admin_token = _login(auth_context.client, "admin", "admin-password")
+    collected = auth_context.client.post(
+        "/api/v1/rankings/collections",
+        headers=_authorization(admin_token),
+        json={"source_mode": "sample", "chart": "top500", "limit": 5},
+    )
+    assert collected.status_code == 201
+
+    member = _create_member(auth_context.client, admin_token)
+    with auth_context.session_factory() as db:
+        db.add(
+            UserAgentPermission(
+                user_id=int(member["id"]),
+                agent=AgentType.CRAWLER,
+            )
+        )
+        db.commit()
+    member_token = _login(auth_context.client, "member.one", "member-password")
+    member_headers = _authorization(member_token)
+
+    snapshots = auth_context.client.get(
+        "/api/v1/rankings/snapshots",
+        headers=member_headers,
+    )
+    entries = auth_context.client.get(
+        "/api/v1/rankings/entries",
+        headers=member_headers,
+        params={"snapshot_id": collected.json()["snapshot_id"]},
+    )
+    collect_denied = auth_context.client.post(
+        "/api/v1/rankings/collections",
+        headers=member_headers,
+        json={"source_mode": "sample", "chart": "rising", "limit": 5},
+    )
+    history_denied = auth_context.client.get(
+        "/api/v1/rankings/collections",
+        headers=member_headers,
+    )
+    workflow_denied = auth_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=member_headers,
+        json={"name": "成员不能采集", "steps": ["collection"]},
+    )
+    crawler_permission_denied = auth_context.client.put(
+        f"/api/v1/users/{member['id']}/agent-permissions",
+        headers=_authorization(admin_token),
+        json={"agents": ["crawler"]},
+    )
+    profile = auth_context.client.get("/api/v1/auth/me", headers=member_headers)
+    dashboard = auth_context.client.get("/api/v1/dashboard", headers=member_headers)
+
+    assert snapshots.status_code == 200
+    assert len(snapshots.json()) == 1
+    assert entries.status_code == 200
+    assert entries.json()["total"] == 5
+    assert collect_denied.status_code == 403
+    assert collect_denied.json()["error"]["code"] == "PERMISSION_DENIED"
+    assert history_denied.status_code == 403
+    assert history_denied.json()["error"]["code"] == "PERMISSION_DENIED"
+    assert workflow_denied.status_code == 403
+    assert workflow_denied.json()["error"]["code"] == "WORKFLOW_PERMISSION_DENIED"
+    assert crawler_permission_denied.status_code == 422
+    assert crawler_permission_denied.json()["error"]["code"] == "PERMISSIONS_NOT_APPLICABLE"
+    assert profile.json()["agent_permissions"] == []
+    assert dashboard.json()["agents"] == []
 
 
 def test_admin_assigns_member_music_task_quota(

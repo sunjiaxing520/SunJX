@@ -56,10 +56,9 @@ const NAVIGATION: NavigationItem[] = [
   },
   {
     key: '/rankings',
-    label: '榜单采集',
+    label: '榜单数据',
     icon: <BarChart3 size={18} />,
     section: 'creation',
-    agent: 'crawler',
   },
   {
     key: '/analysis',

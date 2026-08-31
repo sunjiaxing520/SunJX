@@ -25,7 +25,12 @@ def get_user_or_404(db: Session, user_id: int) -> User:
 
 def user_response(user: User) -> UserResponse:
     permissions = sorted(
-        (permission.agent for permission in user.agent_permissions),
+        (
+            permission.agent
+            for permission in user.agent_permissions
+            if user.role == UserRole.SUPER_ADMIN
+            or permission.agent != AgentType.CRAWLER
+        ),
         key=lambda agent: agent.value,
     )
     return UserResponse(
@@ -117,6 +122,12 @@ def replace_agent_permissions(
             code="PERMISSIONS_NOT_APPLICABLE",
             message="超级管理员默认拥有全部 Agent 权限",
             status_code=409,
+        )
+    if AgentType.CRAWLER in agents:
+        raise AppException(
+            code="PERMISSIONS_NOT_APPLICABLE",
+            message="榜单采集仅限超级管理员，成员无需分配该权限",
+            status_code=422,
         )
 
     user.agent_permissions.clear()

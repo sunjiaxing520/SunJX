@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   App,
@@ -28,6 +28,7 @@ import {
   listRankingSnapshots,
   runRankingCollection,
 } from '../api/rankings'
+import { useAuth } from '../auth/useAuth'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { errorMessage } from '../lib/errors'
 import type {
@@ -45,6 +46,14 @@ const STATUS_LABELS: Record<WorkflowTaskStatus, { label: string; color?: string 
   failed: { label: '失败', color: 'error' },
 }
 
+const MEMBER_CHART_CODES = ['8888', '6666'] as const
+
+function latestChartSnapshots(snapshots: RankingSnapshot[]) {
+  return MEMBER_CHART_CODES
+    .map((chartCode) => snapshots.find((snapshot) => snapshot.chart_code === chartCode))
+    .filter((snapshot): snapshot is RankingSnapshot => Boolean(snapshot))
+}
+
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 }
@@ -56,7 +65,9 @@ function formatDuration(seconds: number | null) {
 
 export function RankingsPage() {
   const { message } = App.useApp()
+  const { user } = useAuth()
   const navigate = useNavigate()
+  const isAdmin = user?.role === 'super_admin'
   const [tasks, setTasks] = useState<CollectionTask[]>([])
   const [snapshots, setSnapshots] = useState<RankingSnapshot[]>([])
   const [activeSnapshotId, setActiveSnapshotId] = useState<number | null>(null)
@@ -71,24 +82,34 @@ export function RankingsPage() {
   const [deletingTaskIds, setDeletingTaskIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [overviewRevision, setOverviewRevision] = useState(0)
   const detailRequestId = useRef(0)
 
-  const loadOverview = useCallback(async () => {
-    setLoading(true)
+  const loadOverview = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     setError(null)
     try {
-      const [taskItems, snapshotItems] = await Promise.all([
-        listCollectionTasks(),
-        listRankingSnapshots(),
-      ])
+      const [taskItems, snapshotItems] = isAdmin
+        ? await Promise.all([listCollectionTasks(), listRankingSnapshots(15)])
+        : [[], await listRankingSnapshots(30)]
+      const latestSnapshots = latestChartSnapshots(snapshotItems)
+
       setTasks(taskItems)
       setSnapshots(snapshotItems)
+      if (!isAdmin) {
+        setActiveSnapshotId((current) => (
+          latestSnapshots.some((snapshot) => snapshot.id === current)
+            ? current
+            : latestSnapshots[0]?.id ?? null
+        ))
+      }
+      setOverviewRevision((current) => current + 1)
     } catch (loadError) {
       setError(errorMessage(loadError))
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
-  }, [])
+  }, [isAdmin])
 
   const loadEntries = useCallback(async () => {
     if (!activeSnapshotId) return
@@ -122,7 +143,15 @@ export function RankingsPage() {
 
   useEffect(() => {
     void loadEntries()
-  }, [loadEntries])
+  }, [loadEntries, overviewRevision])
+
+  useEffect(() => {
+    if (isAdmin) return undefined
+    const refreshTimer = window.setInterval(() => {
+      void loadOverview(false)
+    }, 15_000)
+    return () => window.clearInterval(refreshTimer)
+  }, [isAdmin, loadOverview])
 
   const run = async (
     sourceMode: 'live' | 'sample',
@@ -186,6 +215,10 @@ export function RankingsPage() {
     onClick: ({ key }) => void run('sample', key === 'sample-rising' ? 'rising' : 'top500'),
   }
 
+  const visibleSnapshots = useMemo(
+    () => (isAdmin ? snapshots : latestChartSnapshots(snapshots)),
+    [isAdmin, snapshots],
+  )
   const activeSnapshot = snapshots.find((snapshot) => snapshot.id === activeSnapshotId) ?? null
   const canAnalyzeIndividualSong = activeSnapshot?.chart_code === '6666'
 
@@ -313,29 +346,35 @@ export function RankingsPage() {
     <div className="page-stack">
       <div className="page-heading-row">
         <div>
-          <Typography.Title level={1}>榜单采集</Typography.Title>
-          <Typography.Text type="secondary">酷狗 TOP500 趋势数据与飙升榜单曲分析</Typography.Text>
+          <Typography.Title level={1}>{isAdmin ? '榜单管理' : '榜单数据'}</Typography.Title>
+          <Typography.Text type="secondary">
+            {isAdmin
+              ? '酷狗 TOP500 趋势数据与飙升榜单曲分析'
+              : '查看管理员更新的酷狗 TOP500 与飙升榜最新结果'}
+          </Typography.Text>
         </div>
-        <Space.Compact>
-          <Button
-            type="primary"
-            icon={<Play size={16} />}
-            loading={running}
-            onClick={() => void run('live', 'top500')}
-          >
-            采集 TOP500
-          </Button>
-          <Button
-            icon={<Play size={16} />}
-            loading={running}
-            onClick={() => void run('live', 'rising')}
-          >
-            采集飙升榜前 20
-          </Button>
-          <Dropdown menu={fallbackMenu} disabled={running}>
-            <Button icon={<ChevronDown size={16} />} aria-label="采集选项" />
-          </Dropdown>
-        </Space.Compact>
+        {isAdmin && (
+          <Space.Compact>
+            <Button
+              type="primary"
+              icon={<Play size={16} />}
+              loading={running}
+              onClick={() => void run('live', 'top500')}
+            >
+              采集 TOP500
+            </Button>
+            <Button
+              icon={<Play size={16} />}
+              loading={running}
+              onClick={() => void run('live', 'rising')}
+            >
+              采集飙升榜前 20
+            </Button>
+            <Dropdown menu={fallbackMenu} disabled={running}>
+              <Button icon={<ChevronDown size={16} />} aria-label="采集选项" />
+            </Dropdown>
+          </Space.Compact>
+        )}
       </div>
 
       {error && <Alert type="error" showIcon title={error} closable />}
@@ -343,18 +382,26 @@ export function RankingsPage() {
       <section className="content-section">
         <div className="section-title-row">
           <div>
-            <Typography.Title level={2}>采集结果</Typography.Title>
-            <Typography.Text type="secondary">每个榜单每天保留一份；当天再次采集会覆盖同榜单快照并更新采集完成时间</Typography.Text>
+            <Typography.Title level={2}>{isAdmin ? '采集结果' : '最新榜单'}</Typography.Title>
+            <Typography.Text type="secondary">
+              {isAdmin
+                ? '每个榜单每天保留一份；当天再次采集会覆盖同榜单快照并更新采集完成时间'
+                : '页面每 15 秒同步一次；最后更新时间以管理员最近一次采集完成时间为准'}
+            </Typography.Text>
           </div>
           <Tooltip title="刷新采集结果">
-            <Button icon={<RefreshCw size={16} />} loading={loading} onClick={loadOverview} />
+            <Button
+              icon={<RefreshCw size={16} />}
+              loading={loading}
+              onClick={() => void loadOverview()}
+            />
           </Tooltip>
         </div>
         {loading ? (
           <div className="ranking-snapshot-loading">
             <Skeleton active title={false} paragraph={{ rows: 3 }} />
           </div>
-        ) : snapshots.length === 0 ? (
+        ) : visibleSnapshots.length === 0 ? (
           <div className="ranking-snapshot-empty">
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无采集结果" />
           </div>
@@ -366,7 +413,7 @@ export function RankingsPage() {
             expandIconPlacement="end"
             className="ranking-snapshot-list"
             onChange={(keys) => changeSnapshot(keys[0] ? Number(keys[0]) : null)}
-            items={snapshots.map((snapshot) => ({
+            items={visibleSnapshots.map((snapshot) => ({
               key: String(snapshot.id),
               label: (
                 <div className="ranking-snapshot-summary">
@@ -440,51 +487,53 @@ export function RankingsPage() {
         )}
       </section>
 
-      <section className="content-section">
-        <div className="section-title-row">
-          <div>
-            <Typography.Title level={2}>运行记录</Typography.Title>
-            <Typography.Text type="secondary">最近 15 次执行状态，默认显示最新 5 条</Typography.Text>
-          </div>
-          {selectedTaskIds.length > 0 && (
-            <Popconfirm
-              title={`删除所选 ${selectedTaskIds.length} 条运行记录？`}
-              description="只删除执行记录，每日榜单快照仍会保留。"
-              okText="批量删除"
-              cancelText="取消"
-              onConfirm={() => void removeTasks(selectedTaskIds)}
-            >
-              <Button
-                danger
-                icon={<Trash2 size={16} />}
-                loading={selectedTaskIds.every((id) => deletingTaskIds.includes(id))}
+      {isAdmin && (
+        <section className="content-section">
+          <div className="section-title-row">
+            <div>
+              <Typography.Title level={2}>运行记录</Typography.Title>
+              <Typography.Text type="secondary">最近 15 次执行状态，默认显示最新 5 条</Typography.Text>
+            </div>
+            {selectedTaskIds.length > 0 && (
+              <Popconfirm
+                title={`删除所选 ${selectedTaskIds.length} 条运行记录？`}
+                description="只删除执行记录，每日榜单快照仍会保留。"
+                okText="批量删除"
+                cancelText="取消"
+                onConfirm={() => void removeTasks(selectedTaskIds)}
               >
-                删除所选 ({selectedTaskIds.length})
-              </Button>
-            </Popconfirm>
-          )}
-        </div>
-        <CollapsibleList items={tasks}>
-          {(visibleTasks) => (
-            <Table<CollectionTask>
-              rowKey="id"
-              columns={taskColumns}
-              dataSource={visibleTasks}
-              loading={loading}
-              pagination={false}
-              rowSelection={{
-                selectedRowKeys: selectedTaskIds,
-                onChange: (keys) => setSelectedTaskIds(keys.map(Number)),
-                getCheckboxProps: (task) => ({
-                  disabled: task.status === 'pending' || task.status === 'running',
-                }),
-              }}
-              scroll={{ x: 850 }}
-              className="data-table"
-            />
-          )}
-        </CollapsibleList>
-      </section>
+                <Button
+                  danger
+                  icon={<Trash2 size={16} />}
+                  loading={selectedTaskIds.every((id) => deletingTaskIds.includes(id))}
+                >
+                  删除所选 ({selectedTaskIds.length})
+                </Button>
+              </Popconfirm>
+            )}
+          </div>
+          <CollapsibleList items={tasks}>
+            {(visibleTasks) => (
+              <Table<CollectionTask>
+                rowKey="id"
+                columns={taskColumns}
+                dataSource={visibleTasks}
+                loading={loading}
+                pagination={false}
+                rowSelection={{
+                  selectedRowKeys: selectedTaskIds,
+                  onChange: (keys) => setSelectedTaskIds(keys.map(Number)),
+                  getCheckboxProps: (task) => ({
+                    disabled: task.status === 'pending' || task.status === 'running',
+                  }),
+                }}
+                scroll={{ x: 850 }}
+                className="data-table"
+              />
+            )}
+          </CollapsibleList>
+        </section>
+      )}
 
     </div>
   )

@@ -44,7 +44,10 @@ def _available_agents(db: Session, user: User) -> list[AgentType]:
     return list(
         db.scalars(
             select(UserAgentPermission.agent)
-            .where(UserAgentPermission.user_id == user.id)
+            .where(
+                UserAgentPermission.user_id == user.id,
+                UserAgentPermission.agent != AgentType.CRAWLER,
+            )
             .order_by(UserAgentPermission.agent)
         ).all()
     )
