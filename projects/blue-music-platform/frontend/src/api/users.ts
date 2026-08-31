@@ -53,3 +53,13 @@ export function updateUserMusicQuota(
     body: JSON.stringify({ remaining_tasks: remainingTasks }),
   })
 }
+
+export function updateUserWatermark(
+  userId: number,
+  watermarkText: string | null,
+): Promise<User> {
+  return apiRequest<User>(`/users/${userId}/watermark`, {
+    method: 'PUT',
+    body: JSON.stringify({ watermark_text: watermarkText }),
+  })
+}

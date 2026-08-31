@@ -64,6 +64,7 @@ vi.mock('../auth/useAuth', () => ({
     user: {
       id: 1,
       username: 'admin',
+      watermark_text: 'admin',
       role: 'super_admin',
       is_active: true,
       agent_permissions: [],
@@ -92,6 +93,7 @@ const accounts: User[] = [
   {
     id: 1,
     username: 'admin',
+    watermark_text: 'admin',
     role: 'super_admin',
     is_active: true,
     agent_permissions: [],
@@ -100,6 +102,7 @@ const accounts: User[] = [
   {
     id: 2,
     username: 'member-a',
+    watermark_text: 'member-a',
     role: 'member',
     is_active: true,
     agent_permissions: [],
@@ -108,6 +111,7 @@ const accounts: User[] = [
   {
     id: 3,
     username: 'member-b',
+    watermark_text: 'member-b',
     role: 'member',
     is_active: true,
     agent_permissions: [],

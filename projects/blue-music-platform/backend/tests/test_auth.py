@@ -425,6 +425,44 @@ def test_admin_assigns_member_music_task_quota(
     assert admin_update.json()["error"]["code"] == "MUSIC_QUOTA_NOT_APPLICABLE"
 
 
+def test_admin_configures_account_watermark(auth_context: AuthContext) -> None:
+    admin_token = _login(auth_context.client, "admin", "admin-password")
+    member = _create_member(auth_context.client, admin_token)
+    member_id = int(member["id"])
+    member_token = _login(auth_context.client, "member.one", "member-password")
+
+    assert member["watermark_text"] == "member.one"
+
+    denied = auth_context.client.put(
+        f"/api/v1/users/{member_id}/watermark",
+        headers=_authorization(member_token),
+        json={"watermark_text": "不能自行修改"},
+    )
+    updated = auth_context.client.put(
+        f"/api/v1/users/{member_id}/watermark",
+        headers=_authorization(admin_token),
+        json={"watermark_text": "客户内部专用"},
+    )
+    profile = auth_context.client.get(
+        "/api/v1/auth/me",
+        headers=_authorization(member_token),
+    )
+    restored = auth_context.client.put(
+        f"/api/v1/users/{member_id}/watermark",
+        headers=_authorization(admin_token),
+        json={"watermark_text": "   "},
+    )
+
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "PERMISSION_DENIED"
+    assert updated.status_code == 200
+    assert updated.json()["watermark_text"] == "客户内部专用"
+    assert profile.status_code == 200
+    assert profile.json()["watermark_text"] == "客户内部专用"
+    assert restored.status_code == 200
+    assert restored.json()["watermark_text"] == "member.one"
+
+
 def test_duplicate_username_and_self_disable_are_rejected(
     auth_context: AuthContext,
 ) -> None:

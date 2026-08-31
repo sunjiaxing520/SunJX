@@ -36,6 +36,7 @@ def user_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         username=user.username,
+        watermark_text=user.watermark_text or user.username,
         role=user.role,
         is_active=user.is_active,
         agent_permissions=permissions,
@@ -160,5 +161,16 @@ def set_user_music_quota(
         )
 
     user.music_quota_remaining = remaining_tasks
+    db.commit()
+    return user_response(get_user_or_404(db, user_id))
+
+
+def set_user_watermark(
+    db: Session,
+    user_id: int,
+    watermark_text: str | None,
+) -> UserResponse:
+    user = get_user_or_404(db, user_id)
+    user.watermark_text = watermark_text
     db.commit()
     return user_response(get_user_or_404(db, user_id))

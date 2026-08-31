@@ -41,6 +41,7 @@ class User(Base):
         String(50), unique=True, index=True, nullable=False
     )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    watermark_text: Mapped[str | None] = mapped_column(String(50), nullable=True)
     token_version: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )

@@ -12,6 +12,7 @@ from app.schemas.user import (
     UserMusicQuotaUpdate,
     UserResponse,
     UserStatusUpdate,
+    UserWatermarkUpdate,
 )
 from app.services.users import (
     create_member,
@@ -20,6 +21,7 @@ from app.services.users import (
     reset_user_password,
     set_user_music_quota,
     set_user_status,
+    set_user_watermark,
 )
 
 
@@ -75,6 +77,27 @@ def update_user_music_quota(
             "user_id": admin.id,
             "target_user_id": user_id,
             "remaining_tasks": payload.remaining_tasks,
+        },
+    )
+    return user
+
+
+@router.put("/{user_id}/watermark", response_model=UserResponse)
+def update_user_watermark(
+    request: Request,
+    user_id: int,
+    payload: UserWatermarkUpdate,
+    db: DatabaseSession,
+    admin: SuperAdmin,
+) -> UserResponse:
+    user = set_user_watermark(db, user_id, payload.watermark_text)
+    audit_logger.info(
+        "user_watermark_changed",
+        extra={
+            "request_id": get_request_id(request),
+            "user_id": admin.id,
+            "target_user_id": user_id,
+            "uses_custom_watermark": payload.watermark_text is not None,
         },
     )
     return user

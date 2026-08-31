@@ -34,6 +34,7 @@ import { hasAgentAccess } from '../auth/permissions'
 import { useAuth } from '../auth/useAuth'
 import { copyDiagnosticReport } from '../lib/diagnostics'
 import type { AgentType } from '../types/api'
+import { WatermarkLayer } from './WatermarkLayer'
 
 const { Header, Sider, Content } = Layout
 
@@ -212,6 +213,7 @@ export function AppShell() {
 
   return (
     <Layout className="app-layout">
+      <WatermarkLayer text={user?.watermark_text ?? user?.username ?? ''} />
       {isDesktop ? (
         <Sider width={236} className="app-sider" theme="light">
           <Brand />

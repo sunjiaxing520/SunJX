@@ -37,6 +37,18 @@ class UserMusicQuotaUpdate(BaseModel):
     remaining_tasks: int = Field(ge=0, le=100_000)
 
 
+class UserWatermarkUpdate(BaseModel):
+    watermark_text: str | None = Field(default=None, max_length=50)
+
+    @field_validator("watermark_text")
+    @classmethod
+    def clean_watermark_text(cls, watermark_text: str | None) -> str | None:
+        if watermark_text is None:
+            return None
+        cleaned = " ".join(watermark_text.split())
+        return cleaned or None
+
+
 class MusicTaskQuotaResponse(BaseModel):
     is_unlimited: bool
     remaining_tasks: int | None
@@ -46,6 +58,7 @@ class MusicTaskQuotaResponse(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    watermark_text: str
     role: UserRole
     is_active: bool
     agent_permissions: list[AgentType]

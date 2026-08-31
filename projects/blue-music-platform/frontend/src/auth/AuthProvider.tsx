@@ -20,6 +20,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const replaceCurrentUser = useCallback((nextUser: User) => {
+    setUser(nextUser)
+  }, [])
+
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEY)
     if (!token) {
@@ -50,8 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ user, isLoading, login, logout }),
-    [user, isLoading, login, logout],
+    () => ({ user, isLoading, login, logout, replaceCurrentUser }),
+    [user, isLoading, login, logout, replaceCurrentUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

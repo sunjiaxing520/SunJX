@@ -6,6 +6,7 @@ import { hasAgentAccess } from './permissions'
 const member: User = {
   id: 2,
   username: 'member.one',
+  watermark_text: 'member.one',
   role: 'member',
   is_active: true,
   agent_permissions: ['crawler'],

@@ -17,7 +17,7 @@ import {
   Typography,
   type TableProps,
 } from 'antd'
-import { Gauge, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
+import { Gauge, KeyRound, Plus, RefreshCw, Settings2, Stamp } from 'lucide-react'
 
 import {
   createUser,
@@ -26,6 +26,7 @@ import {
   setUserStatus,
   updateAgentPermissions,
   updateUserMusicQuota,
+  updateUserWatermark,
 } from '../api/users'
 import { useAuth } from '../auth/useAuth'
 import { errorMessage } from '../lib/errors'
@@ -57,9 +58,13 @@ interface MusicQuotaFormValues {
   remaining_tasks: number
 }
 
+interface WatermarkFormValues {
+  watermark_text?: string
+}
+
 export function UsersPage() {
   const { message } = App.useApp()
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, replaceCurrentUser } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -67,12 +72,14 @@ export function UsersPage() {
   const [permissionUser, setPermissionUser] = useState<User | null>(null)
   const [passwordUser, setPasswordUser] = useState<User | null>(null)
   const [quotaUser, setQuotaUser] = useState<User | null>(null)
+  const [watermarkUser, setWatermarkUser] = useState<User | null>(null)
   const [selectedAgents, setSelectedAgents] = useState<AgentType[]>([])
   const [saving, setSaving] = useState(false)
   const [statusUserId, setStatusUserId] = useState<number | null>(null)
   const [createForm] = Form.useForm<AccountFormValues>()
   const [passwordForm] = Form.useForm<PasswordFormValues>()
   const [quotaForm] = Form.useForm<MusicQuotaFormValues>()
+  const [watermarkForm] = Form.useForm<WatermarkFormValues>()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -192,6 +199,32 @@ export function UsersPage() {
     }
   }
 
+  const openWatermark = (user: User) => {
+    setWatermarkUser(user)
+    watermarkForm.setFieldsValue({ watermark_text: user.watermark_text })
+  }
+
+  const submitWatermark = async () => {
+    if (!watermarkUser) return
+    const values = await watermarkForm.validateFields()
+    const watermarkText = values.watermark_text?.trim() || null
+    setSaving(true)
+    try {
+      const updated = await updateUserWatermark(watermarkUser.id, watermarkText)
+      setUsers((current) =>
+        current.map((item) => (item.id === watermarkUser.id ? updated : item)),
+      )
+      if (updated.id === currentUser?.id) replaceCurrentUser(updated)
+      setWatermarkUser(null)
+      watermarkForm.resetFields()
+      message.success(watermarkText ? '账号水印已更新' : '已恢复为账号名水印')
+    } catch (watermarkError) {
+      message.error(errorMessage(watermarkError))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const columns: TableProps<User>['columns'] = [
     {
       title: '账号',
@@ -229,6 +262,18 @@ export function UsersPage() {
         ) : (
           <span className="muted-copy">未分配</span>
         ),
+    },
+    {
+      title: '页面水印',
+      dataIndex: 'watermark_text',
+      key: 'watermark',
+      width: 170,
+      render: (watermarkText: string, user) => (
+        <div className="account-cell">
+          <strong>{watermarkText}</strong>
+          <small>{watermarkText === user.username ? '默认使用账号名' : '自定义内容'}</small>
+        </div>
+      ),
     },
     {
       title: '状态',
@@ -269,34 +314,46 @@ export function UsersPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 152,
+      width: 196,
       fixed: 'right',
-      render: (_, user) => user.role === 'member' && (
+      render: (_, user) => (
         <Space size={4}>
-          <Tooltip title="设置 Agent 权限">
+          <Tooltip title="设置页面水印">
             <Button
               type="text"
-              icon={<Settings2 size={17} />}
-              aria-label="设置 Agent 权限"
-              onClick={() => openPermissions(user)}
+              icon={<Stamp size={17} />}
+              aria-label="设置页面水印"
+              onClick={() => openWatermark(user)}
             />
           </Tooltip>
-          <Tooltip title="重置密码">
-            <Button
-              type="text"
-              icon={<KeyRound size={17} />}
-              aria-label="重置密码"
-              onClick={() => setPasswordUser(user)}
-            />
-          </Tooltip>
-          <Tooltip title="设置音乐任务额度">
-            <Button
-              type="text"
-              icon={<Gauge size={17} />}
-              aria-label="设置音乐任务额度"
-              onClick={() => openMusicQuota(user)}
-            />
-          </Tooltip>
+          {user.role === 'member' && (
+            <>
+              <Tooltip title="设置 Agent 权限">
+                <Button
+                  type="text"
+                  icon={<Settings2 size={17} />}
+                  aria-label="设置 Agent 权限"
+                  onClick={() => openPermissions(user)}
+                />
+              </Tooltip>
+              <Tooltip title="重置密码">
+                <Button
+                  type="text"
+                  icon={<KeyRound size={17} />}
+                  aria-label="重置密码"
+                  onClick={() => setPasswordUser(user)}
+                />
+              </Tooltip>
+              <Tooltip title="设置音乐任务额度">
+                <Button
+                  type="text"
+                  icon={<Gauge size={17} />}
+                  aria-label="设置音乐任务额度"
+                  onClick={() => openMusicQuota(user)}
+                />
+              </Tooltip>
+            </>
+          )}
         </Space>
       ),
     },
@@ -325,7 +382,7 @@ export function UsersPage() {
         dataSource={users}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }}
-        scroll={{ x: 980 }}
+        scroll={{ x: 1150 }}
         className="users-table"
       />
 
@@ -370,6 +427,34 @@ export function UsersPage() {
           >
             <InputNumber min={0} max={100000} precision={0} style={{ width: '100%' }} addonAfter="次" />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`设置页面水印 · ${watermarkUser?.username ?? ''}`}
+        open={Boolean(watermarkUser)}
+        onCancel={() => {
+          setWatermarkUser(null)
+          watermarkForm.resetFields()
+        }}
+        onOk={submitWatermark}
+        confirmLoading={saving}
+        okText="保存水印"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <Form form={watermarkForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            name="watermark_text"
+            label="水印内容"
+            extra={`留空后恢复为账号名：${watermarkUser?.username ?? ''}`}
+            rules={[{ max: 50, message: '水印内容不能超过 50 个字符' }]}
+          >
+            <Input allowClear maxLength={50} showCount placeholder="输入几个用于识别的文字" />
+          </Form.Item>
+          <Typography.Text type="secondary">
+            该账号登录后，工作台所有页面都会重复显示斜向水印。
+          </Typography.Text>
         </Form>
       </Modal>
 

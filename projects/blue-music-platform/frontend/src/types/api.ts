@@ -9,6 +9,7 @@ export type AgentRuntimeStatus =
 export interface User {
   id: number
   username: string
+  watermark_text: string
   role: UserRole
   is_active: boolean
   agent_permissions: AgentType[]

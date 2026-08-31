@@ -59,6 +59,7 @@ vi.mock('../auth/useAuth', () => ({
     user: {
       id: 1,
       username: 'admin',
+      watermark_text: 'admin',
       role: 'super_admin',
       is_active: true,
       agent_permissions: [],
