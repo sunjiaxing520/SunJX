@@ -3816,6 +3816,27 @@ textarea {
 }
 
 @media (max-width: 768px) {
+  .lyrics-memory-page-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .lyrics-memory-page-actions {
+    display: grid;
+    grid-template-columns: 40px repeat(2, minmax(0, 1fr));
+    gap: 8px !important;
+    width: 100%;
+  }
+
+  .lyrics-memory-page-actions > .ant-space-item {
+    min-width: 0;
+  }
+
+  .lyrics-memory-page-actions > .ant-space-item:not(:first-child) .ant-btn {
+    width: 100%;
+  }
+
   .lyrics-memory-drawer .ant-drawer-content-wrapper {
     width: 100% !important;
   }
@@ -4064,6 +4085,14 @@ textarea {
 }
 
 @media (max-width: 520px) {
+  .lyrics-memory-page-actions {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .lyrics-memory-page-actions > .ant-space-item:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
   .lyrics-memory-current-panel {
     padding: 14px;
   }

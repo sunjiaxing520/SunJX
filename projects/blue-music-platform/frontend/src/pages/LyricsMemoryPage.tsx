@@ -882,12 +882,12 @@ export function LyricsMemoryPage() {
 
   return (
     <div className="page-stack">
-      <div className="page-heading-row">
+      <div className="page-heading-row lyrics-memory-page-heading">
         <div>
           <Typography.Title level={1}>歌词记忆</Typography.Title>
           <Typography.Text type="secondary">提炼后的团队作词经验、调整与保留版本</Typography.Text>
         </div>
-        <Space wrap>
+        <Space wrap className="lyrics-memory-page-actions">
           <Tooltip title="刷新歌词记忆">
             <Button
               icon={<RefreshCw size={16} />}
