@@ -41,6 +41,10 @@ from app.services.lyrics_memory import (
     capture_creation_request,
     capture_modification_request,
 )
+from app.services.lyrics_prompt import (
+    screen_lyrics_prompt,
+    screen_optional_lyrics_prompt,
+)
 from app.services.task_recovery import recover_stale_text_tasks
 
 
@@ -116,6 +120,19 @@ def create_lyrics_task(
     payload: LyricsCreateRequest,
     user_id: int,
 ) -> LyricsTaskResponse:
+    payload = payload.model_copy(
+        update={
+            "theme": screen_lyrics_prompt(
+                payload.theme,
+                field_name="歌曲主题",
+                allow_short_topic=True,
+            ),
+            "requirements": screen_optional_lyrics_prompt(
+                payload.requirements,
+                field_name="补充要求",
+            ),
+        }
+    )
     merged = _merge_analysis_direction(db, payload)
     try:
         provider = resolve_text_provider(db)
@@ -495,13 +512,17 @@ def create_lyrics_assistant_preview(
         raise AppException(
             code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
         )
+    instruction = screen_lyrics_prompt(
+        payload.instruction,
+        field_name="歌词修改要求",
+    )
 
     user_message = LyricsAssistantMessage(
         task_id=task.id,
         source_version_id=version.id,
         review_run_id=review_run_id,
         role="user",
-        content=payload.instruction,
+        content=instruction,
         created_by_id=user_id,
     )
     db.add(user_message)
@@ -510,7 +531,7 @@ def create_lyrics_assistant_preview(
         db,
         task,
         version,
-        payload.instruction,
+        instruction,
         user_id,
         review_guidance=review_guidance,
         review_run_id=review_run_id,
@@ -552,7 +573,7 @@ def create_lyrics_assistant_preview(
                     current_task_id=task.id,
                 ),
                 "review_guidance": review_guidance,
-                "instruction": payload.instruction,
+                "instruction": instruction,
                 "variation": len(task.versions) + len(history) + 1,
             }
         )

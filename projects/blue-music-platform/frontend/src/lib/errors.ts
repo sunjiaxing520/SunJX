@@ -20,3 +20,7 @@ export function errorMessage(error: unknown): string {
   }
   return error instanceof Error ? error.message : '发生未知错误'
 }
+
+export function isLyricsPromptRejected(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 'LYRICS_PROMPT_IRRELEVANT'
+}

@@ -54,7 +54,7 @@ import { hasAgentAccess } from '../auth/permissions'
 import { useAuth } from '../auth/useAuth'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { WorkflowStepOutputDrawer } from '../components/WorkflowStepOutputDrawer'
-import { errorMessage } from '../lib/errors'
+import { errorMessage, isLyricsPromptRejected } from '../lib/errors'
 import {
   toggleWorkflowStep,
   WORKFLOW_STEP_LABELS,
@@ -424,7 +424,9 @@ export function WorkflowsPage() {
         message.success('自动流程已经启动')
       }
     } catch (saveError) {
-      message.error(errorMessage(saveError))
+      const content = errorMessage(saveError)
+      if (isLyricsPromptRejected(saveError)) message.warning(content)
+      else message.error(content)
     } finally {
       setSaveMode(null)
       setRunningTemplateId(null)
@@ -492,7 +494,9 @@ export function WorkflowsPage() {
       setReviewRevisionDrafts((current) => ({ ...current, [run.id]: '' }))
       await refreshRuns()
     } catch (decisionError) {
-      message.error(errorMessage(decisionError))
+      const content = errorMessage(decisionError)
+      if (isLyricsPromptRejected(decisionError)) message.warning(content)
+      else message.error(content)
     } finally {
       setReviewDecisionRunId(null)
     }

@@ -132,6 +132,50 @@ def test_kugou_page_parser_reads_structured_script_data() -> None:
     assert result.items[0].source_url == "https://www.kugou.com/mixsong/xyz.html"
 
 
+def test_manual_lyrics_creation_rejects_chatter_before_creating_task(
+    workflow_context: WorkflowContext,
+) -> None:
+    rejected = workflow_context.client.post(
+        "/api/v1/lyrics/tasks",
+        headers=_headers(workflow_context),
+        json={"theme": "你好"},
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "LYRICS_PROMPT_IRRELEVANT"
+    assert rejected.json()["error"]["detail"] == {"field": "歌曲主题"}
+
+    tasks = workflow_context.client.get(
+        "/api/v1/lyrics/tasks",
+        headers=_headers(workflow_context),
+    )
+    assert tasks.status_code == 200
+    assert tasks.json()["total"] == 0
+
+
+def test_workflow_template_rejects_chatter_in_lyrics_configuration(
+    workflow_context: WorkflowContext,
+) -> None:
+    rejected = workflow_context.client.post(
+        "/api/v1/workflows/templates",
+        headers=_headers(workflow_context),
+        json={
+            "name": "闲聊污染测试",
+            "steps": ["analysis", "lyrics"],
+            "configuration": {
+                "analysis": {"window_days": 7},
+                "lyrics": {"requirements": "今天天气怎么样"},
+            },
+        },
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "LYRICS_PROMPT_IRRELEVANT"
+    assert rejected.json()["error"]["detail"] == {
+        "field": "自动流程作词要求"
+    }
+
+
 def test_rising_chart_history_is_isolated_from_top500(
     workflow_context: WorkflowContext,
 ) -> None:

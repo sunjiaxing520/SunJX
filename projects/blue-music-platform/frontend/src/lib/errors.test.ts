@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
-import { errorMessage } from './errors'
+import { errorMessage, isLyricsPromptRejected } from './errors'
 
 describe('errorMessage', () => {
   it('includes the provider failure reason and request id', () => {
@@ -31,5 +31,21 @@ describe('errorMessage', () => {
     })
 
     expect(errorMessage(error)).toBe('请求失败')
+  })
+
+  it('identifies lyrics chatter rejections for warning feedback', () => {
+    const rejected = new ApiError({
+      message: '请不要输入闲聊',
+      status: 422,
+      code: 'LYRICS_PROMPT_IRRELEVANT',
+    })
+    const normal = new ApiError({
+      message: '请求失败',
+      status: 400,
+      code: 'BAD_REQUEST',
+    })
+
+    expect(isLyricsPromptRejected(rejected)).toBe(true)
+    expect(isLyricsPromptRejected(normal)).toBe(false)
   })
 })

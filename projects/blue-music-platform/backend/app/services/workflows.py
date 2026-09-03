@@ -46,6 +46,10 @@ from app.services.lyrics import (
     create_lyrics_task,
     regenerate_lyrics,
 )
+from app.services.lyrics_prompt import (
+    screen_lyrics_prompt,
+    screen_optional_lyrics_prompt,
+)
 from app.services.music import (
     create_music_task,
     dispatch_music_task,
@@ -224,6 +228,22 @@ def _ensure_unique_name(
         )
 
 
+def _screen_workflow_lyrics_prompt(payload: WorkflowTemplateWrite) -> None:
+    if WorkflowStepType.LYRICS.value not in payload.steps:
+        return
+    lyrics = payload.configuration.lyrics
+    if lyrics.theme:
+        lyrics.theme = screen_lyrics_prompt(
+            lyrics.theme,
+            field_name="自动流程歌曲主题",
+            allow_short_topic=True,
+        )
+    lyrics.requirements = screen_optional_lyrics_prompt(
+        lyrics.requirements,
+        field_name="自动流程作词要求",
+    )
+
+
 def list_workflow_templates(db: Session) -> list[WorkflowTemplateResponse]:
     templates = db.scalars(
         select(WorkflowTemplate).order_by(
@@ -240,6 +260,7 @@ def create_workflow_template(
 ) -> WorkflowTemplateResponse:
     _ensure_step_permissions(db, user, list(payload.steps))
     _ensure_review_step_access(db, user, list(payload.steps), payload.configuration)
+    _screen_workflow_lyrics_prompt(payload)
     _ensure_unique_name(db, payload.name)
     template = WorkflowTemplate(
         name=payload.name,
@@ -262,6 +283,7 @@ def update_workflow_template(
     template = _get_template(db, template_id)
     _ensure_step_permissions(db, user, list(payload.steps))
     _ensure_review_step_access(db, user, list(payload.steps), payload.configuration)
+    _screen_workflow_lyrics_prompt(payload)
     _ensure_unique_name(db, payload.name, exclude_id=template.id)
     template.name = payload.name
     template.steps = list(payload.steps)
@@ -324,7 +346,10 @@ def start_reference_workflow_run(
             status_code=404,
         )
     _ensure_step_permissions(db, user, REFERENCE_WORKFLOW_STEPS)
-    instruction = payload.instruction
+    instruction = screen_optional_lyrics_prompt(
+        payload.instruction,
+        field_name="参考创作要求",
+    )
     requirements = _reference_requirements(instruction)
     configuration = WorkflowConfiguration.model_validate(
         {

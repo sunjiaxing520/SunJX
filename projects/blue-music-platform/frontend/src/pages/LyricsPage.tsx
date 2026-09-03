@@ -62,7 +62,7 @@ import {
   requestLyricsAssistantPreview,
   saveLyricsVersion,
 } from '../api/lyrics'
-import { errorMessage } from '../lib/errors'
+import { errorMessage, isLyricsPromptRejected } from '../lib/errors'
 import type {
   AnalysisTask,
   FavoriteItem,
@@ -317,7 +317,9 @@ export function LyricsPage() {
       setActiveVersionId(task.versions.at(-1)?.id ?? null)
       await load()
     } catch (generateError) {
-      message.error(errorMessage(generateError))
+      const content = errorMessage(generateError)
+      if (isLyricsPromptRejected(generateError)) message.warning(content)
+      else message.error(content)
       await load()
     } finally {
       setGenerating(false)
@@ -364,7 +366,9 @@ export function LyricsPage() {
       message.success('AI 助手已生成预览')
       await load()
     } catch (assistantError) {
-      message.error(errorMessage(assistantError))
+      const content = errorMessage(assistantError)
+      if (isLyricsPromptRejected(assistantError)) message.warning(content)
+      else message.error(content)
     } finally {
       setAssistantLoading(false)
     }

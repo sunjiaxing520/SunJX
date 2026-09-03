@@ -113,10 +113,13 @@ def test_lyrics_memory_keeps_context_filters_noise_and_builds_five_sections() ->
         assert event_count == 5
         assert memory["skill_name"] == "lyrics_creation_distillation_v1"
         assert len(memory["1_true_creation_requirements"]) == 1
+        assert memory["1_true_creation_requirements"][0]["prompt_essence"] == (
+            "提炼后的首次创作需求摘要"
+        )
         assert memory["2_true_modification_requirements"] == [
             {
                 "task_id": task.id,
-                "requirement_summary": "提炼后的确认修改需求摘要",
+                "prompt_essence": "提炼后的确认修改需求摘要",
                 "strategy_summary": "提炼后的确认修改创作与修改方法",
                 "result_summary": "提炼后的确认修改有效结果",
             }

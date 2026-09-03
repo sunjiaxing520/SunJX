@@ -56,7 +56,7 @@ import {
   UpstreamOutputField,
   UpstreamOutputPicker,
 } from '../components/UpstreamOutputPicker'
-import { errorMessage } from '../lib/errors'
+import { errorMessage, isLyricsPromptRejected } from '../lib/errors'
 import {
   buildLyricsOutputItems,
   FAVORITE_OUTPUT_GROUPS,
@@ -796,7 +796,9 @@ function ReviewRunView({
       }
       message.success('修改预览已生成，请检查后再保存')
     } catch (revisionError) {
-      message.error(errorMessage(revisionError))
+      const content = errorMessage(revisionError)
+      if (isLyricsPromptRejected(revisionError)) message.warning(content)
+      else message.error(content)
     } finally {
       setRevisionLoading(false)
     }

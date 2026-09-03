@@ -191,7 +191,7 @@ describe('LyricsMemoryPage', () => {
     expect(lyricsMemoryApi.getLyricsMemoryPreview).toHaveBeenCalledOnce()
 
     await user.click(screen.getByText('1. 已确认创作需求提炼'))
-    expect(await screen.findByText('需求摘要')).toBeInTheDocument()
+    expect(await screen.findByText('提示词精华')).toBeInTheDocument()
     expect(screen.getByText('以重逢为核心，用递进情绪完成流行歌表达')).toBeInTheDocument()
 
     await user.click(screen.getByRole('tab', { name: /原始证据/ }))

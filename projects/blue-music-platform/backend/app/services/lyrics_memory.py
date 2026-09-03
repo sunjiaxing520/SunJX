@@ -1034,7 +1034,7 @@ def _distilled_requirement_item(event: LyricsMemoryEvent) -> dict[str, Any]:
     assert insight is not None
     return {
         "task_id": event.task_id,
-        "requirement_summary": insight.requirement_summary,
+        "prompt_essence": insight.requirement_summary,
     }
 
 
@@ -1043,7 +1043,7 @@ def _distilled_modification_item(event: LyricsMemoryEvent) -> dict[str, Any]:
     assert insight is not None
     return {
         "task_id": event.task_id,
-        "requirement_summary": insight.requirement_summary,
+        "prompt_essence": insight.requirement_summary,
         "strategy_summary": insight.strategy_summary,
         "result_summary": insight.result_summary,
     }

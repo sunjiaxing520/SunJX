@@ -66,7 +66,7 @@ import {
   UpstreamOutputField,
   UpstreamOutputPicker,
 } from '../components/UpstreamOutputPicker'
-import { errorMessage } from '../lib/errors'
+import { errorMessage, isLyricsPromptRejected } from '../lib/errors'
 import {
   buildLyricsOutputItems,
   FAVORITE_OUTPUT_GROUPS,
@@ -297,7 +297,9 @@ export function MusicPage() {
       setReferenceRun(run)
       message.success(`参考创作 #${run.id} 已开始`)
     } catch (startError) {
-      message.error(errorMessage(startError))
+      const content = errorMessage(startError)
+      if (isLyricsPromptRejected(startError)) message.warning(content)
+      else message.error(content)
     } finally {
       setReferenceStarting(false)
     }
