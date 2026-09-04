@@ -463,6 +463,18 @@ def test_lyrics_assistant_and_review_agent_respect_member_memory_privacy(
     assert preview.json()["role"] == "assistant"
     assert preview.json()["preview"]["content"]
 
+    prompt_essences = music_context.client.get(
+        "/api/v1/lyrics-memory/events",
+        headers=_headers(music_context),
+        params={"event_type": "prompt_essence"},
+    )
+    assert prompt_essences.status_code == 200
+    assert prompt_essences.json()["total"] == 2
+    assert {
+        item["context_preview"]["source_kind"]
+        for item in prompt_essences.json()["items"]
+    } == {"initial_creation", "revision"}
+
     history = music_context.client.get(
         f"/api/v1/lyrics/versions/{source_version['id']}/assistant",
         headers=_headers(music_context),

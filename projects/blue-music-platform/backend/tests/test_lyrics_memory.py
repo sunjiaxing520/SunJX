@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.adapters.text_generation import LocalTextProvider
+from app.adapters.text_generation import GeneratedLyricsMemoryInsight, LocalTextProvider
 from app.core.database import Base
 from app.models import LyricsMemoryEvent, LyricsTask, LyricsVersion
 from app.services import lyrics_memory
@@ -12,6 +12,7 @@ from app.services.lyrics_memory import (
     capture_accepted_result,
     capture_creation_request,
     capture_modification_request,
+    capture_prompt_essence,
     distill_next_legacy_lyrics_memory,
 )
 
@@ -134,6 +135,77 @@ def test_lyrics_memory_keeps_context_filters_noise_and_builds_five_sections() ->
         assert "迎着光" not in serialized_memory
         assert memory["5_ranking_lyrics_patterns"]["available"] is False
         assert "禁止" in memory["5_ranking_lyrics_patterns"]["status"]
+
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+def test_team_prompt_essences_merge_requirements_from_all_accounts() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    with Session(engine) as db:
+        first_task = _task()
+        second_task = _task()
+        db.add_all([first_task, second_task])
+        db.flush()
+        shared_insight = GeneratedLyricsMemoryInsight.model_validate(
+            {
+                **_insight("共享"),
+                "requirement_summary": "强化副歌记忆点并保持短句表达",
+            }
+        )
+        narrative_insight = GeneratedLyricsMemoryInsight.model_validate(
+            {
+                **_insight("叙事"),
+                "requirement_summary": "主歌使用生活化画面推进叙事",
+            }
+        )
+
+        capture_prompt_essence(
+            db,
+            first_task,
+            shared_insight,
+            11,
+            source_kind="initial_creation",
+        )
+        capture_prompt_essence(
+            db,
+            second_task,
+            shared_insight,
+            22,
+            source_kind="initial_creation",
+        )
+        capture_prompt_essence(
+            db,
+            second_task,
+            narrative_insight,
+            22,
+            source_kind="revision",
+            message_id=7,
+        )
+        db.flush()
+
+        memory = build_lyrics_skill_context(db)
+        capsule = memory["team_prompt_essences"]
+
+        assert capsule["scope"] == "all_accounts"
+        assert capsule["source_event_count"] == 3
+        assert capsule["merged_item_count"] == 2
+        assert capsule["included_item_count"] == 2
+        assert capsule["is_compacted"] is False
+        shared = next(
+            item
+            for item in capsule["items"]
+            if item["essence"] == "强化副歌记忆点并保持短句表达"
+        )
+        assert shared["source_account_count"] == 2
+        assert shared["use_count"] == 2
+        assert memory["1_true_creation_requirements"] == []
+        assert memory["4_creation_distillation_expert"]["accepted_evidence"] == []
 
     Base.metadata.drop_all(bind=engine)
     engine.dispose()

@@ -418,6 +418,7 @@ export interface LyricsVersion {
 export type LyricsMemoryEventType =
   | 'creation_request'
   | 'modification_request'
+  | 'prompt_essence'
   | 'accepted_result'
   | 'ranking_lyrics_insight'
   | 'admin_rule'

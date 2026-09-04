@@ -56,12 +56,13 @@ vi.mock('../api/lyricsMemory', () => ({
 }))
 
 const overview: LyricsMemoryOverview = {
-  total_events: 24,
-  active_events: 22,
+  total_events: 27,
+  active_events: 25,
   inactive_events: 2,
   category_counts: {
     creation_request: 10,
     modification_request: 4,
+    prompt_essence: 3,
     accepted_result: 5,
     ranking_lyrics_insight: 3,
     admin_rule: 2,
@@ -85,6 +86,22 @@ const event: LyricsMemoryEventSummary = {
 
 const memory: Record<string, unknown> = {
   admin_rules: [{ id: 20, title: '副歌要求', content: '副歌首句要有记忆点' }],
+  team_prompt_essences: {
+    scope: 'all_accounts',
+    source_event_count: 3,
+    merged_item_count: 2,
+    included_item_count: 2,
+    is_compacted: false,
+    items: [{
+      essence: '副歌提前出现并强化记忆点',
+      source_account_count: 2,
+      use_count: 2,
+      themes: ['重逢'],
+      genre_tags: ['流行'],
+      mood_tags: ['温暖'],
+      source_kinds: ['initial_creation', 'revision'],
+    }],
+  },
   '1_true_creation_requirements': [{
     task_id: 43,
     requirement_summary: '以重逢为核心，用递进情绪完成流行歌表达',
@@ -186,15 +203,19 @@ describe('LyricsMemoryPage', () => {
     render(<App><LyricsMemoryPage /></App>)
 
     expect(await screen.findByRole('heading', { name: '歌词记忆' })).toBeInTheDocument()
-    expect(screen.getByText('24')).toBeInTheDocument()
+    expect(screen.getByText('27')).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: '当前提炼记忆' })).toBeInTheDocument()
     expect(lyricsMemoryApi.getLyricsMemoryPreview).toHaveBeenCalledOnce()
+
+    await user.click(screen.getByText('团队提示词精华'))
+    expect(await screen.findByText('全部账号共享')).toBeInTheDocument()
+    expect(screen.getByText('副歌提前出现并强化记忆点')).toBeInTheDocument()
 
     await user.click(screen.getByText('1. 已确认创作需求提炼'))
     expect(await screen.findByText('提示词精华')).toBeInTheDocument()
     expect(screen.getByText('以重逢为核心，用递进情绪完成流行歌表达')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('tab', { name: /原始证据/ }))
+    await user.click(screen.getByRole('tab', { name: /记忆记录/ }))
     expect(await screen.findByText('仅追溯')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '预览注入内容' }))

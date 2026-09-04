@@ -78,6 +78,7 @@ const EVENT_META: Record<
 > = {
   creation_request: { label: '创作原始证据', color: 'blue' },
   modification_request: { label: '修改原始证据', color: 'purple' },
+  prompt_essence: { label: '团队提示词精华', color: 'cyan' },
   accepted_result: { label: '确认结果', color: 'green' },
   ranking_lyrics_insight: { label: '榜单歌词规律', color: 'gold' },
   admin_rule: { label: '管理员规则', color: 'volcano' },
@@ -85,6 +86,7 @@ const EVENT_META: Record<
 
 const MEMORY_SECTIONS = [
   { key: 'admin_rules', label: '管理员固定规则' },
+  { key: 'team_prompt_essences', label: '团队提示词精华' },
   { key: '1_true_creation_requirements', label: '1. 已确认创作需求提炼' },
   { key: '2_true_modification_requirements', label: '2. 已确认修改需求提炼' },
   { key: '3_requirement_context', label: '3. 经验形成场景' },
@@ -121,6 +123,15 @@ const MEMORY_FIELD_LABELS: Record<string, string> = {
   accepted_evidence: '已确认的提炼经验',
   items: '规律条目',
   summary: '总结',
+  scope: '使用范围',
+  source_event_count: '来源记录数',
+  merged_item_count: '合并后精华数',
+  included_item_count: '本次注入数',
+  is_compacted: '是否已压缩',
+  source_account_count: '来源账号数',
+  use_count: '出现次数',
+  themes: '相关主题',
+  source_kinds: '形成阶段',
 }
 
 function formatDateTime(value: string | null): string {
@@ -152,6 +163,7 @@ function MemoryValue({ value }: { value: unknown }) {
   }
   if (value === 'initial_creation') return <span>首次创作</span>
   if (value === 'revision') return <span>确认修改</span>
+  if (value === 'all_accounts') return <span>全部账号共享</span>
   if (typeof value === 'boolean') return <span>{value ? '是' : '否'}</span>
   if (typeof value === 'string' || typeof value === 'number') return <span>{value}</span>
   if (Array.isArray(value)) {
@@ -911,7 +923,7 @@ export function LyricsMemoryPage() {
       <div className="metrics-grid lyrics-memory-metrics">
         <div className="metric-card">
           <span className="metric-icon metric-icon-blue"><Database size={20} /></span>
-          <div><span>原始证据</span><strong>{overview?.total_events ?? 0}</strong></div>
+          <div><span>记忆记录</span><strong>{overview?.total_events ?? 0}</strong></div>
         </div>
         <div className="metric-card">
           <span className="metric-icon metric-icon-green"><CheckCircle2 size={20} /></span>
@@ -932,7 +944,7 @@ export function LyricsMemoryPage() {
         onChange={setActiveTab}
         items={[
           { key: 'memory', label: <span><BrainCircuit size={15} /> 提炼记忆</span>, children: currentMemoryPanel },
-          { key: 'events', label: <span><Database size={15} /> 原始证据</span>, children: eventPanel },
+          { key: 'events', label: <span><Database size={15} /> 记忆记录</span>, children: eventPanel },
           { key: 'chat', label: <span><MessageSquareText size={15} /> 对话调整</span>, children: chatPanel },
           { key: 'snapshots', label: <span><FileClock size={15} /> 保留记忆</span>, children: snapshotPanel },
         ]}
@@ -940,7 +952,7 @@ export function LyricsMemoryPage() {
       />
 
       <Drawer
-        title={detail ? `${EVENT_META[detail.event_type].label} #${detail.id}` : '原始证据详情'}
+        title={detail ? `${EVENT_META[detail.event_type].label} #${detail.id}` : '记忆详情'}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         size={720}
@@ -958,7 +970,7 @@ export function LyricsMemoryPage() {
               />
             )}
             <Popconfirm
-              title="永久删除这条证据？"
+              title="永久删除这条记忆记录？"
               okText="删除"
               cancelText="取消"
               onConfirm={() => void removeEvent(detail.id)}

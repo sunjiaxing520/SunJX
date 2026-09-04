@@ -426,6 +426,23 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     assert "[Chorus1]" in lyrics_body["versions"][0]["content"]
     assert lyrics_body["versions"][0]["title"] in lyrics_body["versions"][0]["content"]
 
+    prompt_essences = workflow_context.client.get(
+        "/api/v1/lyrics-memory/events",
+        headers=_headers(workflow_context),
+        params={"event_type": "prompt_essence"},
+    )
+    assert prompt_essences.status_code == 200
+    assert prompt_essences.json()["total"] == 1
+    assert prompt_essences.json()["items"][0]["created_by_username"] == "admin"
+
+    memory_preview = workflow_context.client.get(
+        "/api/v1/lyrics-memory/preview",
+        headers=_headers(workflow_context),
+    )
+    team_memory = memory_preview.json()["memory"]["team_prompt_essences"]
+    assert team_memory["source_event_count"] == 1
+    assert team_memory["items"]
+
     regenerated = workflow_context.client.post(
         f"/api/v1/lyrics/tasks/{lyrics_body['id']}/regenerate",
         headers=_headers(workflow_context),

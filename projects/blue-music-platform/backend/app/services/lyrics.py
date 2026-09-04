@@ -40,6 +40,7 @@ from app.services.lyrics_memory import (
     capture_accepted_result,
     capture_creation_request,
     capture_modification_request,
+    capture_prompt_essence,
 )
 from app.services.lyrics_prompt import (
     screen_lyrics_prompt,
@@ -239,6 +240,15 @@ def _generate_version(
             memory_insight=generated.memory_insight.model_dump(),
         )
         db.add(version)
+        db.flush()
+        capture_prompt_essence(
+            db,
+            task,
+            generated.memory_insight,
+            task.requested_by_id,
+            source_kind="initial_creation",
+            source_version_id=version.id,
+        )
         record_api_usage(
             db,
             task_type="lyrics",
@@ -596,6 +606,16 @@ def create_lyrics_assistant_preview(
             created_by_id=user_id,
         )
         db.add(assistant_message)
+        db.flush()
+        capture_prompt_essence(
+            db,
+            task,
+            generated.memory_insight,
+            user_id,
+            source_kind="revision",
+            source_version_id=version.id,
+            message_id=user_message.id,
+        )
         record_api_usage(
             db,
             task_type="lyrics",
