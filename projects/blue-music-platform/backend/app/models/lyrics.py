@@ -49,6 +49,7 @@ class LyricsTask(Base):
     vocal_gender: Mapped[str | None] = mapped_column(String(30), nullable=True)
     vocal_style: Mapped[str | None] = mapped_column(String(200), nullable=True)
     requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
+    creation_input: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     reference_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,10 +1,12 @@
 import logging
 from datetime import datetime, timezone
 
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters.text_generation import (
+    GeneratedComposedLyrics,
     GeneratedLyricsMemoryInsight,
     TextGenerationProvider,
     TextProviderError,
@@ -21,13 +23,15 @@ from app.models import (
     WorkflowRunStep,
     WorkflowStepType,
 )
+from app.schemas.analysis import CreationDirection
 from app.schemas.lyrics import (
     CreationBriefResponse,
-    LyricsCreateRequest,
     LyricsAssistantHistoryResponse,
     LyricsAssistantMessageRequest,
     LyricsAssistantMessageResponse,
     LyricsAssistantPreviewResponse,
+    LyricsComposeRequest,
+    LyricsCreateRequest,
     LyricsTaskDeleteResponse,
     LyricsTaskListResponse,
     LyricsTaskResponse,
@@ -116,10 +120,65 @@ def lyrics_task_response(db: Session, task: LyricsTask) -> LyricsTaskResponse:
     )
 
 
+def compose_lyrics(
+    db: Session,
+    payload: LyricsComposeRequest,
+    user_id: int,
+) -> LyricsTaskResponse:
+    prompt = screen_optional_lyrics_prompt(payload.prompt, field_name="创作描述")
+    direction = None
+    if payload.mode == "analysis":
+        report = db.get(AnalysisReport, payload.analysis_report_id)
+        if report is None:
+            raise AppException(
+                code="LYRICS_ANALYSIS_NOT_FOUND", message="引用的分析报告不存在", status_code=404,
+            )
+        if payload.direction_index >= len(report.creation_directions):
+            raise AppException(
+                code="LYRICS_DIRECTION_NOT_FOUND", message="引用的创作方向不存在", status_code=422,
+            )
+        try:
+            direction = CreationDirection.model_validate(
+                report.creation_directions[payload.direction_index]
+            ).model_dump()
+        except ValidationError as exc:
+            raise AppException(
+                code="LYRICS_DIRECTION_INVALID",
+                message="引用的分析方向数据不完整，请重新分析或选择其他方向",
+                status_code=422,
+                detail={"report_id": report.id, "direction_index": payload.direction_index},
+            ) from exc
+
+    source = direction or {}
+    request = LyricsCreateRequest(
+        analysis_report_id=payload.analysis_report_id,
+        direction_index=payload.direction_index,
+        theme="、".join(source.get("theme_keywords") or [])[:500]
+        or source.get("name") or "自由描述创作",
+        language=source.get("language") or "中文",
+        genre_tags=source.get("genre_tags") or [],
+        mood_tags=source.get("mood_tags") or [],
+        scene_tags=source.get("scene_tags") or [],
+        keywords=source.get("theme_keywords") or [],
+        tempo=source.get("tempo"),
+        vocal_gender=source.get("vocal_gender"),
+        vocal_style=source.get("vocal_style"),
+        requirements=prompt,
+    )
+    return create_lyrics_task(
+        db, request, user_id,
+        creation_input={
+            "mode": payload.mode, "prompt": prompt, "analysis_direction": direction,
+        },
+    )
+
+
 def create_lyrics_task(
     db: Session,
     payload: LyricsCreateRequest,
     user_id: int,
+    *,
+    creation_input: dict | None = None,
 ) -> LyricsTaskResponse:
     payload = payload.model_copy(
         update={
@@ -162,6 +221,7 @@ def create_lyrics_task(
         vocal_gender=merged["vocal_gender"],
         vocal_style=merged["vocal_style"],
         requirements=payload.requirements,
+        creation_input=creation_input,
         reference_text=payload.reference_text,
     )
     db.add(task)
@@ -171,7 +231,11 @@ def create_lyrics_task(
         db,
         task,
         user_id,
-        request_data=payload.model_dump(include=payload.model_fields_set),
+        request_data=(
+            {"requirements": creation_input.get("prompt")}
+            if creation_input is not None
+            else payload.model_dump(include=payload.model_fields_set)
+        ),
     )
     db.commit()
     _generate_version(db, task, variation=1, provider=provider)
@@ -220,6 +284,7 @@ def _generate_version(
             "vocal_style": task.vocal_style,
             "requirements": task.requirements,
             "reference_text": task.reference_text,
+            "composition": task.creation_input,
             "lyrics_skill_memory": build_lyrics_skill_context(
                 db,
                 current_task_id=task.id,
@@ -227,6 +292,15 @@ def _generate_version(
         }
         generated_result = provider.generate_lyrics(context, variation)
         generated = generated_result.output
+        if task.creation_input is not None:
+            try:
+                composed = GeneratedComposedLyrics.model_validate(generated.model_dump())
+            except ValueError as exc:
+                raise TextProviderError(
+                    "AI 未返回有效的歌曲特点，请重试", call=generated_result.call,
+                ) from exc
+            for field, value in composed.creation_features.model_dump().items():
+                setattr(task, field, value)
         requested_title = (task.title_hint or "").strip()
         if requested_title:
             generated.title = requested_title
@@ -241,14 +315,15 @@ def _generate_version(
         )
         db.add(version)
         db.flush()
-        capture_prompt_essence(
-            db,
-            task,
-            generated.memory_insight,
-            task.requested_by_id,
-            source_kind="initial_creation",
-            source_version_id=version.id,
-        )
+        if task.creation_input is None or task.creation_input.get("prompt"):
+            capture_prompt_essence(
+                db,
+                task,
+                generated.memory_insight,
+                task.requested_by_id,
+                source_kind="initial_creation",
+                source_version_id=version.id,
+            )
         record_api_usage(
             db,
             task_type="lyrics",
@@ -785,8 +860,8 @@ def get_creation_brief(db: Session, version_id: int) -> CreationBriefResponse:
         raise AppException(
             code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
         )
-    direction: dict[str, object] = {}
-    if task.analysis_report_id is not None:
+    direction: dict[str, object] = (task.creation_input or {}).get("analysis_direction") or {}
+    if task.creation_input is None and task.analysis_report_id is not None:
         report = db.get(AnalysisReport, task.analysis_report_id)
         index = task.direction_index or 0
         if report is not None and index < len(report.creation_directions):

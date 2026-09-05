@@ -9,6 +9,7 @@ from app.schemas.lyrics import (
     LyricsAssistantHistoryResponse,
     LyricsAssistantMessageRequest,
     LyricsAssistantMessageResponse,
+    LyricsComposeRequest,
     LyricsCreateRequest,
     LyricsTaskDeleteRequest,
     LyricsTaskDeleteResponse,
@@ -17,9 +18,10 @@ from app.schemas.lyrics import (
     LyricsVersionResponse,
 )
 from app.services.lyrics import (
-    create_lyrics_task,
+    compose_lyrics,
     confirm_lyrics_assistant_preview,
     create_lyrics_assistant_preview,
+    create_lyrics_task,
     delete_lyrics_task,
     delete_lyrics_tasks,
     get_creation_brief,
@@ -33,6 +35,15 @@ from app.services.lyrics import (
 
 router = APIRouter(prefix="/lyrics")
 LyricsUser = Annotated[User, Depends(require_agent_permission(AgentType.LYRICS))]
+
+
+@router.post("/compose", response_model=LyricsTaskResponse, status_code=201)
+def lyrics_compose(
+    payload: LyricsComposeRequest,
+    db: DatabaseSession,
+    user: LyricsUser,
+) -> LyricsTaskResponse:
+    return compose_lyrics(db, payload, user.id)
 
 
 @router.post(

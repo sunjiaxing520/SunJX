@@ -5,11 +5,8 @@ import {
   Button,
   Drawer,
   Empty,
-  Form,
   Input,
   Popconfirm,
-  Segmented,
-  Select,
   Space,
   Table,
   Tabs,
@@ -27,7 +24,6 @@ import {
   RefreshCw,
   RotateCw,
   Send,
-  Sparkles,
   Star,
   Trash2,
 } from 'lucide-react'
@@ -37,8 +33,8 @@ import { listAnalysisTasks } from '../api/analysis'
 import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
+import { LyricsComposer } from '../components/LyricsComposer'
 import {
-  UpstreamOutputField,
   UpstreamOutputPicker,
   type UpstreamOutputItem,
 } from '../components/UpstreamOutputPicker'
@@ -46,7 +42,6 @@ import { totalTaskTokens } from '../lib/apiUsage'
 import {
   ANALYSIS_CATEGORY_LABELS,
   ANALYSIS_CATEGORY_ORDER,
-  analysisDirectionFormValues,
   buildLyricsAnalysisDirections,
   type LyricsAnalysisDirection,
 } from '../lib/lyricsAnalysis'
@@ -54,7 +49,7 @@ import {
   deleteLyricsTask,
   deleteLyricsTasks,
   confirmLyricsAssistantPreview,
-  generateLyrics,
+  composeLyrics,
   getLyricsTask,
   listLyricsAssistantMessages,
   listLyricsTasks,
@@ -67,30 +62,16 @@ import type {
   AnalysisTask,
   FavoriteItem,
   LyricsAssistantMessage,
-  LyricsCreatePayload,
+  LyricsComposePayload,
   LyricsTask,
   LyricsVersion,
 } from '../types/api'
-
-interface LyricsFormValues {
-  analysis_direction?: string
-  title_hint?: string
-  theme: string
-  genre_tags?: string[]
-  mood_tags?: string[]
-  scene_tags?: string[]
-  keywords?: string[]
-  tempo?: 'slow' | 'medium' | 'fast'
-  vocal_gender?: 'male' | 'female' | 'unspecified'
-  vocal_style?: string
-  requirements?: string
-}
 
 export function LyricsPage() {
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
   const openedSourceKeyRef = useRef<string | null>(null)
-  const [form] = Form.useForm<LyricsFormValues>()
+  const [selectedAnalysisValue, setSelectedAnalysisValue] = useState<string | undefined>()
   const [analysisTasks, setAnalysisTasks] = useState<AnalysisTask[]>([])
   const [tasks, setTasks] = useState<LyricsTask[]>([])
   const [activeTask, setActiveTask] = useState<LyricsTask | null>(null)
@@ -249,7 +230,6 @@ export function LyricsPage() {
     () => buildLyricsAnalysisDirections(analysisTasks, analysisFavorites),
     [analysisFavorites, analysisTasks],
   )
-  const selectedAnalysisValue = Form.useWatch('analysis_direction', form)
   const analysisPickerItems = useMemo<UpstreamOutputItem[]>(() => directions.map((item) => ({
     id: item.value,
     title: item.direction.name,
@@ -288,10 +268,7 @@ export function LyricsPage() {
     if (!value) return
     const selected = directions.find((item) => item.value === value)
     if (!selected) return
-    form.setFieldsValue({
-      analysis_direction: selected.value,
-      ...analysisDirectionFormValues(selected.direction),
-    })
+    setSelectedAnalysisValue(selected.value)
     setAnalysisPickerOpen(false)
   }
 
@@ -299,28 +276,29 @@ export function LyricsPage() {
     setAnalysisPickerOpen(true)
   }
 
-  const submit = async () => {
-    const values = await form.validateFields()
-    const [reportId, directionIndex] = values.analysis_direction?.split(':').map(Number) ?? []
-    const payload: LyricsCreatePayload = {
-      ...values,
-      analysis_report_id: Number.isFinite(reportId) ? reportId : undefined,
-      direction_index: Number.isFinite(directionIndex) ? directionIndex : undefined,
+  const submit = async (mode: 'analysis' | 'prompt', prompt: string): Promise<boolean> => {
+    const selected = directions.find((item) => item.value === selectedAnalysisValue)
+    if (mode === 'analysis' && !selected) {
+      message.warning('请先选择分析方向')
+      return false
     }
-    delete (payload as LyricsCreatePayload & { analysis_direction?: string }).analysis_direction
+    const payload: LyricsComposePayload = mode === 'analysis' && selected
+      ? { mode, analysis_report_id: selected.reportId, direction_index: selected.directionIndex, prompt: prompt || undefined }
+      : { mode: 'prompt', prompt }
     setGenerating(true)
     try {
-      const task = await generateLyrics(payload)
+      const task = await composeLyrics(payload)
       message.success('歌词已经生成')
-      form.resetFields()
       setActiveTask(task)
       setActiveVersionId(task.versions.at(-1)?.id ?? null)
       await load()
+      return true
     } catch (generateError) {
       const content = errorMessage(generateError)
       if (isLyricsPromptRejected(generateError)) message.warning(content)
       else message.error(content)
       await load()
+      return false
     } finally {
       setGenerating(false)
     }
@@ -469,67 +447,18 @@ export function LyricsPage() {
       <div className="page-heading-row">
         <div>
           <Typography.Title level={1}>歌词创作</Typography.Title>
-          <Typography.Text type="secondary">从分析方向或自定义要求生成结构化原创歌词</Typography.Text>
         </div>
         <Button icon={<RefreshCw size={16} />} loading={loading} onClick={load}>刷新</Button>
       </div>
 
       {error && <Alert type="error" showIcon title={error} />}
 
-      <section className="content-section lyrics-form-section">
-        <div className="section-title-row">
-          <div>
-            <Typography.Title level={2}>新建作词任务</Typography.Title>
-            <Typography.Text type="secondary">选择分析方向后会自动带入曲风、情绪和人声建议</Typography.Text>
-          </div>
-        </div>
-        <Form form={form} layout="vertical" requiredMark={false} initialValues={{ tempo: 'medium', vocal_gender: 'unspecified' }}>
-          <Form.Item name="analysis_direction" hidden><Input /></Form.Item>
-          <div className="form-grid">
-            <Form.Item label="引用分析方向" className="form-span-full">
-              <UpstreamOutputField
-                label="当前引用的分析方向"
-                placeholder="从最近产出或分级收藏中选择"
-                item={selectedAnalysisItem}
-                onClick={openAnalysisPicker}
-              />
-            </Form.Item>
-            <Form.Item name="title_hint" label="歌名">
-              <Input placeholder="可留空由 AI 生成；填写后严格使用" maxLength={200} />
-            </Form.Item>
-            <Form.Item name="theme" label="歌曲主题" rules={[{ required: true, message: '请输入歌曲主题' }]}>
-              <Input placeholder="例如：励志、爱情、兄弟，或更具体的主题" maxLength={500} />
-            </Form.Item>
-            <Form.Item name="keywords" label="关键词">
-              <Select mode="tags" tokenSeparators={[',', '，']} placeholder="输入后回车" />
-            </Form.Item>
-            <Form.Item name="genre_tags" label="曲风">
-              <Select mode="tags" tokenSeparators={[',', '，']} placeholder="例如 流行、R&B" />
-            </Form.Item>
-            <Form.Item name="mood_tags" label="情绪">
-              <Select mode="tags" tokenSeparators={[',', '，']} placeholder="例如 克制、治愈" />
-            </Form.Item>
-            <Form.Item name="scene_tags" label="场景">
-              <Select mode="tags" tokenSeparators={[',', '，']} placeholder="例如 深夜、通勤" />
-            </Form.Item>
-            <Form.Item name="vocal_style" label="人声表达">
-              <Input placeholder="例如 自然叙事，副歌情绪抬升" />
-            </Form.Item>
-            <Form.Item name="tempo" label="速度">
-              <Segmented block options={[{ label: '慢速', value: 'slow' }, { label: '适中', value: 'medium' }, { label: '快速', value: 'fast' }]} />
-            </Form.Item>
-            <Form.Item name="vocal_gender" label="人声">
-              <Segmented block options={[{ label: '不限', value: 'unspecified' }, { label: '男声', value: 'male' }, { label: '女声', value: 'female' }]} />
-            </Form.Item>
-          </div>
-          <Form.Item name="requirements" label="补充要求">
-            <Input.TextArea rows={3} maxLength={2000} placeholder="叙事视角、避免内容、押韵偏好等" />
-          </Form.Item>
-          <div className="lyrics-create-actions">
-            <Button type="primary" icon={<Sparkles size={16} />} loading={generating} onClick={submit}>生成歌词</Button>
-          </div>
-        </Form>
-      </section>
+      <LyricsComposer
+        selectedAnalysis={selectedAnalysisItem}
+        loading={generating}
+        onChooseAnalysis={openAnalysisPicker}
+        onSubmit={submit}
+      />
 
       <section className="content-section">
         <div className="section-title-row">
@@ -578,7 +507,7 @@ export function LyricsPage() {
         title="选择分析方向"
         open={analysisPickerOpen}
         onClose={() => setAnalysisPickerOpen(false)}
-        description="按最近产出或收藏等级查找分析方向。先核对趋势依据和创作参数，确认后再自动填入表单。"
+        description=""
         items={analysisPickerItems}
         selectedId={selectedAnalysisValue}
         loading={loading}
@@ -587,7 +516,7 @@ export function LyricsPage() {
           label: ANALYSIS_CATEGORY_LABELS[category],
         }))}
         emptyText="暂无可用的分析方向"
-        confirmLabel="选择并填入表单"
+        confirmLabel="使用此方向"
         onConfirm={(item) => chooseDirection(String(item.id))}
         renderPreview={(item) => {
           const choice = directions.find((direction) => direction.value === item.id)

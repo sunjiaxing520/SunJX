@@ -88,30 +88,3 @@ export function buildLyricsAnalysisDirections(
 export function analysisDirectionLabel(choice: LyricsAnalysisDirection): string {
   return `榜单分析 #${choice.analysisTaskId} · 方向 ${choice.directionIndex + 1}：${choice.direction.name}`
 }
-
-export function analysisDirectionFormValues(direction: CreationDirection) {
-  const requirements = [
-    direction.structure.length
-      ? `结构建议：${direction.structure.join(' / ')}`
-      : '',
-    direction.hook_direction
-      ? `副歌方向：${direction.hook_direction}`
-      : '',
-    direction.negative_constraints.length
-      ? `避免内容：${direction.negative_constraints.join('；')}`
-      : '',
-  ].filter(Boolean).join('\n')
-
-  return {
-    title_hint: direction.name,
-    theme: direction.theme_keywords.join('、') || direction.name,
-    genre_tags: direction.genre_tags,
-    mood_tags: direction.mood_tags,
-    scene_tags: direction.scene_tags,
-    keywords: direction.theme_keywords,
-    tempo: direction.tempo,
-    vocal_gender: direction.vocal_gender,
-    vocal_style: direction.vocal_style,
-    requirements: requirements || undefined,
-  }
-}

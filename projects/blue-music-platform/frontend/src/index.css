@@ -2691,13 +2691,43 @@ textarea {
   line-height: 1.75;
 }
 
-.lyrics-form-section .ant-form {
+.lyrics-composer {
   max-width: 1100px;
-  padding: 22px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
-  box-shadow: 0 8px 24px rgb(31 37 45 / 4%);
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.lyrics-composer .section-title-row {
+  margin-bottom: 0;
+}
+
+.lyrics-composer > .ant-segmented {
+  max-width: 520px;
+}
+
+.lyrics-composer .ant-segmented-item-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: normal;
+}
+
+.lyrics-composer-prompt {
+  min-width: 0;
+  padding-bottom: 16px;
+}
+
+.lyrics-composer-prompt label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.lyrics-composer-actions {
+  display: flex;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 
 .form-grid {
@@ -2708,19 +2738,6 @@ textarea {
 
 .form-span-full {
   grid-column: 1 / -1;
-}
-
-.lyrics-create-actions {
-  position: sticky;
-  z-index: 4;
-  bottom: 0;
-  display: flex;
-  margin: 6px -22px -22px;
-  padding: 14px 22px;
-  border-top: 1px solid var(--line);
-  border-radius: 0 0 8px 8px;
-  background: rgb(255 255 255 / 96%);
-  box-shadow: 0 -8px 18px rgb(31 37 45 / 4%);
 }
 
 .lyrics-output {
@@ -4307,14 +4324,8 @@ textarea {
     padding: 12px 14px;
   }
 
-  .lyrics-form-section .ant-form,
   .music-create-section .ant-form {
     padding: 14px;
-  }
-
-  .lyrics-create-actions {
-    margin: 4px -14px -14px;
-    padding: 12px 14px;
   }
 
   .workflow-step-selector {

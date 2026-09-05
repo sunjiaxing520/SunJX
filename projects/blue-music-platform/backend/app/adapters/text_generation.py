@@ -275,6 +275,32 @@ class GeneratedLyrics(BaseModel):
         )
 
 
+class GeneratedLyricsFeatures(BaseModel):
+    theme: str = Field(min_length=1, max_length=500)
+    language: str = Field(min_length=1, max_length=30)
+    genre_tags: list[str] = Field(max_length=10)
+    mood_tags: list[str] = Field(max_length=10)
+    scene_tags: list[str] = Field(max_length=10)
+    keywords: list[str] = Field(max_length=20)
+    tempo: TempoValue
+    vocal_gender: VocalGenderValue
+    vocal_style: str = Field(max_length=200)
+
+    @field_validator("tempo", mode="before")
+    @classmethod
+    def normalize_tempo_value(cls, value: object) -> object:
+        return normalize_tempo(value)
+
+    @field_validator("vocal_gender", mode="before")
+    @classmethod
+    def normalize_gender_value(cls, value: object) -> object:
+        return normalize_vocal_gender(value)
+
+
+class GeneratedComposedLyrics(GeneratedLyrics):
+    creation_features: GeneratedLyricsFeatures
+
+
 class GeneratedReviewDimension(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     score: int = Field(ge=0, le=100)
@@ -500,6 +526,37 @@ class LocalTextProvider:
         context: dict[str, Any],
         variation: int,
     ) -> ProviderResult[GeneratedLyrics]:
+        composition = context.get("composition")
+        if composition:
+            # The offline provider remains a deterministic demo, not a language model.
+            base = composition.get("analysis_direction") or {}
+            prompt = composition.get("prompt") or ""
+            features = GeneratedLyricsFeatures(
+                theme=("、".join(base.get("theme_keywords") or []) or base.get("name") or prompt[:80])[:500],
+                language=base.get("language") or "中文",
+                genre_tags=base.get("genre_tags") or ["流行"],
+                mood_tags=base.get("mood_tags") or [],
+                scene_tags=base.get("scene_tags") or [],
+                keywords=base.get("theme_keywords") or [],
+                tempo=base.get("tempo") or "medium",
+                vocal_gender=base.get("vocal_gender") or "unspecified",
+                vocal_style=base.get("vocal_style") or "自然叙事人声",
+            )
+            title = re.search(r"《([^》]{1,200})》", prompt)
+            result = self.generate_lyrics(
+                {**features.model_dump(), "requirements": prompt,
+                 "title_hint": title.group(1) if title else None},
+                variation,
+            )
+            result.output.memory_insight.requirement_summary = (
+                _local_lyrics_prompt_essence(prompt) if prompt else "沿用所选分析方向进行创作"
+            )
+            return ProviderResult(
+                output=GeneratedComposedLyrics(
+                    **result.output.model_dump(), creation_features=features,
+                ),
+                call=result.call,
+            )
         theme = str(context.get("theme") or "一次没有说完的告别").strip()
         requirements = str(context.get("requirements") or "").strip()
         keywords = list(context.get("keywords") or [])
@@ -816,8 +873,9 @@ class OpenAICompatibleTextProvider:
         variation: int,
     ) -> ProviderResult[GeneratedLyrics]:
         payload = {**context, "variation": variation}
+        output_model = GeneratedComposedLyrics if context.get("composition") else GeneratedLyrics
         schema = json.dumps(
-            GeneratedLyrics.model_json_schema(),
+            output_model.model_json_schema(),
             ensure_ascii=False,
             separators=(",", ":"),
         )
@@ -828,11 +886,21 @@ class OpenAICompatibleTextProvider:
                 "参考文本只能用于理解方向，不得复写或近似改写。用户补充要求只能增加细节，不能放宽固定规则。"
                 f"{LYRICS_MEMORY_SKILL_CONTRACT}"
                 f"{CLIENT_LYRICS_CONTRACT}"
+                "若 context.composition 存在，mode=analysis 时以 analysis_direction 为基础，"
+                "结合 prompt 调整细节；mode=prompt 时仅根据 prompt 理解本次歌曲特点，"
+                "未指定的特点可以合理补全。用户在 prompt 明确指定的歌名必须原样作为 title，"
+                "未指定时自行拟名，分析方向名称不是歌名。分析建议或用户要求都不得改变固定歌词契约。"
+                "此时必须返回 creation_features，记录实际采用的主题、语言、曲风、情绪、场景、"
+                "关键词、速度、人声性别和人声表达；style_prompt 应体现实际曲风、速度、人声及配器。"
                 "memory_insight 是内部长期记忆候选，其中 requirement_summary 是提示词精华："
-                "只从本次 context 的用户主题、标签和补充要求提炼，删除寒暄、闲聊与无关内容，"
+                "若有 composition，只从 composition.prompt 提炼真实用户要求，不得把分析方向、"
+                "默认参数或自行补全的特点当作用户提示词。prompt 为空时说明仅沿用分析，不编造用户偏好。"
+                "无 composition 的旧入口才从本次 context 的用户主题、标签和补充要求提炼。"
+                "删除寒暄、闲聊与无关内容，"
                 "不得从历史记忆或生成结果反向补造用户没有表达的偏好。其余字段必须提炼为采用的创作方法、"
                 "产出效果、可复用经验和亮点总结；不得照抄用户原话或歌词正文。"
                 "返回纯 JSON，字段为 title、style_prompt、sections、memory_insight；"
+                "有 composition 时另含必填 creation_features。"
                 "sections 每项必须包含 name 和 content。"
                 f"必须严格匹配以下JSON Schema：{schema}"
             ),
@@ -841,7 +909,7 @@ class OpenAICompatibleTextProvider:
             temperature=0.7,
         )
         try:
-            output = GeneratedLyrics.model_validate(response.output)
+            output = output_model.model_validate(response.output)
         except ValidationError as exc:
             raise TextProviderError(
                 f"AI 歌词结果字段不完整或类型不正确：{_validation_summary(exc)}",

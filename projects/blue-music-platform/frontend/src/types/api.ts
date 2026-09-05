@@ -615,6 +615,10 @@ export interface LyricsCreatePayload {
   reference_text?: string
 }
 
+export type LyricsComposePayload =
+  | { mode: 'analysis'; analysis_report_id: number; direction_index: number; prompt?: string }
+  | { mode: 'prompt'; prompt: string }
+
 export interface CreationBrief {
   title: string
   creation_type: 'vocal'

@@ -155,6 +155,43 @@ def test_openai_compatible_provider_returns_usage_metadata(
     assert "thinking" not in captured_request
 
 
+@pytest.mark.parametrize("mode", ["analysis", "prompt"])
+def test_composition_provider_keeps_fixed_contract_and_returns_features(monkeypatch, mode):
+    captured = {}
+
+    class CompositionResponse(FakeResponse):
+        def json(self):
+            body = super().json()
+            content = json.loads(body["choices"][0]["message"]["content"])
+            content["creation_features"] = {
+                "theme": "重逢", "language": "中文", "genre_tags": ["民谣"],
+                "mood_tags": ["温暖"], "scene_tags": ["夜晚"], "keywords": ["晚风"],
+                "tempo": "slow", "vocal_gender": "male", "vocal_style": "自然叙事",
+            }
+            body["choices"][0]["message"]["content"] = json.dumps(content)
+            return body
+
+    def fake_post(*args, **kwargs):
+        captured.update(kwargs["json"])
+        return CompositionResponse()
+
+    monkeypatch.setattr(settings, "AI_API_KEY", "test-key")
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    composition = {"mode": mode, "prompt": "写一首关于重逢的歌曲", "analysis_direction": _direction_payload() if mode == "analysis" else None}
+    result = OpenAICompatibleTextProvider().generate_lyrics({"composition": composition}, 1)
+    assert result.output.creation_features.genre_tags == ["民谣"]
+    assert result.call.total_tokens == 200
+    system = captured["messages"][0]["content"]
+    assert "资深中文词曲作者" in system
+    assert "所有有歌词的句子必须统一押同一个韵脚" in system
+    assert "Interlude 和 Outro 的 content 必须是空字符串" in system
+    assert "creation_features" in system
+    assert "composition.prompt" in system
+    assert len(result.output.sections) == 11
+    assert result.output.sections[4].content == result.output.sections[10].content == ""
+    assert result.output.sections[2].content.splitlines()[0] == result.output.sections[3].content.splitlines()[0]
+
+
 def test_lyrics_memory_editor_returns_confirmable_operations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

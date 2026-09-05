@@ -1,6 +1,7 @@
 import type {
   CreationBrief,
   LyricsCreatePayload,
+  LyricsComposePayload,
   LyricsTask,
   LyricsTaskList,
   LyricsAssistantHistory,
@@ -9,6 +10,13 @@ import type {
   TaskDeleteResult,
 } from '../types/api'
 import { apiRequest } from './client'
+
+export function composeLyrics(payload: LyricsComposePayload): Promise<LyricsTask> {
+  return apiRequest<LyricsTask>('/lyrics/compose', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
 
 export function generateLyrics(payload: LyricsCreatePayload): Promise<LyricsTask> {
   return apiRequest<LyricsTask>('/lyrics/tasks', {

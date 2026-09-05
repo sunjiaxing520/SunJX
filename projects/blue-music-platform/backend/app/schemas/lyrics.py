@@ -1,10 +1,37 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.api_usage import ApiUsageResponse
 from app.schemas.ranking import TaskStatusValue
+
+
+class LyricsComposeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["analysis", "prompt"]
+    prompt: str | None = Field(default=None, max_length=2000)
+    analysis_report_id: int | None = Field(default=None, gt=0)
+    direction_index: int | None = Field(default=None, ge=0, le=9)
+
+    @field_validator("prompt")
+    @classmethod
+    def clean_prompt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> "LyricsComposeRequest":
+        if self.mode == "analysis":
+            if self.analysis_report_id is None or self.direction_index is None:
+                raise ValueError("请先选择分析方向")
+        elif not self.prompt:
+            raise ValueError("请输入创作描述")
+        elif self.analysis_report_id is not None or self.direction_index is not None:
+            raise ValueError("自由描述模式不能同时引用分析方向")
+        return self
 
 
 class LyricsCreateRequest(BaseModel):

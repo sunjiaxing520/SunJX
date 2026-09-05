@@ -6,7 +6,6 @@ import type {
   FavoriteItem,
 } from '../types/api'
 import {
-  analysisDirectionFormValues,
   analysisDirectionLabel,
   buildLyricsAnalysisDirections,
 } from './lyricsAnalysis'
@@ -101,18 +100,12 @@ describe('lyrics analysis directions', () => {
     expect(choices[0]).toMatchObject({ reportId: 99, analysisTaskId: 42, category: 'S' })
   })
 
-  it('fills the complete lyrics brief from the selected direction', () => {
-    expect(analysisDirectionFormValues(direction)).toEqual({
-      title_hint: '雨夜归途',
-      theme: '告别、成长',
-      genre_tags: ['流行', 'R&B'],
-      mood_tags: ['克制', '温暖'],
-      scene_tags: ['深夜', '通勤'],
-      keywords: ['告别', '成长'],
-      tempo: 'medium',
-      vocal_gender: 'male',
-      vocal_style: '自然叙事，副歌抬升',
-      requirements: '结构建议：主歌 A / 副歌 / 主歌 B\n副歌方向：短句重复主题词\n避免内容：避免照搬已有歌词',
-    })
+  it('keeps complete direction details for preview without inventing user input', () => {
+    const [choice] = buildLyricsAnalysisDirections([task(43, 20)], [])
+    expect(choice.direction).toEqual(direction)
+    expect(choice.reportId).toBe(20)
+    expect(choice.directionIndex).toBe(0)
+    expect(choice).not.toHaveProperty('requirements')
+    expect(choice).not.toHaveProperty('title_hint')
   })
 })
