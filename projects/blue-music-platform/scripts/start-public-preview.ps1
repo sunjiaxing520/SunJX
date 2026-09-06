@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$CloudflaredPath = 'D:\DevTools\Cloudflared\cloudflared.exe',
-    [string]$NpmPath = 'D:\DevTools\Node20\node-v20.20.2-win-x64\npm.cmd',
+    [string]$NpmPath = '',
     [int]$PreviewPort = 4173,
     [int]$BackendPort = 8000
 )
@@ -19,6 +19,12 @@ $publicUrlFile = Join-Path $logRoot 'public-url.txt'
 
 if (-not (Test-Path -LiteralPath $CloudflaredPath)) {
     throw "cloudflared not found: $CloudflaredPath"
+}
+if (-not $NpmPath) {
+    $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if ($npmCommand) {
+        $NpmPath = $npmCommand.Source
+    }
 }
 if (-not (Test-Path -LiteralPath $NpmPath)) {
     throw "npm not found: $NpmPath"
