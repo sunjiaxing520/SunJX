@@ -144,8 +144,8 @@ def test_openai_compatible_provider_returns_usage_metadata(
     assert "Interlude 和 Outro 的 content 必须是空字符串" in system_prompt
     assert "所有有歌词的句子必须统一押同一个韵脚" in system_prompt
     assert "歌词创作提炼 Skill" in system_prompt
-    assert "用户主动确认的结果" in system_prompt
-    assert "真实榜单歌词证据" in system_prompt
+    assert "用户确认作品后沉淀" in system_prompt
+    assert "本次用户的明确要求仍然优先" in system_prompt
     assert "不得照抄用户原话或歌词正文" in system_prompt
     assert result.output.memory_insight.result_summary.startswith("形成主题明确")
 
@@ -192,7 +192,7 @@ def test_composition_provider_keeps_fixed_contract_and_returns_features(monkeypa
     assert result.output.sections[2].content.splitlines()[0] == result.output.sections[3].content.splitlines()[0]
 
 
-def test_lyrics_memory_editor_returns_confirmable_operations(
+def test_lyrics_memory_editor_returns_complete_updated_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_request: dict[str, object] = {}
@@ -205,14 +205,12 @@ def test_lyrics_memory_editor_returns_confirmable_operations(
                     "message": {
                         "content": json.dumps(
                             {
-                                "reply": "建议新增一条副歌规则。",
-                                "operations": [
+                                "reply": "已更新副歌规则。",
+                                "items": [
                                     {
-                                        "action": "add_rule",
-                                        "event_id": None,
-                                        "title": "副歌长度",
+                                        "category": "preference",
                                         "content": "副歌核心句保持简短。",
-                                        "reason": "管理员明确要求",
+                                        "evidence_count": 2,
                                     }
                                 ],
                             },
@@ -243,16 +241,15 @@ def test_lyrics_memory_editor_returns_confirmable_operations(
     result = provider.edit_lyrics_memory(
         {
             "instruction": "副歌短一点",
-            "current_memory": {},
-            "event_catalog": [],
+            "current_memory": {"items": []},
         }
     )
 
-    assert result.output.operations[0].action == "add_rule"
-    assert result.output.operations[0].title == "副歌长度"
+    assert result.output.items[0].category == "preference"
+    assert result.output.items[0].content == "副歌核心句保持简短。"
     system_prompt = captured_request["messages"][0]["content"]
-    assert "等待管理员再次确认" in system_prompt
-    assert "不得删除数据库记录" in system_prompt
+    assert "系统会立刻保存" in system_prompt
+    assert "返回修改后的完整 items" in system_prompt
 
 
 def test_lyrics_memory_distillation_returns_abstract_insight(

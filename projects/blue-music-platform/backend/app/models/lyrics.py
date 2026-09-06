@@ -98,6 +98,9 @@ class LyricsVersion(Base):
     style_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     sections: Mapped[list[dict[str, str]]] = mapped_column(JSON, nullable=False)
     memory_insight: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    memory_committed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_saved: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )

@@ -426,22 +426,13 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
     assert "[Chorus1]" in lyrics_body["versions"][0]["content"]
     assert lyrics_body["versions"][0]["title"] in lyrics_body["versions"][0]["content"]
 
-    prompt_essences = workflow_context.client.get(
-        "/api/v1/lyrics-memory/events",
-        headers=_headers(workflow_context),
-        params={"event_type": "prompt_essence"},
-    )
-    assert prompt_essences.status_code == 200
-    assert prompt_essences.json()["total"] == 1
-    assert prompt_essences.json()["items"][0]["created_by_username"] == "admin"
-
-    memory_preview = workflow_context.client.get(
-        "/api/v1/lyrics-memory/preview",
+    memory_before_save = workflow_context.client.get(
+        "/api/v1/lyrics-memory",
         headers=_headers(workflow_context),
     )
-    team_memory = memory_preview.json()["memory"]["team_prompt_essences"]
-    assert team_memory["source_event_count"] == 1
-    assert team_memory["items"]
+    assert memory_before_save.status_code == 200
+    assert memory_before_save.json()["source_count"] == 0
+    assert memory_before_save.json()["items"] == []
 
     regenerated = workflow_context.client.post(
         f"/api/v1/lyrics/tasks/{lyrics_body['id']}/regenerate",
@@ -456,11 +447,17 @@ def test_daily_snapshots_analysis_and_lyrics_flow(
         f"/api/v1/lyrics/versions/{version_id}/save",
         headers=_headers(workflow_context),
     )
+    team_memory = workflow_context.client.get(
+        "/api/v1/lyrics-memory",
+        headers=_headers(workflow_context),
+    ).json()
     brief = workflow_context.client.get(
         f"/api/v1/lyrics/versions/{version_id}/creation-brief",
         headers=_headers(workflow_context),
     )
     assert saved.json()["is_saved"] is True
+    assert team_memory["source_count"] == 1
+    assert team_memory["items"]
     assert brief.status_code == 200
     assert brief.json()["source_lyrics_version_id"] == version_id
     assert brief.json()["genre_tags"]

@@ -3757,6 +3757,174 @@ textarea {
   border-top: 1px solid #e7eaee;
 }
 
+.lyrics-team-memory-drawer .ant-drawer-body {
+  padding: 20px;
+}
+
+.lyrics-team-memory-loading {
+  display: grid;
+  min-height: 280px;
+  place-items: center;
+}
+
+.lyrics-team-memory-layout {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.lyrics-team-memory-layout > section + section {
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.lyrics-team-memory-layout h3.ant-typography {
+  margin: 0 0 12px;
+  color: #343a42;
+  font-size: 16px;
+}
+
+.lyrics-team-memory-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.lyrics-team-memory-stats {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.lyrics-team-memory-stats > div {
+  display: flex;
+  min-height: 70px;
+  padding: 12px 16px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.lyrics-team-memory-stats > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.lyrics-team-memory-stats span,
+.lyrics-team-memory-item > span {
+  color: #7c838b;
+  font-size: 11px;
+}
+
+.lyrics-team-memory-stats strong {
+  color: #30363d;
+  font-size: 20px;
+}
+
+.lyrics-team-memory-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.lyrics-team-memory-limit .ant-input-number {
+  width: 108px;
+}
+
+.lyrics-team-memory-category-label {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lyrics-team-memory-category-label .ant-tag {
+  margin: 0 22px 0 0;
+}
+
+.lyrics-team-memory-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.lyrics-team-memory-item {
+  display: grid;
+  min-width: 0;
+  padding: 11px 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  border-bottom: 1px solid #eceef1;
+}
+
+.lyrics-team-memory-item:last-child {
+  border-bottom: 0;
+}
+
+.lyrics-team-memory-item .ant-typography {
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+
+.lyrics-team-memory-item > span {
+  padding-top: 3px;
+  white-space: nowrap;
+}
+
+.lyrics-team-memory-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lyrics-team-memory-chat-history {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.lyrics-team-memory-chat-history > .ant-empty {
+  margin-block: 42px;
+}
+
+.lyrics-team-memory-chat-message {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e7e9ec;
+}
+
+.lyrics-team-memory-chat-message:last-child {
+  border-bottom: 0;
+}
+
+.lyrics-team-memory-chat-message.assistant {
+  box-shadow: inset 3px 0 #4e728f;
+  background: #ffffff;
+}
+
+.lyrics-team-memory-chat-message strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #59616a;
+  font-size: 11px;
+}
+
+.lyrics-team-memory-chat-message p.ant-typography {
+  margin: 0;
+  color: #353b42;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.lyrics-team-memory-chat > .ant-btn {
+  align-self: flex-end;
+}
+
 @media (max-width: 1320px) {
   .lyrics-memory-snapshot-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3833,6 +4001,28 @@ textarea {
 }
 
 @media (max-width: 768px) {
+  .lyrics-team-memory-drawer .ant-drawer-content-wrapper {
+    width: 100% !important;
+  }
+
+  .lyrics-team-memory-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lyrics-team-memory-limit .ant-space-compact,
+  .lyrics-team-memory-limit .ant-input-number {
+    width: 100%;
+  }
+
+  .lyrics-team-memory-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .lyrics-team-memory-chat > .ant-btn {
+    width: 100%;
+  }
+
   .lyrics-memory-page-heading {
     align-items: stretch;
     flex-direction: column;

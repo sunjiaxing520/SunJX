@@ -95,3 +95,35 @@ class LyricsMemoryChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class LyricsTeamMemory(Base):
+    """The single shared lyrics memory used by every account."""
+
+    __tablename__ = "lyrics_team_memory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    injection_limit: Mapped[int] = mapped_column(
+        Integer, default=60, server_default="60", nullable=False
+    )
+    source_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    updated_by_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

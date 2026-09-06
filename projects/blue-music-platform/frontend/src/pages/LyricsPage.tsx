@@ -17,6 +17,7 @@ import {
 } from 'antd'
 import {
   BookmarkCheck,
+  BrainCircuit,
   Check,
   Copy,
   Eye,
@@ -30,10 +31,12 @@ import {
 import { useSearchParams } from 'react-router-dom'
 
 import { listAnalysisTasks } from '../api/analysis'
+import { useAuth } from '../auth/useAuth'
 import { createFavorite, deleteFavorite, listFavorites } from '../api/favorites'
 import { ApiUsageCell, ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { LyricsComposer } from '../components/LyricsComposer'
+import { LyricsTeamMemoryDrawer } from '../components/LyricsTeamMemoryDrawer'
 import {
   UpstreamOutputPicker,
   type UpstreamOutputItem,
@@ -69,6 +72,7 @@ import type {
 
 export function LyricsPage() {
   const { message } = App.useApp()
+  const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const openedSourceKeyRef = useRef<string | null>(null)
   const [selectedAnalysisValue, setSelectedAnalysisValue] = useState<string | undefined>()
@@ -91,6 +95,7 @@ export function LyricsPage() {
   const [assistantInstruction, setAssistantInstruction] = useState('')
   const [assistantLoading, setAssistantLoading] = useState(false)
   const [confirmingPreviewId, setConfirmingPreviewId] = useState<number | null>(null)
+  const [memoryDrawerOpen, setMemoryDrawerOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -448,7 +453,17 @@ export function LyricsPage() {
         <div>
           <Typography.Title level={1}>歌词创作</Typography.Title>
         </div>
-        <Button icon={<RefreshCw size={16} />} loading={loading} onClick={load}>刷新</Button>
+        <Space>
+          {user?.role === 'super_admin' && (
+            <Button
+              icon={<BrainCircuit size={16} />}
+              onClick={() => setMemoryDrawerOpen(true)}
+            >
+              团队记忆
+            </Button>
+          )}
+          <Button icon={<RefreshCw size={16} />} loading={loading} onClick={load}>刷新</Button>
+        </Space>
       </div>
 
       {error && <Alert type="error" showIcon title={error} />}
@@ -572,6 +587,13 @@ export function LyricsPage() {
           </div>
         ) : <Empty description="暂无歌词版本" />}
       </Drawer>
+
+      {user?.role === 'super_admin' && (
+        <LyricsTeamMemoryDrawer
+          open={memoryDrawerOpen}
+          onClose={() => setMemoryDrawerOpen(false)}
+        />
+      )}
     </div>
   )
 }

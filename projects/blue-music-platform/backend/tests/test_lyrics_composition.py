@@ -22,10 +22,9 @@ def _post(context: WorkflowContext, payload: dict):
     )
 
 
-def _essences(context: WorkflowContext):
+def _team_memory(context: WorkflowContext):
     return context.client.get(
-        "/api/v1/lyrics-memory/events", headers=_headers(context),
-        params={"event_type": "prompt_essence"},
+        "/api/v1/lyrics-memory", headers=_headers(context),
     ).json()
 
 
@@ -47,7 +46,7 @@ def test_composition_rejects_invalid_input_before_task_creation(workflow_context
         "/api/v1/lyrics/tasks", headers=_headers(workflow_context),
     ).json()
     assert history["total"] == 0
-    assert _essences(workflow_context)["total"] == 0
+    assert _team_memory(workflow_context)["total_items"] == 0
 
 
 def test_prompt_composition_persists_features_and_original_input(workflow_context, monkeypatch):
@@ -83,7 +82,13 @@ def test_prompt_composition_persists_features_and_original_input(workflow_contex
     assert sections[2]["content"] == sections[6]["content"] == sections[8]["content"]
     assert sections[3]["content"] == sections[7]["content"] == sections[9]["content"]
     assert sections[2]["content"].splitlines()[0] == sections[3]["content"].splitlines()[0]
-    assert _essences(workflow_context)["total"] == 1
+    assert _team_memory(workflow_context)["total_items"] == 0
+    saved = workflow_context.client.put(
+        f"/api/v1/lyrics/versions/{task['versions'][0]['id']}/save",
+        headers=_headers(workflow_context),
+    )
+    assert saved.status_code == 200
+    assert _team_memory(workflow_context)["total_items"] > 0
     assert seen[0]["lyrics_skill_memory"]
 
     regenerated = workflow_context.client.post(
@@ -129,7 +134,7 @@ def test_analysis_composition_uses_server_snapshot_and_no_invented_user_memory(w
     assert task["keywords"] == selected["theme_keywords"]
     assert task["tempo"] == "fast"
     assert task["versions"][0]["title"] != selected["name"]
-    assert _essences(workflow_context)["total"] == 0
+    assert _team_memory(workflow_context)["source_count"] == 0
 
     with next(workflow_context.client.app.dependency_overrides[get_db]()) as db:
         stored = db.get(LyricsTask, task["id"])
@@ -167,7 +172,13 @@ def test_analysis_adjustment_is_transmitted_and_remembered(workflow_context):
     })
     assert response.status_code == 201, response.text
     assert response.json()["versions"][0]["title"] == "晚风"
-    assert _essences(workflow_context)["total"] == 1
+    assert _team_memory(workflow_context)["source_count"] == 0
+    saved = workflow_context.client.put(
+        f"/api/v1/lyrics/versions/{response.json()['versions'][0]['id']}/save",
+        headers=_headers(workflow_context),
+    )
+    assert saved.status_code == 200
+    assert _team_memory(workflow_context)["source_count"] == 1
 
 
 def test_missing_analysis_is_explicit(workflow_context):
@@ -211,7 +222,7 @@ def test_invalid_generated_features_fail_without_version_or_memory(workflow_cont
         "/api/v1/lyrics/tasks", headers=_headers(workflow_context),
     ).json()
     assert history["items"][0]["api_usage"][0]["status"] == "failed"
-    assert _essences(workflow_context)["total"] == 0
+    assert _team_memory(workflow_context)["total_items"] == 0
 
 
 def test_creation_input_migration_preserves_old_works():

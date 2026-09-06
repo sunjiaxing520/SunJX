@@ -415,91 +415,33 @@ export interface LyricsVersion {
   created_at: string
 }
 
-export type LyricsMemoryEventType =
-  | 'creation_request'
-  | 'modification_request'
-  | 'prompt_essence'
-  | 'accepted_result'
-  | 'ranking_lyrics_insight'
-  | 'admin_rule'
+export type LyricsMemoryCategory =
+  | 'preference'
+  | 'technique'
+  | 'result'
+  | 'pattern'
+  | 'highlight'
 
-export interface LyricsMemoryEventSummary {
-  id: number
-  event_type: LyricsMemoryEventType
-  task_id: number | null
-  source_version_id: number | null
-  created_by_id: number | null
-  created_by_username: string | null
-  content_preview: string
-  context_preview: Record<string, unknown>
-  is_useful: boolean
-  created_at: string
+export interface LyricsMemoryItem {
+  category: LyricsMemoryCategory
+  content: string
+  evidence_count: number
 }
 
-export interface LyricsMemoryEventDetail extends LyricsMemoryEventSummary {
-  raw_content: string
-  cleaned_content: string
-  context: Record<string, unknown>
-}
-
-export interface LyricsMemoryEventList {
-  items: LyricsMemoryEventSummary[]
-  total: number
-  page: number
-  page_size: number
-}
-
-export interface LyricsMemoryOverview {
-  total_events: number
-  active_events: number
-  inactive_events: number
-  category_counts: Record<string, number>
-  last_updated_at: string | null
-  capsule_char_count: number
-}
-
-export interface LyricsMemoryPreview {
-  capsule_char_count: number
-  distilled_insight_count: number
-  pending_legacy_count: number
-  memory: Record<string, unknown>
-}
-
-export interface LyricsMemoryDistillResult {
-  processed_count: number
-  processed_event_ids: number[]
-  pending_legacy_count: number
-}
-
-export interface LyricsMemoryDeleteResult {
-  deleted_count: number
-  deleted_event_ids: number[]
-}
-
-export type LyricsMemoryOperationType =
-  | 'add_rule'
-  | 'update_rule'
-  | 'disable_event'
-  | 'enable_event'
-
-export interface LyricsMemoryOperation {
-  action: LyricsMemoryOperationType
-  event_id: number | null
-  title: string | null
-  content: string | null
-  reason: string
-}
-
-export interface LyricsMemoryProposal {
-  reply: string
-  operations: LyricsMemoryOperation[]
+export interface LyricsTeamMemory {
+  items: LyricsMemoryItem[]
+  total_items: number
+  injection_limit: number
+  source_count: number
+  revision: number
+  updated_by_id: number | null
+  updated_at: string
 }
 
 export interface LyricsMemoryChatMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
-  proposal: LyricsMemoryProposal | null
   is_applied: boolean
   provider: string | null
   model: string | null
@@ -512,30 +454,9 @@ export interface LyricsMemoryChatList {
   items: LyricsMemoryChatMessage[]
 }
 
-export interface LyricsMemoryApplyResult {
+export interface LyricsMemoryChatResult {
   message: LyricsMemoryChatMessage
-  created_event_ids: number[]
-  updated_event_ids: number[]
-}
-
-export interface LyricsMemorySnapshotSummary {
-  id: number
-  name: string
-  source_event_count: number
-  capsule_char_count: number
-  created_by_id: number | null
-  created_at: string
-  updated_at: string
-}
-
-export interface LyricsMemorySnapshotDetail extends LyricsMemorySnapshotSummary {
-  memory: Record<string, unknown>
-}
-
-export interface LyricsMemorySnapshotList {
-  items: LyricsMemorySnapshotSummary[]
-  total: number
-  limit: number
+  memory: LyricsTeamMemory
 }
 
 export interface LyricsAssistantPreview {

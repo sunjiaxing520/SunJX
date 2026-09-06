@@ -9,6 +9,7 @@ from app.models.lyrics_memory import (
     LyricsMemoryChatMessage,
     LyricsMemoryEvent,
     LyricsMemorySnapshot,
+    LyricsTeamMemory,
 )
 from app.models.music import (
     MusicProviderQuotaSnapshot,
@@ -40,6 +41,7 @@ __all__ = [
     "LyricsMemoryChatMessage",
     "LyricsMemoryEvent",
     "LyricsMemorySnapshot",
+    "LyricsTeamMemory",
     "LyricsTask",
     "LyricsVersion",
     "MusicResult",

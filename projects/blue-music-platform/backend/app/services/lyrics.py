@@ -41,10 +41,7 @@ from app.services.api_usage import record_api_usage, task_api_usage
 from app.services.ai_providers import resolve_text_provider
 from app.services.lyrics_memory import (
     build_lyrics_skill_context,
-    capture_accepted_result,
-    capture_creation_request,
-    capture_modification_request,
-    capture_prompt_essence,
+    commit_lyrics_version_memory,
 )
 from app.services.lyrics_prompt import (
     screen_lyrics_prompt,
@@ -227,17 +224,6 @@ def create_lyrics_task(
     db.add(task)
     db.commit()
     db.refresh(task)
-    capture_creation_request(
-        db,
-        task,
-        user_id,
-        request_data=(
-            {"requirements": creation_input.get("prompt")}
-            if creation_input is not None
-            else payload.model_dump(include=payload.model_fields_set)
-        ),
-    )
-    db.commit()
     _generate_version(db, task, variation=1, provider=provider)
     return get_lyrics_task(db, task.id)
 
@@ -315,15 +301,6 @@ def _generate_version(
         )
         db.add(version)
         db.flush()
-        if task.creation_input is None or task.creation_input.get("prompt"):
-            capture_prompt_essence(
-                db,
-                task,
-                generated.memory_insight,
-                task.requested_by_id,
-                source_kind="initial_creation",
-                source_version_id=version.id,
-            )
         record_api_usage(
             db,
             task_type="lyrics",
@@ -551,9 +528,7 @@ def save_lyrics_version(
         .values(is_saved=False)
     )
     version.is_saved = True
-    task = db.get(LyricsTask, version.task_id)
-    if task is not None:
-        capture_accepted_result(db, task, version, user_id)
+    commit_lyrics_version_memory(db, version, user_id)
     db.commit()
     db.refresh(version)
     return lyrics_version_response(version)
@@ -611,17 +586,6 @@ def create_lyrics_assistant_preview(
         created_by_id=user_id,
     )
     db.add(user_message)
-    db.flush()
-    capture_modification_request(
-        db,
-        task,
-        version,
-        instruction,
-        user_id,
-        review_guidance=review_guidance,
-        review_run_id=review_run_id,
-        message_id=user_message.id,
-    )
     db.commit()
 
     try:
@@ -682,15 +646,6 @@ def create_lyrics_assistant_preview(
         )
         db.add(assistant_message)
         db.flush()
-        capture_prompt_essence(
-            db,
-            task,
-            generated.memory_insight,
-            user_id,
-            source_kind="revision",
-            source_version_id=version.id,
-            message_id=user_message.id,
-        )
         record_api_usage(
             db,
             task_type="lyrics",
@@ -752,23 +707,11 @@ def confirm_lyrics_assistant_preview(
         raise AppException(
             code="LYRICS_TASK_NOT_FOUND", message="作词任务不存在", status_code=404
         )
-    source_version = db.get(LyricsVersion, message.source_version_id)
     raw_memory_insight = message.preview.get("memory_insight")
     memory_insight = (
         GeneratedLyricsMemoryInsight.model_validate(raw_memory_insight).model_dump()
         if raw_memory_insight is not None
         else None
-    )
-    previous_user_message = db.scalar(
-        select(LyricsAssistantMessage)
-        .where(
-            LyricsAssistantMessage.source_version_id == message.source_version_id,
-            LyricsAssistantMessage.review_run_id == message.review_run_id,
-            LyricsAssistantMessage.role == "user",
-            LyricsAssistantMessage.id < message.id,
-        )
-        .order_by(LyricsAssistantMessage.id.desc())
-        .limit(1)
     )
     next_version = (
         db.scalar(
@@ -795,15 +738,10 @@ def confirm_lyrics_assistant_preview(
     )
     db.add(version)
     db.flush()
-    capture_accepted_result(
+    commit_lyrics_version_memory(
         db,
-        task,
         version,
         user_id if user_id is not None else message.created_by_id,
-        instruction=(
-            previous_user_message.content if previous_user_message is not None else None
-        ),
-        source_version=source_version,
     )
     db.commit()
     db.refresh(version)

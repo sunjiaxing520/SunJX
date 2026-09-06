@@ -463,17 +463,12 @@ def test_lyrics_assistant_and_review_agent_respect_member_memory_privacy(
     assert preview.json()["role"] == "assistant"
     assert preview.json()["preview"]["content"]
 
-    prompt_essences = music_context.client.get(
-        "/api/v1/lyrics-memory/events",
+    memory_before_confirm = music_context.client.get(
+        "/api/v1/lyrics-memory",
         headers=_headers(music_context),
-        params={"event_type": "prompt_essence"},
     )
-    assert prompt_essences.status_code == 200
-    assert prompt_essences.json()["total"] == 2
-    assert {
-        item["context_preview"]["source_kind"]
-        for item in prompt_essences.json()["items"]
-    } == {"initial_creation", "revision"}
+    assert memory_before_confirm.status_code == 200
+    assert memory_before_confirm.json()["source_count"] == 0
 
     history = music_context.client.get(
         f"/api/v1/lyrics/versions/{source_version['id']}/assistant",
@@ -488,6 +483,12 @@ def test_lyrics_assistant_and_review_agent_respect_member_memory_privacy(
     assert confirmed.status_code == 200
     assert confirmed.json()["version_number"] == 2
     assert confirmed.json()["is_saved"] is True
+    memory_after_confirm = music_context.client.get(
+        "/api/v1/lyrics-memory",
+        headers=_headers(music_context),
+    )
+    assert memory_after_confirm.json()["source_count"] == 1
+    assert memory_after_confirm.json()["items"]
 
     review_agent = music_context.client.post(
         "/api/v1/review-agents",
