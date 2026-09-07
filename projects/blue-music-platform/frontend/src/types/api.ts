@@ -561,7 +561,7 @@ export interface CreationBrief {
 }
 
 export type MusicOperation = 'generate' | 'extend' | 'adapt'
-export type MusicProviderImplementation = 'official' | 'compatibility'
+export type MusicProviderImplementation = 'official' | 'sunoapi_org' | 'compatibility'
 
 export interface MusicResult {
   id: number
@@ -607,6 +607,9 @@ export interface MusicTask {
   rights_confirmed: boolean
   rights_note: string | null
   external_task_id: string | null
+  provider_submitted_at: string | null
+  provider_callback_type: string | null
+  provider_callback_received_at: string | null
   provider_status: string | null
   error_code: string | null
   error_message: string | null
@@ -681,9 +684,22 @@ export interface MusicAdaptPayload {
 }
 
 export interface MusicProviderSettings {
+  active_implementation: MusicProviderImplementation
   active_model: string
+  sunoapi_org_token_configured: boolean
+  sunoapi_org_token_hint: string | null
+  sunoapi_org_callback_base_url: string | null
+  sunoapi_org_callback_ready: boolean
   updated_by_id: number | null
   updated_at: string
+}
+
+export interface MusicProviderSettingsUpdate {
+  active_implementation?: MusicProviderImplementation
+  active_model?: string
+  sunoapi_org_token?: string
+  clear_sunoapi_org_token?: boolean
+  sunoapi_org_callback_base_url?: string | null
 }
 
 export interface SunoProviderStatus {

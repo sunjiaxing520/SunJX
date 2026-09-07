@@ -68,6 +68,13 @@ class Settings:
     SUNO_PROVIDER_IMPLEMENTATION = os.getenv(
         "SUNO_PROVIDER_IMPLEMENTATION", "official"
     ).lower()
+    SUNOAPI_ORG_BASE_URL = os.getenv(
+        "SUNOAPI_ORG_BASE_URL", "https://api.sunoapi.org"
+    ).rstrip("/")
+    SUNOAPI_ORG_API_KEY = os.getenv("SUNOAPI_ORG_API_KEY", "")
+    SUNOAPI_ORG_CALLBACK_BASE_URL = os.getenv(
+        "SUNOAPI_ORG_CALLBACK_BASE_URL", ""
+    ).rstrip("/")
     SUNO_COMPAT_ENABLED = os.getenv(
         "SUNO_COMPAT_ENABLED", "false"
     ).lower() in {"1", "true", "yes", "on"}

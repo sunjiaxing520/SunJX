@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from app.schemas.api_usage import ApiUsageResponse
 from app.schemas.ranking import TaskStatusValue
@@ -9,7 +9,9 @@ from app.schemas.user import MusicTaskQuotaResponse
 
 
 MusicOperationValue = Literal["generate", "extend", "adapt"]
-MusicProviderImplementationValue = Literal["official", "compatibility"]
+MusicProviderImplementationValue = Literal[
+    "official", "sunoapi_org", "compatibility"
+]
 
 
 class MusicCreateRequest(BaseModel):
@@ -161,6 +163,9 @@ class MusicTaskResponse(BaseModel):
     rights_confirmed: bool
     rights_note: str | None
     external_task_id: str | None
+    provider_submitted_at: datetime | None
+    provider_callback_type: str | None
+    provider_callback_received_at: datetime | None
     provider_status: str | None
     error_code: str | None
     error_message: str | None
@@ -206,21 +211,95 @@ class MusicTaskRetryResponse(BaseModel):
 
 
 class MusicProviderSettingsResponse(BaseModel):
+    active_implementation: MusicProviderImplementationValue
     active_model: str
+    sunoapi_org_token_configured: bool
+    sunoapi_org_token_hint: str | None
+    sunoapi_org_callback_base_url: str | None
+    sunoapi_org_callback_ready: bool
     updated_by_id: int | None
     updated_at: datetime
 
 
 class MusicProviderSettingsUpdate(BaseModel):
-    active_model: str = Field(min_length=1, max_length=100)
+    active_implementation: MusicProviderImplementationValue | None = None
+    active_model: str | None = Field(default=None, min_length=1, max_length=100)
+    sunoapi_org_token: SecretStr | None = Field(
+        default=None, min_length=4, max_length=2000
+    )
+    clear_sunoapi_org_token: bool = False
+    sunoapi_org_callback_base_url: str | None = Field(
+        default=None, max_length=2000
+    )
 
     @field_validator("active_model")
     @classmethod
-    def clean_model(cls, value: str) -> str:
+    def clean_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("请输入模型名称")
         return cleaned
+
+    @field_validator("sunoapi_org_callback_base_url")
+    @classmethod
+    def clean_callback_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip().rstrip("/") or None
+
+    @model_validator(mode="after")
+    def validate_token_action(self) -> "MusicProviderSettingsUpdate":
+        if self.sunoapi_org_token is not None and self.clear_sunoapi_org_token:
+            raise ValueError("不能同时更新并清除 SunoAPI Token")
+        return self
+
+
+class SunoApiOrgCallbackTrack(BaseModel):
+    model_config = ConfigDict(
+        extra="ignore",
+        populate_by_name=True,
+        protected_namespaces=(),
+    )
+
+    id: str
+    audio_url: str | None = None
+    source_audio_url: str | None = None
+    stream_audio_url: str | None = None
+    source_stream_audio_url: str | None = None
+    image_url: str | None = None
+    source_image_url: str | None = None
+    prompt: str | None = None
+    model_name: str | None = None
+    title: str | None = None
+    tags: str | None = None
+    create_time: str | None = Field(default=None, alias="createTime")
+    duration: float | None = None
+
+
+class SunoApiOrgCallbackData(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    callback_type: Literal["text", "first", "complete", "error"] = Field(
+        alias="callbackType"
+    )
+    task_id: str = Field(min_length=1, max_length=200)
+    data: list[SunoApiOrgCallbackTrack] | None = None
+
+
+class SunoApiOrgCallbackRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: int
+    msg: str
+    data: SunoApiOrgCallbackData
+
+
+class SunoApiOrgCallbackResponse(BaseModel):
+    accepted: bool = True
+    task_id: int
+    callback_type: Literal["text", "first", "complete", "error"]
 
 
 class SunoQuotaResponse(BaseModel):
@@ -237,7 +316,9 @@ class SunoQuotaResponse(BaseModel):
 
 class SunoProviderStatusResponse(BaseModel):
     provider: Literal["suno"] = "suno"
-    implementation: Literal["official", "compatibility", "invalid"]
+    implementation: Literal[
+        "official", "sunoapi_org", "compatibility", "invalid"
+    ]
     configured: bool
     integration_status: Literal[
         "waiting_access",

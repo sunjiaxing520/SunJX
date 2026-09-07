@@ -79,6 +79,15 @@ class MusicTask(Base):
     external_task_id: Mapped[str | None] = mapped_column(
         String(200), nullable=True, index=True
     )
+    provider_submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    provider_callback_type: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
+    provider_callback_received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     provider_status: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -188,6 +197,21 @@ class MusicProviderSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     active_model: Mapped[str] = mapped_column(
         String(100), default="v4.5", server_default="v4.5", nullable=False
+    )
+    active_implementation: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
+    sunoapi_org_token_encrypted: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    sunoapi_org_token_hint: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
+    sunoapi_org_callback_base_url: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    sunoapi_org_callback_secret_encrypted: Mapped[str | None] = mapped_column(
+        Text, nullable=True
     )
     updated_by_id: Mapped[int | None] = mapped_column(
         Integer,

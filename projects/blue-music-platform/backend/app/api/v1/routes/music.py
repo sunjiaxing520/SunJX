@@ -31,6 +31,8 @@ from app.schemas.music import (
     MusicTaskDeleteResponse,
     MusicTaskListResponse,
     MusicTaskResponse,
+    SunoApiOrgCallbackRequest,
+    SunoApiOrgCallbackResponse,
     SunoQuotaResponse,
     SunoProviderStatusResponse,
 )
@@ -48,6 +50,7 @@ from app.services.music import (
     get_music_result,
     get_music_task,
     get_music_provider_settings,
+    handle_sunoapi_org_callback,
     latest_music_quota,
     list_music_results,
     list_music_reference_songs,
@@ -57,6 +60,7 @@ from app.services.music import (
     retry_music_task,
     regenerate_music_task,
     update_music_provider_settings,
+    wake_music_task_from_callback,
 )
 from app.services.users import music_task_quota_response
 from app.services.workflows import execute_workflow_run, start_reference_workflow_run
@@ -71,14 +75,17 @@ def provider_status(
     db: DatabaseSession,
     user: MusicUser,
 ) -> SunoProviderStatusResponse:
-    raw_implementation = settings.SUNO_PROVIDER_IMPLEMENTATION
-    implementation = raw_implementation
+    provider_settings = get_music_provider_settings(
+        db,
+        include_secret_details=user.role == UserRole.SUPER_ADMIN,
+    )
+    implementation = provider_settings.active_implementation
+    raw_implementation = implementation
     runtime_status: str | None = None
     captcha_mode: str | None = None
     cookie_configured: bool | None = None
     compat_routes: list[str] = []
-    if implementation == "compat":
-        implementation = "compatibility"
+    platform_url = "https://platform.suno.com/"
     if implementation == "official":
         configured = bool(settings.SUNO_API_BASE_URL and settings.SUNO_API_KEY)
         integration_status = "contract_pending" if configured else "waiting_access"
@@ -86,6 +93,23 @@ def provider_status(
             "Suno 官方账号已配置，等待按账号内正式文档完成接口合同映射"
             if configured
             else "等待在 Suno Platform 获得官方 API 访问权限和密钥"
+        )
+    elif implementation == "sunoapi_org":
+        platform_url = "https://sunoapi.org/api-key"
+        configured = bool(
+            provider_settings.sunoapi_org_token_configured
+            and provider_settings.sunoapi_org_callback_ready
+        )
+        integration_status = "ready" if configured else "configuration_error"
+        missing: list[str] = []
+        if not provider_settings.sunoapi_org_token_configured:
+            missing.append("Token")
+        if not provider_settings.sunoapi_org_callback_ready:
+            missing.append("回调公网地址")
+        message = (
+            "SunoAPI 已就绪；任务使用回调通知，并以定时查询作为兜底"
+            if configured
+            else f"SunoAPI 尚缺少：{'、'.join(missing)}"
         )
     elif implementation == "compatibility":
         configured = bool(
@@ -136,12 +160,12 @@ def provider_status(
         configured = False
         integration_status = "configuration_error"
         message = f"不支持的 Suno Provider 实现：{raw_implementation}"
-    provider_settings = get_music_provider_settings(db)
     return SunoProviderStatusResponse(
         implementation=implementation,
         configured=configured,
         integration_status=integration_status,
         message=message,
+        platform_url=platform_url,
         runtime_status=runtime_status,
         captcha_mode=captcha_mode,
         cookie_configured=cookie_configured,
@@ -175,7 +199,10 @@ def music_settings(
     db: DatabaseSession,
     user: MusicUser,
 ) -> MusicProviderSettingsResponse:
-    return get_music_provider_settings(db)
+    return get_music_provider_settings(
+        db,
+        include_secret_details=user.role == UserRole.SUPER_ADMIN,
+    )
 
 
 @router.put("/settings", response_model=MusicProviderSettingsResponse)
@@ -185,6 +212,32 @@ def music_settings_update(
     admin: SuperAdmin,
 ) -> MusicProviderSettingsResponse:
     return update_music_provider_settings(db, payload, admin.id)
+
+
+@router.post(
+    "/callbacks/sunoapi-org/{task_id}/{signature}",
+    response_model=SunoApiOrgCallbackResponse,
+)
+def sunoapi_org_callback(
+    task_id: int,
+    signature: str,
+    payload: SunoApiOrgCallbackRequest,
+    background_tasks: BackgroundTasks,
+    db: DatabaseSession,
+) -> SunoApiOrgCallbackResponse:
+    accepted, should_dispatch = handle_sunoapi_org_callback(
+        db,
+        task_id,
+        signature,
+        payload,
+    )
+    if should_dispatch:
+        background_tasks.add_task(
+            wake_music_task_from_callback,
+            task_id,
+            db.get_bind(),
+        )
+    return accepted
 
 
 @router.post(

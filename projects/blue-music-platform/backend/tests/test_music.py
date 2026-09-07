@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 from typing import NamedTuple
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -8,7 +10,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.adapters.music_generation import (
+    MusicGenerationInput,
     MusicProviderError,
+    MusicProviderPending,
+    SunoApiOrgMusicProvider,
     SunoCompatibilityMusicProvider,
     SunoOfficialMusicProvider,
 )
@@ -18,7 +23,11 @@ from app.core.security import hash_password
 from app.main import create_app
 from app.models import User, UserRole
 from app.services.music_storage import StoredMusicObject
-from app.services.music import get_music_task
+from app.services.music import (
+    _get_or_create_music_settings,
+    _sunoapi_org_callback_signature,
+    get_music_task,
+)
 from tests.fakes import FakeSunoProvider
 
 
@@ -27,6 +36,7 @@ class MusicContext(NamedTuple):
     token: str
     provider: FakeSunoProvider
     storage_root: Path
+    session_factory: sessionmaker
 
 
 @pytest.fixture
@@ -96,6 +106,7 @@ def music_context(
             token=login.json()["access_token"],
             provider=provider,
             storage_root=storage_root,
+            session_factory=testing_session,
         )
     test_app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
@@ -133,6 +144,115 @@ def _create_music(context: MusicContext, title: str = "城市的灯") -> dict:
     )
     assert detail.status_code == 200
     return detail.json()
+
+
+def test_sunoapi_org_adapter_submits_polls_and_reads_credits() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json={"code": 200, "msg": "success", "data": {"taskId": "job-1"}},
+                headers={"x-request-id": "submit-request"},
+            )
+        if request.url.path.endswith("/record-info"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 200,
+                    "msg": "success",
+                    "data": {
+                        "taskId": "job-1",
+                        "status": "SUCCESS",
+                        "response": {
+                            "sunoData": [
+                                {
+                                    "id": "track-1",
+                                    "audioUrl": "https://audio.test/track-1.mp3",
+                                    "imageUrl": "https://audio.test/track-1.jpg",
+                                    "title": "夜色",
+                                    "duration": 182.4,
+                                },
+                                {
+                                    "id": "track-2",
+                                    "audioUrl": "https://audio.test/track-2.mp3",
+                                    "title": "夜色 2",
+                                    "duration": 185,
+                                },
+                            ]
+                        },
+                    },
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"code": 200, "msg": "success", "data": 88},
+        )
+
+    submitted: list[str] = []
+    provider = SunoApiOrgMusicProvider(
+        api_key="test-token",
+        callback_url="https://music.example.com/api/v1/music/callback",
+        model="v4.5",
+        on_submitted=submitted.append,
+        transport=httpx.MockTransport(handler),
+    )
+    payload = MusicGenerationInput(
+        title="夜色",
+        lyrics="[Verse 1]\n城市的灯",
+        style_prompt="Mandopop, warm vocal",
+        instrumental=False,
+        negative_tags=["metal"],
+        requirements=None,
+        style_tags=["pop"],
+    )
+
+    with pytest.raises(MusicProviderPending) as pending:
+        provider.generate(payload)
+
+    assert pending.value.external_task_id == "job-1"
+    assert pending.value.submitted_now is True
+    assert submitted == ["job-1"]
+    request_body = json.loads(requests[0].content)
+    assert request_body == {
+        "customMode": True,
+        "instrumental": False,
+        "model": "V4_5",
+        "callBackUrl": "https://music.example.com/api/v1/music/callback",
+        "style": "pop, Mandopop, warm vocal",
+        "title": "夜色",
+        "prompt": "[Verse 1]\n城市的灯",
+        "negativeTags": "metal",
+    }
+
+    output = provider.resume(payload, "job-1")
+    quota = provider.get_quota()
+
+    assert output.provider_status == "complete"
+    assert [track.external_id for track in output.tracks] == ["track-1", "track-2"]
+    assert output.tracks[0].duration_seconds == 182
+    assert quota.credits_remaining == 88
+
+
+def test_sunoapi_org_maps_documented_credit_error() -> None:
+    provider = SunoApiOrgMusicProvider(
+        api_key="test-token",
+        callback_url="https://music.example.com/api/v1/music/callback",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={"code": 429, "msg": "insufficient credits", "data": None},
+            )
+        ),
+    )
+
+    with pytest.raises(MusicProviderError) as error:
+        provider.get_quota()
+
+    assert error.value.code == "SUNOAPI_QUOTA_EXHAUSTED"
+    assert error.value.retryable is False
 
 
 def test_music_generation_archives_audio_and_records_usage(
@@ -749,3 +869,91 @@ def test_music_settings_tags_adaptation_regeneration_and_favorite(
     ).json()
     assert regenerated_task["status"] == "completed"
     assert regenerated_task["style_tags"] == ["pop", "r&b"]
+
+
+def test_admin_can_configure_sunoapi_token_and_callback_wakes_task(
+    music_context: MusicContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured = music_context.client.put(
+        "/api/v1/music/settings",
+        headers=_headers(music_context),
+        json={
+            "active_implementation": "sunoapi_org",
+            "active_model": "v4.5",
+            "sunoapi_org_token": "customer-test-token",
+            "sunoapi_org_callback_base_url": "https://music.example.com",
+        },
+    )
+    assert configured.status_code == 200
+    settings_body = configured.json()
+    assert settings_body["active_implementation"] == "sunoapi_org"
+    assert settings_body["sunoapi_org_token_configured"] is True
+    assert settings_body["sunoapi_org_token_hint"].endswith("oken")
+    assert "customer-test-token" not in configured.text
+    provider_status = music_context.client.get(
+        "/api/v1/music/provider-status",
+        headers=_headers(music_context),
+    )
+    assert provider_status.status_code == 200
+    assert provider_status.json()["implementation"] == "sunoapi_org"
+    assert provider_status.json()["integration_status"] == "ready"
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.music.dispatch_music_task",
+        lambda db, task_id: get_music_task(db, task_id),
+    )
+    created = music_context.client.post(
+        "/api/v1/music/tasks",
+        headers=_headers(music_context),
+        json={"lyrics_version_id": _lyrics_version_id(music_context, "回调测试")},
+    )
+    assert created.status_code == 202
+    task_id = created.json()["id"]
+    assert created.json()["provider_implementation"] == "sunoapi_org"
+
+    with music_context.session_factory() as db:
+        settings_row = _get_or_create_music_settings(db)
+        assert settings_row.sunoapi_org_token_encrypted
+        assert "customer-test-token" not in settings_row.sunoapi_org_token_encrypted
+        signature = _sunoapi_org_callback_signature(settings_row, task_id)
+
+    callback_payload = {
+        "code": 200,
+        "msg": "All generated successfully.",
+        "data": {
+            "callbackType": "complete",
+            "task_id": "provider-job-1",
+            "data": [
+                {
+                    "id": "provider-track-1",
+                    "audio_url": "https://audio.test/provider-track-1.mp3",
+                    "title": "回调测试",
+                }
+            ],
+        },
+    }
+    rejected = music_context.client.post(
+        f"/api/v1/music/callbacks/sunoapi-org/{task_id}/invalid",
+        json=callback_payload,
+    )
+    assert rejected.status_code == 401
+    assert rejected.json()["error"]["code"] == "SUNOAPI_CALLBACK_UNAUTHORIZED"
+
+    callback = music_context.client.post(
+        f"/api/v1/music/callbacks/sunoapi-org/{task_id}/{signature}",
+        json=callback_payload,
+    )
+    assert callback.status_code == 200
+    assert callback.json() == {
+        "accepted": True,
+        "task_id": task_id,
+        "callback_type": "complete",
+    }
+    detail = music_context.client.get(
+        f"/api/v1/music/tasks/{task_id}",
+        headers=_headers(music_context),
+    ).json()
+    assert detail["status"] == "completed"
+    assert detail["provider_callback_type"] == "complete"
+    assert detail["provider_callback_received_at"] is not None

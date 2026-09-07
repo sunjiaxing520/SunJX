@@ -29,6 +29,7 @@ import {
   Mic2,
   Play,
   RefreshCw,
+  Settings2,
   ShieldCheck,
   Sparkles,
   Star,
@@ -49,6 +50,7 @@ import {
   downloadMusicResult,
   extendMusicResult,
   getSunoProviderStatus,
+  getMusicProviderSettings,
   listMusicResults,
   listMusicReferenceSongs,
   listMusicTasks,
@@ -77,6 +79,8 @@ import type {
   MusicAdaptPayload,
   MusicCreatePayload,
   MusicExtendPayload,
+  MusicProviderImplementation,
+  MusicProviderSettings,
   MusicReferenceSong,
   MusicResult,
   MusicTask,
@@ -117,6 +121,14 @@ interface ExtendFormValues {
   requirements?: string
 }
 
+interface MusicProviderSettingsFormValues {
+  active_implementation: MusicProviderImplementation
+  active_model: string
+  sunoapi_org_token?: string
+  clear_sunoapi_org_token?: boolean
+  sunoapi_org_callback_base_url?: string
+}
+
 const STATUS_LABELS: Record<WorkflowTaskStatus, string> = {
   pending: '排队中',
   running: '生成中',
@@ -139,13 +151,32 @@ const REFERENCE_STEP_LABELS = {
   music: '音乐生成',
 } as const
 
+const MUSIC_PROVIDER_LABELS: Record<MusicProviderImplementation, string> = {
+  official: '官方 Suno API',
+  sunoapi_org: 'SunoAPI 第三方接口',
+  compatibility: '隔离兼容服务',
+}
+
+const MUSIC_MODEL_OPTIONS = [
+  { value: 'v4.5', label: 'V4.5' },
+  { value: 'v4.5plus', label: 'V4.5 Plus' },
+  { value: 'v4.5all', label: 'V4.5 All' },
+  { value: 'v5', label: 'V5' },
+  { value: 'v5.5', label: 'V5.5' },
+  { value: 'v4', label: 'V4' },
+  { value: 'v3.5', label: 'V3.5（仅兼容实现）' },
+]
+
 export function MusicPage() {
   const { message } = App.useApp()
   const { user } = useAuth()
   const [form] = Form.useForm<MusicFormValues>()
   const [extendForm] = Form.useForm<ExtendFormValues>()
   const [adaptForm] = Form.useForm<AdaptFormValues>()
+  const [providerForm] = Form.useForm<MusicProviderSettingsFormValues>()
   const [providerStatus, setProviderStatus] = useState<SunoProviderStatus | null>(null)
+  const [providerSettings, setProviderSettings] = useState<MusicProviderSettings | null>(null)
+  const [providerSettingsOpen, setProviderSettingsOpen] = useState(false)
   const [lyricsVersions, setLyricsVersions] = useState<LyricsOutputSource[]>([])
   const [lyricsFavorites, setLyricsFavorites] = useState<FavoriteItem[]>([])
   const [lyricsPickerOpen, setLyricsPickerOpen] = useState(false)
@@ -176,6 +207,10 @@ export function MusicPage() {
   const [updatingModel, setUpdatingModel] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const selectedLyricsVersionId = Form.useWatch('lyrics_version_id', form)
+  const selectedProviderImplementation = Form.useWatch(
+    'active_implementation',
+    providerForm,
+  )
   const lyricsPickerItems = useMemo(
     () => buildLyricsOutputItems(lyricsVersions, lyricsFavorites),
     [lyricsFavorites, lyricsVersions],
@@ -206,8 +241,9 @@ export function MusicPage() {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [provider, lyrics, taskHistory, resultHistory, favoriteHistory, lyricsFavoriteHistory, workflowHistory] = await Promise.all([
+      const [provider, musicSettings, lyrics, taskHistory, resultHistory, favoriteHistory, lyricsFavoriteHistory, workflowHistory] = await Promise.all([
         getSunoProviderStatus(),
+        getMusicProviderSettings(),
         listLyricsTasks(),
         listMusicTasks(),
         listMusicResults(),
@@ -222,6 +258,7 @@ export function MusicPage() {
         model: task.model,
       }))).sort((a, b) => b.id - a.id)
       setProviderStatus(provider)
+      setProviderSettings(musicSettings)
       setLyricsVersions(versions)
       setTasks(taskHistory.items)
       setResults(resultHistory.items)
@@ -469,11 +506,52 @@ export function MusicPage() {
   const changeActiveModel = async (activeModel: string) => {
     setUpdatingModel(true)
     try {
-      await updateMusicProviderSettings(activeModel)
+      await updateMusicProviderSettings({ active_model: activeModel })
       message.success(`后续音乐任务将使用 ${activeModel}`)
       await load(true)
     } catch (modelError) {
       message.error(errorMessage(modelError))
+    } finally {
+      setUpdatingModel(false)
+    }
+  }
+
+  const openProviderSettings = () => {
+    if (!providerSettings) return
+    providerForm.setFieldsValue({
+      active_implementation: providerSettings.active_implementation,
+      active_model: providerSettings.active_model,
+      sunoapi_org_token: undefined,
+      clear_sunoapi_org_token: false,
+      sunoapi_org_callback_base_url:
+        providerSettings.sunoapi_org_callback_base_url ?? undefined,
+    })
+    setProviderSettingsOpen(true)
+  }
+
+  const saveProviderSettings = async () => {
+    try {
+      const values = await providerForm.validateFields()
+      setUpdatingModel(true)
+      await updateMusicProviderSettings({
+        active_implementation: values.active_implementation,
+        active_model: values.active_model,
+        sunoapi_org_token: values.sunoapi_org_token?.trim() || undefined,
+        clear_sunoapi_org_token: Boolean(values.clear_sunoapi_org_token),
+        sunoapi_org_callback_base_url:
+          values.sunoapi_org_callback_base_url?.trim() || null,
+      })
+      message.success('音乐接口设置已生效，后续新任务无需重启即可使用')
+      setProviderSettingsOpen(false)
+      providerForm.resetFields()
+      await load(true)
+    } catch (settingsError) {
+      if (
+        typeof settingsError === 'object'
+        && settingsError !== null
+        && 'errorFields' in settingsError
+      ) return
+      message.error(errorMessage(settingsError))
     } finally {
       setUpdatingModel(false)
     }
@@ -532,7 +610,7 @@ export function MusicPage() {
           <strong>#{task.id} · {task.title}</strong>
           <small>
             {task.operation === 'extend' ? '续写' : '完整生成'} ·
-            {task.provider_implementation === 'official' ? ' 官方接口' : ' 兼容接口'} ·
+            {' '}{MUSIC_PROVIDER_LABELS[task.provider_implementation]} ·
             尝试 {task.attempt_count}/{task.max_attempts}
           </small>
         </button>
@@ -605,6 +683,8 @@ export function MusicPage() {
           title={`Suno ${
             providerStatus.implementation === 'official'
               ? '官方实现'
+              : providerStatus.implementation === 'sunoapi_org'
+                ? 'SunoAPI 接口'
               : providerStatus.implementation === 'compatibility'
                 ? '兼容实现'
                 : '配置错误'
@@ -624,6 +704,14 @@ export function MusicPage() {
             <Space wrap>
               {user?.role === 'super_admin' && (
                 <Button
+                  icon={<Settings2 size={15} />}
+                  onClick={openProviderSettings}
+                >
+                  接口设置
+                </Button>
+              )}
+              {user?.role === 'super_admin' && (
+                <Button
                   icon={<RefreshCw size={15} />}
                   loading={refreshingQuota}
                   onClick={() => void refreshQuota()}
@@ -636,7 +724,11 @@ export function MusicPage() {
                 target="_blank"
                 icon={<ExternalLink size={15} />}
               >
-                {providerStatus.implementation === 'compatibility' ? '打开 Suno' : 'Suno Platform'}
+                {providerStatus.implementation === 'compatibility'
+                  ? '打开 Suno'
+                  : providerStatus.implementation === 'sunoapi_org'
+                    ? '获取 Token'
+                    : 'Suno Platform'}
               </Button>
             </Space>
           }
@@ -654,7 +746,10 @@ export function MusicPage() {
                   size="small"
                   value={providerStatus.active_model}
                   loading={updatingModel}
-                  options={['v4.5', 'v4', 'v3.5'].map((model) => ({ value: model, label: model }))}
+                  options={MUSIC_MODEL_OPTIONS.filter((option) => (
+                    providerStatus.implementation === 'compatibility'
+                    || option.value !== 'v3.5'
+                  ))}
                   onChange={(model) => void changeActiveModel(model)}
                 />
               ) : providerStatus.active_model}
@@ -959,6 +1054,109 @@ export function MusicPage() {
         </CollapsibleList>
       </section>
 
+      <Modal
+        title="音乐接口设置"
+        open={providerSettingsOpen}
+        okText="保存并启用"
+        cancelText="取消"
+        confirmLoading={updatingModel}
+        onOk={() => void saveProviderSettings()}
+        onCancel={() => {
+          setProviderSettingsOpen(false)
+          providerForm.resetFields()
+        }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          title="切换只影响后续新任务"
+          description="已有任务会继续使用创建时记录的接口。Token 只以密文保存在后端，页面不会显示明文。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form<MusicProviderSettingsFormValues>
+          form={providerForm}
+          layout="vertical"
+        >
+          <Form.Item
+            name="active_implementation"
+            label="接口实现"
+            rules={[{ required: true, message: '请选择接口实现' }]}
+          >
+            <Select
+              options={[
+                { value: 'sunoapi_org', label: 'SunoAPI（Token 接入）' },
+                { value: 'official', label: 'Suno 官方 API（等待正式权限）' },
+                { value: 'compatibility', label: '本地隔离兼容实现' },
+              ]}
+              onChange={(implementation: MusicProviderImplementation) => {
+                if (
+                  implementation === 'sunoapi_org'
+                  && providerForm.getFieldValue('active_model') === 'v3.5'
+                ) {
+                  providerForm.setFieldValue('active_model', 'v4.5')
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="active_model"
+            label="默认模型"
+            rules={[{ required: true, message: '请选择默认模型' }]}
+          >
+            <Select
+              options={MUSIC_MODEL_OPTIONS.filter((option) => (
+                selectedProviderImplementation === 'compatibility'
+                || option.value !== 'v3.5'
+              ))}
+            />
+          </Form.Item>
+          {selectedProviderImplementation === 'sunoapi_org' && (
+            <>
+              <Form.Item
+                name="sunoapi_org_token"
+                label="SunoAPI Token"
+                extra={providerSettings?.sunoapi_org_token_configured
+                  ? `已配置 ${providerSettings.sunoapi_org_token_hint ?? 'Token'}，留空不会改变`
+                  : '从 sunoapi.org 的 API Key 页面获取'}
+                dependencies={['clear_sunoapi_org_token']}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value?: string) {
+                      if (getFieldValue('clear_sunoapi_org_token')) return Promise.resolve()
+                      if (value?.trim() || providerSettings?.sunoapi_org_token_configured) {
+                        return Promise.resolve()
+                      }
+                      return Promise.reject(new Error('首次启用时请输入 Token'))
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password
+                  autoComplete="new-password"
+                  placeholder="粘贴 Token；已配置时留空即可"
+                />
+              </Form.Item>
+              {providerSettings?.sunoapi_org_token_configured && (
+                <Form.Item name="clear_sunoapi_org_token" valuePropName="checked">
+                  <Checkbox>清除当前已保存的 Token</Checkbox>
+                </Form.Item>
+              )}
+              <Form.Item
+                name="sunoapi_org_callback_base_url"
+                label="回调公网地址"
+                extra="正式部署时通常由运维预设；本地联调可填写当前 HTTPS 穿透地址"
+                rules={[
+                  { required: true, message: '请输入供应商能够访问的回调公网地址' },
+                  { pattern: /^https:\/\//i, message: '回调地址必须以 https:// 开头' },
+                ]}
+              >
+                <Input placeholder="https://music.example.com" />
+              </Form.Item>
+            </>
+          )}
+        </Form>
+      </Modal>
+
       <Drawer
         title={activeTask ? `音乐任务 #${activeTask.id}` : '音乐任务'}
         open={Boolean(activeTask)}
@@ -973,13 +1171,18 @@ export function MusicPage() {
               </Descriptions.Item>
               <Descriptions.Item label="供应商">Suno{activeTask.model ? ` / ${activeTask.model}` : ''}</Descriptions.Item>
               <Descriptions.Item label="接口实现">
-                {activeTask.provider_implementation === 'official' ? '官方 Suno API' : '隔离兼容服务'}
+                {MUSIC_PROVIDER_LABELS[activeTask.provider_implementation]}
               </Descriptions.Item>
               <Descriptions.Item label="尝试次数">{activeTask.attempt_count} / {activeTask.max_attempts}</Descriptions.Item>
               <Descriptions.Item label="下次重试">
                 {activeTask.next_attempt_at ? formatDateTime(activeTask.next_attempt_at) : '无'}
               </Descriptions.Item>
               <Descriptions.Item label="外部任务编号">{activeTask.external_task_id ?? '尚未获得'}</Descriptions.Item>
+              <Descriptions.Item label="回调进度">
+                {activeTask.provider_callback_type
+                  ? `${activeTask.provider_callback_type} · ${formatDateTime(activeTask.provider_callback_received_at ?? activeTask.created_at)}`
+                  : '尚未收到'}
+              </Descriptions.Item>
               <Descriptions.Item label="创作方式">{activeTask.operation === 'extend' ? '续写' : '完整生成'}</Descriptions.Item>
               <Descriptions.Item label="风格要求">{activeTask.style_prompt}</Descriptions.Item>
             </Descriptions>

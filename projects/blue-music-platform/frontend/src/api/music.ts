@@ -3,6 +3,7 @@ import type {
   MusicAdaptPayload,
   MusicExtendPayload,
   MusicProviderSettings,
+  MusicProviderSettingsUpdate,
   MusicReferenceSongList,
   MusicResultList,
   MusicTask,
@@ -52,10 +53,10 @@ export function getMusicProviderSettings() {
   return apiRequest<MusicProviderSettings>('/music/settings')
 }
 
-export function updateMusicProviderSettings(activeModel: string) {
+export function updateMusicProviderSettings(payload: MusicProviderSettingsUpdate) {
   return apiRequest<MusicProviderSettings>('/music/settings', {
     method: 'PUT',
-    body: JSON.stringify({ active_model: activeModel }),
+    body: JSON.stringify(payload),
   })
 }
 
