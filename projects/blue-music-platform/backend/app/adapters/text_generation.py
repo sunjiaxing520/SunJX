@@ -1108,12 +1108,18 @@ class OpenAICompatibleTextProvider:
         return ProviderResult(output=output, call=response.call)
 
     def test_connection(self) -> ProviderResult[dict[str, Any]]:
-        return self._chat_json(
+        result = self._chat_json(
             system='你正在执行接口连接测试。只返回 JSON：{"status":"ok"}。',
             user="连接测试",
             max_tokens=256 if _is_kimi_k3(self.config.base_url, self.model) else 32,
             temperature=0.1,
         )
+        if result.output != {"status": "ok"}:
+            raise TextProviderError(
+                '连接校验失败：响应必须为 {"status":"ok"}，当前接口未遵守输出要求',
+                call=result.call,
+            )
+        return result
 
     def _chat_json(
         self,
@@ -1304,6 +1310,13 @@ def _provider_failure_summary(
         return f"AI 接口请求超时（单次等待上限 {_format_seconds(timeout_seconds)} 秒）"
     if isinstance(error, httpx.HTTPStatusError):
         status_code = error.response.status_code
+        guidance = {
+            401: "，请检查 API Key 是否有效或已过期",
+            403: "，请检查账号权限、模型权限及服务地域限制",
+            402: "，请检查账号余额或付费状态",
+            404: "，请检查接口地址及模型名称",
+            429: "，可能是频率限制或额度不足，请核对供应商后台",
+        }.get(status_code, "")
         code, message = _provider_error_payload(error.response)
         details = ""
         if code and message:
@@ -1312,7 +1325,7 @@ def _provider_failure_summary(
             details = f"（{code}）"
         elif message:
             details = f"（{message}）"
-        return f"AI 接口返回 HTTP {status_code}{details}"
+        return f"AI 接口返回 HTTP {status_code}{details}{guidance}"
     if isinstance(error, httpx.ConnectError):
         return "无法连接 AI 接口，请检查网络、域名和代理设置"
     if isinstance(error, httpx.NetworkError):

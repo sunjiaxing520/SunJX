@@ -371,6 +371,12 @@ def test_kimi_k3_uses_supported_request_parameters(
     assert "temperature" not in captured_request
 
     captured_request.clear()
+    monkeypatch.setattr(text_generation.httpx, "post", lambda *args, **kwargs: (
+        captured_request.update(kwargs.get("json") or {}) or httpx.Response(
+            200, json={"choices": [{"message": {"content": '{"status":"ok"}'}}]},
+            request=httpx.Request("POST", args[0]),
+        )
+    ))
     provider.test_connection()
     assert captured_request["max_completion_tokens"] == 256
 
@@ -439,7 +445,7 @@ def test_provider_rate_limit_without_retry_after_stops_immediately(
     with pytest.raises(TextProviderError) as error:
         provider.test_connection()
 
-    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限）"
+    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限），可能是频率限制或额度不足，请核对供应商后台"
     assert error.value.call is not None
     assert error.value.call.attempt_count == 1
     assert error.value.call.request_id == "provider-rate-limit-123"

@@ -18,6 +18,10 @@ async function main() {
       supports_json_mode: true, max_tokens_parameter: 'max_tokens',
     }));
     let saved;
+    let creates = 0;
+    let tests = 0;
+    let activations = 0;
+    let testStatus = 'failed';
     await context.addInitScript(() => localStorage.setItem('blue_music_access_token', 'ui-fixture'));
     await context.route('**/api/v1/**', async route => {
       const endpoint = new URL(route.request().url()).pathname;
@@ -28,8 +32,21 @@ async function main() {
       };
       if (endpoint.endsWith('/templates')) body = templates;
       if (endpoint.endsWith('/ai-providers')) {
-        if (route.request().method() === 'POST') saved = route.request().postDataJSON();
         body = { items: [], runtime_source: 'environment', environment_fallback: { configured: false } };
+        if (route.request().method() === 'POST') {
+          creates += 1;
+          saved = { ...route.request().postDataJSON(), id: creates, is_active: false };
+          body = saved;
+        }
+      }
+      if (endpoint.endsWith('/test')) {
+        tests += 1;
+        body = { status: testStatus, message: testStatus === 'failed' ? 'HTTP 401: Key invalid' : 'Connection verified',
+          provider: saved, api_usage: { total_tokens: 16 } };
+      }
+      if (endpoint.endsWith('/activate')) {
+        activations += 1;
+        body = { ...saved, is_active: true };
       }
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
     });
@@ -50,7 +67,7 @@ async function main() {
       // Hide the fixture key in the screenshot; never use a real key here.
       await page.screenshot({ path: path.join(output, `${width}-preset.png`), animations: 'disabled' });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-      await dialog.getByRole('button', { name: '创建配置', exact: true }).click();
+      await dialog.getByRole('button', { name: '仅保存', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(saved.template_key, 'gemini');
       assert.equal(saved.name, 'Google Gemini');
@@ -64,6 +81,24 @@ async function main() {
     await page.getByText('openai_compatible', { exact: true }).click();
     assert.notEqual(await dialog.locator('details').getAttribute('open'), null);
     assert.equal(await dialog.getByLabel('Base URL', { exact: true }).inputValue(), '');
+    await dialog.getByRole('button', { name: /^取\s*消$/ }).click();
+    for (const status of ['failed', 'success']) {
+      testStatus = status;
+      const before = creates;
+      await page.getByRole('button', { name: '新建接口', exact: true }).click();
+      await dialog.getByLabel('API Key', { exact: true }).fill('fixture-test-key');
+      await dialog.getByRole('button', { name: '保存并测试', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await page.getByRole('alert').filter({ hasText: status === 'failed' ? 'Key invalid' : 'Connection verified' }).waitFor();
+      assert.equal(creates, before + 1);
+      assert.equal(activations, 0);
+      await page.screenshot({ path: path.join(output, `test-${status}.png`), animations: 'disabled' });
+    }
+    assert.equal(tests, 2);
+    await page.getByRole('button', { name: '启用此接口', exact: true }).click();
+    await page.getByRole('button', { name: /^启\s*用$/ }).click();
+    await page.getByRole('button', { name: '启用此接口', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(activations, 1);
     assert.deepEqual(errors, []);
     console.log('PASS: key-only presets, secret clearing, custom fields, desktop/mobile screenshots');
   } finally {

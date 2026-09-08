@@ -112,7 +112,7 @@ def update_ai_provider_config(
     config_id: int,
     payload: AiProviderUpdateRequest,
 ) -> AiProviderResponse:
-    config = _require_config(db, config_id)
+    config = _require_config(db, config_id, lock=True)
     if config.is_active:
         raise AppException(
             code="AI_PROVIDER_ACTIVE_EDIT_FORBIDDEN",
@@ -125,10 +125,21 @@ def update_ai_provider_config(
 
     template = _require_template(changes.get("template_key", config.template_key))
     api_key = _secret_value(payload.api_key) if "api_key" in changes else None
+    template_changed = template.key != config.template_key
+    target_url = changes.get("base_url", template.default_base_url if template_changed else config.base_url)
+    if template.requires_api_key and not api_key and (
+        template.key != config.template_key
+        or _validate_base_url(target_url or template.default_base_url) != config.base_url
+    ):
+        raise AppException(
+            code="AI_PROVIDER_NEW_KEY_REQUIRED",
+            message="更换供应商或接口地址后必须重新填写 API Key，不能沿用原密钥",
+            status_code=422,
+        )
     values = _connection_values(
         template=template,
-        base_url=changes.get("base_url", config.base_url),
-        model=changes.get("model", config.model),
+        base_url=target_url,
+        model=changes.get("model", template.default_model if template_changed else config.model),
         api_key=api_key,
         existing_api_key=config.api_key_encrypted,
         existing_api_hint=config.api_key_hint,
@@ -141,10 +152,10 @@ def update_ai_provider_config(
     config.api_key_hint = values["api_key_hint"]
     config.model = values["model"]
     config.supports_json_mode = changes.get(
-        "supports_json_mode", config.supports_json_mode
+        "supports_json_mode", template.supports_json_mode if template_changed else config.supports_json_mode
     )
     config.max_tokens_parameter = changes.get(
-        "max_tokens_parameter", config.max_tokens_parameter
+        "max_tokens_parameter", template.max_tokens_parameter if template_changed else config.max_tokens_parameter
     )
     for field_name in (
         "request_timeout_seconds",
@@ -157,6 +168,7 @@ def update_ai_provider_config(
     config.last_test_status = "untested"
     config.last_test_message = None
     config.last_tested_at = None
+    config.config_revision += 1
     db.commit()
     db.refresh(config)
     return ai_provider_response(config)
@@ -176,22 +188,31 @@ def delete_ai_provider_config(db: Session, config_id: int) -> None:
 
 def test_ai_provider_config(db: Session, config_id: int) -> AiProviderTestResponse:
     config = _require_config(db, config_id)
+    tested_revision = config.config_revision
     provider_name = config.template_key
     model = config.model
     try:
         provider = _provider_from_record(config)
         result = provider.test_connection()
         status = "success"
-        message = "连接成功，接口已返回有效 JSON"
+        message = "连接校验通过；尚不代表完整作词流程已验收"
         call = result.call
     except TextProviderError as exc:
         status = "failed"
         message = str(exc)
         call = exc.call or _unattempted_call(config)
 
-    config.last_test_status = status
-    config.last_test_message = message
-    config.last_tested_at = utc_now()
+    # Compare and update atomically: a slow test must not certify a newer config.
+    applied = db.execute(
+        update(AiProviderConfig)
+        .where(AiProviderConfig.id == config_id,
+               AiProviderConfig.config_revision == tested_revision)
+        .values(last_test_status=status, last_test_message=message, last_tested_at=utc_now())
+        .execution_options(synchronize_session=False)
+    ).rowcount == 1
+    if not applied:
+        status = "failed"
+        message = "测试期间配置已变更或删除，本次结果已作废，请重新测试"
     usage = record_api_usage(
         db,
         task_type="provider_test",
@@ -205,10 +226,13 @@ def test_ai_provider_config(db: Session, config_id: int) -> AiProviderTestRespon
             if status == "success"
             else TaskStatus.FAILED.value
         ),
-        error_code=None if status == "success" else "AI_PROVIDER_TEST_FAILED",
+        error_code=("AI_PROVIDER_TEST_STALE" if not applied else
+                    None if status == "success" else "AI_PROVIDER_TEST_FAILED"),
         error_message=None if status == "success" else message,
     )
     db.commit()
+    if not applied:
+        raise AppException(code="AI_PROVIDER_TEST_STALE", message=message, status_code=409)
     db.refresh(config)
     db.refresh(usage)
     return AiProviderTestResponse(
@@ -220,7 +244,7 @@ def test_ai_provider_config(db: Session, config_id: int) -> AiProviderTestRespon
 
 
 def activate_ai_provider_config(db: Session, config_id: int) -> AiProviderResponse:
-    config = _require_config(db, config_id)
+    config = _require_config(db, config_id, lock=True)
     if config.last_test_status != "success":
         raise AppException(
             code="AI_PROVIDER_TEST_REQUIRED",
@@ -445,8 +469,10 @@ def _require_template(key: str) -> AiProviderTemplate:
     return template
 
 
-def _require_config(db: Session, config_id: int) -> AiProviderConfig:
-    config = db.get(AiProviderConfig, config_id)
+def _require_config(db: Session, config_id: int, *, lock: bool = False) -> AiProviderConfig:
+    config = (db.scalar(select(AiProviderConfig).where(AiProviderConfig.id == config_id)
+                        .with_for_update().execution_options(populate_existing=True))
+              if lock else db.get(AiProviderConfig, config_id))
     if config is None:
         raise AppException(
             code="AI_PROVIDER_NOT_FOUND",

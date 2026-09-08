@@ -182,6 +182,79 @@ def test_gemini_key_only_defaults_and_request(
     assert "thinking" not in captured["json"]
 
 
+@pytest.mark.parametrize("changes", [
+    {"template_key": "gemini"},
+    {"template_key": "gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai"},
+    {"base_url": "https://other.example.com/v1"},
+])
+def test_endpoint_change_requires_fresh_key(provider_context: ProviderContext, changes) -> None:
+    client = provider_context.client
+    headers = _headers(provider_context.admin_token)
+    original = client.post("/api/v1/ai-providers", headers=headers, json={
+        "name": "Key isolation", "template_key": "kimi", "api_key": "original-fixture-key",
+    }).json()
+    url = f"/api/v1/ai-providers/{original['id']}"
+    rejected = client.put(url, headers=headers, json=changes)
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "AI_PROVIDER_NEW_KEY_REQUIRED"
+    with provider_context.session_factory() as db:
+        row = db.get(AiProviderConfig, original["id"])
+        assert row.base_url == original["base_url"]
+        assert row.config_revision == 1
+    accepted = client.put(url, headers=headers, json={**changes, "api_key": "new-fixture-key"})
+    assert accepted.status_code == 200
+    if changes.get("template_key") == "gemini":
+        assert accepted.json()["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai"
+        assert accepted.json()["model"] == "gemini-2.5-flash"
+
+
+def test_stale_test_cannot_certify_new_config(provider_context: ProviderContext, monkeypatch) -> None:
+    from app.schemas.ai_provider import AiProviderUpdateRequest
+    from app.services.ai_providers import update_ai_provider_config
+
+    headers = _headers(provider_context.admin_token)
+    client = provider_context.client
+    original = client.post("/api/v1/ai-providers", headers=headers, json={
+        "name": "Concurrent test", "template_key": "gemini", "api_key": "fixture-key",
+    }).json()
+
+    def fake_post(*args, **kwargs):
+        with provider_context.session_factory() as other:
+            update_ai_provider_config(other, original["id"], AiProviderUpdateRequest(model="new-model"))
+        return FakeProviderResponse()
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    response = client.post(f"/api/v1/ai-providers/{original['id']}/test", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "AI_PROVIDER_TEST_STALE"
+    with provider_context.session_factory() as db:
+        row = db.get(AiProviderConfig, original["id"])
+        assert row.config_revision == 2
+        assert row.last_test_status == "untested"
+        assert row.model == "new-model"
+    assert client.post(f"/api/v1/ai-providers/{original['id']}/activate", headers=headers).status_code == 409
+
+
+@pytest.mark.parametrize("output", [{}, {"status": "failed"}, {"status": "ok", "unexpected": True}])
+def test_connection_rejects_wrong_json_contract(provider_context: ProviderContext, monkeypatch, output) -> None:
+    class WrongResponse(FakeProviderResponse):
+        def json(self):
+            body = super().json()
+            body["choices"] = [{"message": {"content": json.dumps(output)}}]
+            return body
+
+    monkeypatch.setattr(text_generation.httpx, "post", lambda *args, **kwargs: WrongResponse())
+    headers = _headers(provider_context.admin_token)
+    client = provider_context.client
+    original = client.post("/api/v1/ai-providers", headers=headers, json={
+        "name": "Wrong JSON", "template_key": "gemini", "api_key": "fixture-key",
+    }).json()
+    tested = client.post(f"/api/v1/ai-providers/{original['id']}/test", headers=headers)
+    assert tested.json()["status"] == "failed"
+    assert tested.json()["api_usage"]["total_tokens"] == 16
+    assert client.post(f"/api/v1/ai-providers/{original['id']}/activate", headers=headers).status_code == 409
+
+
 def test_encrypted_config_can_be_tested_and_hot_switched(
     provider_context: ProviderContext,
     monkeypatch: pytest.MonkeyPatch,

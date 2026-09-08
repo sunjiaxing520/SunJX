@@ -31,6 +31,7 @@ class AiProviderConfig(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    config_revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     template_key: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     protocol: Mapped[str] = mapped_column(String(40), nullable=False)
     base_url: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)

@@ -90,6 +90,9 @@ export function AiProvidersPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [testNotice, setTestNotice] = useState<{
+    type: 'success' | 'error'; text: string; provider?: AiProviderConfig
+  } | null>(null)
   const [action, setAction] = useState<{ id: number; type: string } | null>(null)
   const [importing, setImporting] = useState(false)
   const [providerPage, setProviderPage] = useState(1)
@@ -98,6 +101,9 @@ export function AiProvidersPage() {
   const isMobile = screens.md === false
   const selectedTemplateKey = Form.useWatch('template_key', form)
   const selectedModel = Form.useWatch('model', form)
+  const selectedBaseUrl = Form.useWatch('base_url', form)
+  const needsNewKey = !editing || selectedTemplateKey !== editing.template_key
+    || selectedBaseUrl?.trim().replace(/\/+$/, '') !== editing.base_url.replace(/\/+$/, '')
   const selectedTemplate = useMemo(
     () => templates.find((item) => item.key === selectedTemplateKey),
     [selectedTemplateKey, templates],
@@ -194,7 +200,21 @@ export function AiProvidersPage() {
     form.resetFields()
   }
 
-  const saveProvider = async () => {
+  const performTest = async (provider: AiProviderConfig) => {
+    setTestNotice(null)
+    try {
+      const result = await testAiProviderConfig(provider.id)
+      setTestNotice({
+        type: result.status === 'success' ? 'success' : 'error',
+        text: `${provider.name}：${result.message}；本次 ${result.api_usage.total_tokens} Token`,
+        provider: result.status === 'success' ? result.provider : undefined,
+      })
+    } catch (testError) {
+      setTestNotice({ type: 'error', text: `${provider.name}：${errorMessage(testError)}` })
+    }
+  }
+
+  const saveProvider = async (testAfterSave = false) => {
     let values: ProviderFormValues
     try {
       values = await form.validateFields()
@@ -216,15 +236,22 @@ export function AiProvidersPage() {
     }
     setSaving(true)
     try {
-      if (editing) await updateAiProviderConfig(editing.id, payload)
-      else await createAiProviderConfig(payload)
+      const saved = editing
+        ? await updateAiProviderConfig(editing.id, payload)
+        : await createAiProviderConfig(payload)
+      setTestNotice(null)
       message.success(editing ? '接口配置已更新，请重新测试' : '接口配置已创建')
       closeModal()
+      if (testAfterSave) {
+        setAction({ id: saved.id, type: 'test' })
+        await performTest(saved)
+      }
       await load()
     } catch (saveError) {
       message.error(errorMessage(saveError))
     } finally {
       setSaving(false)
+      setAction(null)
     }
   }
 
@@ -235,14 +262,10 @@ export function AiProvidersPage() {
     setAction({ id: provider.id, type })
     try {
       if (type === 'test') {
-        const result = await testAiProviderConfig(provider.id)
-        if (result.status === 'success') {
-          message.success(`连接成功，本次测试使用 ${result.api_usage.total_tokens} Token`)
-        } else {
-          message.error(result.message)
-        }
+        await performTest(provider)
       } else if (type === 'activate') {
         await activateAiProviderConfig(provider.id)
+        setTestNotice(null)
         message.success(`已切换到 ${provider.name}`)
       } else {
         await deleteAiProviderConfig(provider.id)
@@ -323,6 +346,9 @@ export function AiProvidersPage() {
             <div className="provider-test-cell">
               <Tag color={status.color}>{status.label}</Tag>
               <small>{formatDateTime(provider.last_tested_at)}</small>
+              {provider.last_test_status === 'failed' && (
+                <details><summary>失败原因</summary><p style={{ overflowWrap: 'anywhere' }}>{provider.last_test_message}</p></details>
+              )}
             </div>
           </Tooltip>
         )
@@ -419,13 +445,22 @@ export function AiProvidersPage() {
           <Tooltip title="刷新接口列表">
             <Button icon={<RefreshCw size={16} />} loading={loading} onClick={load} />
           </Tooltip>
-          <Button type="primary" icon={<Plus size={17} />} onClick={openCreate}>
+          <Button type="primary" icon={<Plus size={17} />} disabled={saving || !!action} onClick={openCreate}>
             新建接口
           </Button>
         </Space>
       </div>
 
       {error && <Alert type="error" showIcon title={error} />}
+      {testNotice && <Alert type={testNotice.type} showIcon title={testNotice.text}
+        action={testNotice.provider && !testNotice.provider.is_active && (
+          <Popconfirm title={`启用 ${testNotice.provider.name}？`}
+            onConfirm={() => void runAction(testNotice.provider!, 'activate')}
+            okText="启用" cancelText="取消">
+            <Button disabled={!!action || saving} icon={<Power size={16} />}>启用此接口</Button>
+          </Popconfirm>
+        )}
+      />}
 
       <section className="provider-runtime-band" aria-label="当前运行接口">
         <span className="provider-runtime-icon"><Power size={18} /></span>
@@ -468,6 +503,9 @@ export function AiProvidersPage() {
                     <span>密钥 {provider.api_key_hint ?? '不需要'}</span>
                     <Tag color={testStatus.color}>{testStatus.label}</Tag>
                   </div>
+                  {provider.last_test_status === 'failed' && (
+                    <details><summary>失败原因</summary><p style={{ overflowWrap: 'anywhere' }}>{provider.last_test_message}</p></details>
+                  )}
                   <div className="provider-mobile-actions">
                     <Button
                       icon={<Cable size={16} />}
@@ -553,13 +591,23 @@ export function AiProvidersPage() {
       <Modal
         title={editing ? `编辑接口 · ${editing.name}` : '新建 AI 接口'}
         open={modalOpen}
-        onCancel={closeModal}
+        onCancel={() => { if (!saving) closeModal() }}
+        closable={!saving}
+        maskClosable={!saving}
         onOk={() => void saveProvider()}
         confirmLoading={saving}
         okText={editing ? '保存配置' : '创建配置'}
         cancelText="取消"
         width={720}
         destroyOnHidden
+        footer={<Space wrap>
+          <Button disabled={saving} onClick={closeModal}>取消</Button>
+          <Button disabled={saving} onClick={() => void saveProvider()}>仅保存</Button>
+          <Tooltip title="连接测试会产生少量供应商用量，不自动启用">
+            <Button type="primary" loading={saving} icon={<Cable size={16} />}
+              onClick={() => void saveProvider(true)}>保存并测试</Button>
+          </Tooltip>
+        </Space>}
       >
         <Form form={form} layout="vertical" requiredMark={false}>
             <Form.Item
@@ -581,10 +629,10 @@ export function AiProvidersPage() {
           {selectedTemplate?.requires_api_key && (
             <Form.Item
               name="api_key"
-              label={editing ? `API Key · ${editing.api_key_hint ?? '已保存'}` : 'API Key'}
-              rules={editing ? [] : [{ required: true, whitespace: true, message: '请输入 API Key' }]}
+              label={editing && !needsNewKey ? `API Key · ${editing.api_key_hint ?? '已保存'}` : 'API Key'}
+              rules={needsNewKey ? [{ required: true, whitespace: true, message: '请输入当前供应商的 API Key' }] : []}
             >
-              <Input.Password autoComplete="new-password" placeholder={editing ? '留空保留原密钥' : ''} />
+              <Input.Password autoComplete="new-password" placeholder={needsNewKey ? '请输入当前供应商的 API Key' : '留空保留原密钥'} />
             </Form.Item>
           )}
           <Space wrap style={{ marginBottom: 16 }}>
