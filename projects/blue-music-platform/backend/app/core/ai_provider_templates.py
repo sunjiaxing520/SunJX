@@ -18,6 +18,19 @@ class AiProviderTemplate:
 
 AI_PROVIDER_TEMPLATES = (
     AiProviderTemplate(
+        key="gemini",
+        display_name="Google Gemini",
+        protocol="openai_compatible",
+        description="Google AI Studio API Key，使用 Google 官方 OpenAI 兼容接口；服务器需可访问 Google API。",
+        default_base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        default_model="gemini-2.5-flash",
+        requires_api_key=True,
+        supports_json_mode=True,
+        max_tokens_parameter="max_tokens",
+        console_url="https://aistudio.google.com/apikey",
+        docs_url="https://ai.google.dev/gemini-api/docs/openai",
+    ),
+    AiProviderTemplate(
         key="local",
         display_name="本地规则",
         protocol="local",

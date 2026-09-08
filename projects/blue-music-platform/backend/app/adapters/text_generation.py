@@ -1148,6 +1148,11 @@ class OpenAICompatibleTextProvider:
                     request_body["thinking"] = {"type": "disabled"}
                 if _is_kimi_k3(url, self.model):
                     request_body["reasoning_effort"] = "low"
+                if (
+                    urlparse(url).hostname == "generativelanguage.googleapis.com"
+                    and self.model in {"gemini-2.5-flash", "gemini-2.5-flash-lite"}
+                ):
+                    request_body["reasoning_effort"] = "none"
                 response = httpx.post(
                     url,
                     headers={

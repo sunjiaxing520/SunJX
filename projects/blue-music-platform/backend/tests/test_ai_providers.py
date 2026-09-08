@@ -145,9 +145,41 @@ def test_provider_templates_and_management_are_admin_only(
         "deepseek",
         "qwen",
         "minimax",
+        "gemini",
         "openai_compatible",
     }
     assert member.status_code == 403
+
+
+def test_gemini_key_only_defaults_and_request(
+    provider_context: ProviderContext, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return FakeProviderResponse()
+
+    monkeypatch.setattr(text_generation.httpx, "post", fake_post)
+    response = provider_context.client.post(
+        "/api/v1/ai-providers", headers=_headers(provider_context.admin_token),
+        json={"name": "Google Gemini", "template_key": "gemini", "api_key": "fixture-key"},
+    )
+    assert response.status_code == 201
+    config = response.json()
+    assert config["model"] == "gemini-2.5-flash"
+    assert config["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert "fixture-key" not in response.text
+    tested = provider_context.client.post(
+        f"/api/v1/ai-providers/{config['id']}/test",
+        headers=_headers(provider_context.admin_token),
+    )
+    assert tested.json()["status"] == "success"
+    assert captured["url"] == config["base_url"] + "/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer fixture-key"
+    assert captured["json"]["response_format"] == {"type": "json_object"}
+    assert captured["json"]["reasoning_effort"] == "none"
+    assert "thinking" not in captured["json"]
 
 
 def test_encrypted_config_can_be_tested_and_hot_switched(

@@ -89,6 +89,7 @@ export function AiProvidersPage() {
   const [editing, setEditing] = useState<AiProviderConfig | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [action, setAction] = useState<{ id: number; type: string } | null>(null)
   const [importing, setImporting] = useState(false)
   const [providerPage, setProviderPage] = useState(1)
@@ -96,6 +97,7 @@ export function AiProvidersPage() {
   const screens = Grid.useBreakpoint()
   const isMobile = screens.md === false
   const selectedTemplateKey = Form.useWatch('template_key', form)
+  const selectedModel = Form.useWatch('model', form)
   const selectedTemplate = useMemo(
     () => templates.find((item) => item.key === selectedTemplateKey),
     [selectedTemplateKey, templates],
@@ -130,18 +132,28 @@ export function AiProvidersPage() {
     const template = templates.find((item) => item.key === templateKey)
     if (!template) return
     form.setFieldsValue({
+      name: editing ? form.getFieldValue('name') : availableName(template.display_name),
+      api_key: '',
       base_url: template.default_base_url,
       model: template.default_model,
       supports_json_mode: template.supports_json_mode,
       max_tokens_parameter: template.max_tokens_parameter,
     })
+    setAdvancedOpen(templateKey === 'openai_compatible')
+  }
+
+  const availableName = (base: string) => {
+    const names = new Set(overview?.items.map((item) => item.name))
+    let name = base
+    for (let index = 2; names.has(name); index += 1) name = `${base} ${index}`
+    return name
   }
 
   const openCreate = () => {
     const template = templates.find((item) => item.key === 'bigmodel') ?? templates[0]
     setEditing(null)
     form.setFieldsValue({
-      name: '',
+      name: availableName(template?.display_name ?? 'AI 接口'),
       template_key: template?.key ?? 'openai_compatible',
       base_url: template?.default_base_url ?? '',
       model: template?.default_model ?? '',
@@ -153,11 +165,13 @@ export function AiProvidersPage() {
       analysis_max_output_tokens: 2500,
       lyrics_max_output_tokens: 3500,
     })
+    setAdvancedOpen(false)
     setModalOpen(true)
   }
 
   const openEdit = (provider: AiProviderConfig) => {
     setEditing(provider)
+    setAdvancedOpen(true)
     form.setFieldsValue({
       name: provider.name,
       template_key: provider.template_key,
@@ -181,7 +195,13 @@ export function AiProvidersPage() {
   }
 
   const saveProvider = async () => {
-    const values = await form.validateFields()
+    let values: ProviderFormValues
+    try {
+      values = await form.validateFields()
+    } catch {
+      setAdvancedOpen(true)
+      return
+    }
     const payload: AiProviderWritePayload = {
       ...values,
       name: values.name.trim(),
@@ -542,20 +562,14 @@ export function AiProvidersPage() {
         destroyOnHidden
       >
         <Form form={form} layout="vertical" requiredMark={false}>
-          <div className="provider-form-grid">
-            <Form.Item
-              name="name"
-              label="配置名称"
-              rules={[{ required: true, min: 2, max: 80, message: '请输入 2 至 80 位名称' }]}
-            >
-              <Input autoComplete="off" placeholder="例如 智谱主账号" />
-            </Form.Item>
             <Form.Item
               name="template_key"
               label="接口模板"
               rules={[{ required: true, message: '请选择接口模板' }]}
             >
               <Select
+                showSearch
+                optionFilterProp="label"
                 options={templates.map((template) => ({
                   label: template.display_name,
                   value: template.key,
@@ -563,7 +577,36 @@ export function AiProvidersPage() {
                 onChange={fillTemplate}
               />
             </Form.Item>
-          </div>
+
+          {selectedTemplate?.requires_api_key && (
+            <Form.Item
+              name="api_key"
+              label={editing ? `API Key · ${editing.api_key_hint ?? '已保存'}` : 'API Key'}
+              rules={editing ? [] : [{ required: true, whitespace: true, message: '请输入 API Key' }]}
+            >
+              <Input.Password autoComplete="new-password" placeholder={editing ? '留空保留原密钥' : ''} />
+            </Form.Item>
+          )}
+          <Space wrap style={{ marginBottom: 16 }}>
+            {selectedModel && <Tag>{selectedModel}</Tag>}
+            {selectedTemplate?.console_url && (
+              <Typography.Link href={selectedTemplate.console_url} target="_blank" rel="noopener noreferrer">
+                获取 API Key
+              </Typography.Link>
+            )}
+          </Space>
+          {selectedTemplateKey === 'gemini' && (
+            <Alert type="info" showIcon title="Gemini 需要服务器能够访问 Google API，且账号具有对应模型额度。" />
+          )}
+          <details open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+            <summary style={{ cursor: 'pointer', padding: '12px 0' }}>高级配置</summary>
+            <Form.Item
+              name="name"
+              label="配置名称"
+              rules={[{ required: true, min: 2, max: 80, message: '请输入 2 至 80 位名称' }]}
+            >
+              <Input autoComplete="off" />
+            </Form.Item>
 
           {selectedTemplate?.protocol !== 'local' && (
             <>
@@ -581,13 +624,6 @@ export function AiProvidersPage() {
                   rules={[{ required: true, message: '请输入模型名称' }]}
                 >
                   <Input autoComplete="off" />
-                </Form.Item>
-                <Form.Item
-                  name="api_key"
-                  label={editing ? `API Key · ${editing.api_key_hint ?? '已保存'}` : 'API Key'}
-                  rules={editing ? [] : [{ required: true, message: '请输入 API Key' }]}
-                >
-                  <Input.Password autoComplete="new-password" placeholder={editing ? '留空保留原密钥' : ''} />
                 </Form.Item>
               </div>
             </>
@@ -619,6 +655,7 @@ export function AiProvidersPage() {
               <InputNumber min={128} max={100000} />
             </Form.Item>
           </div>
+          </details>
         </Form>
       </Modal>
     </div>
