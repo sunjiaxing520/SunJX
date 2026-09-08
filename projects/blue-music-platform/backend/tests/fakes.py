@@ -31,7 +31,9 @@ class FakeSunoProvider:
         payload: MusicGenerationInput,
         external_task_id: str,
     ) -> MusicGenerationOutput:
-        return self._result(payload, f"resume-{external_task_id}")
+        from dataclasses import replace
+
+        return replace(self._result(payload, f"resume-{external_task_id}"), external_task_id=external_task_id)
 
     def get_quota(self) -> MusicProviderQuota:
         now = utc_now()

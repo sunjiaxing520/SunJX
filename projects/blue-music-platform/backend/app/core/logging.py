@@ -28,16 +28,18 @@ SENSITIVE_VALUE_PATTERN = re.compile(
     r"api[_-]?key)[\"']?\s*[:=]\s*[\"']?)([^\s,\"';]+)"
 )
 URL_PASSWORD_PATTERN = re.compile(r"(\w+://[^:/\s]+:)[^@\s]+@")
+CALLBACK_SIGNATURE_PATTERN = re.compile(r"(/music/callbacks/sunoapi-org/\d+/)[^\s/?\"']+")
 
 
 def redact_sensitive_values(value: str) -> str:
+    value = CALLBACK_SIGNATURE_PATTERN.sub(r"\1[redacted]", value)
     value = SENSITIVE_VALUE_PATTERN.sub(r"\1***", value)
     return URL_PASSWORD_PATTERN.sub(r"\1***@", value)
 
 
 def _context_from_record(record: logging.LogRecord) -> dict[str, object]:
     return {
-        field: value
+        field: redact_sensitive_values(value) if isinstance(value, str) else value
         for field in CONTEXT_FIELDS
         if (value := getattr(record, field, None)) is not None
     }
@@ -97,7 +99,22 @@ def _formatter() -> logging.Formatter:
     return TextLogFormatter()
 
 
+class CallbackAccessLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                redact_sensitive_values(value) if isinstance(value, str) else value
+                for value in record.args
+            )
+        if isinstance(record.msg, str):
+            record.msg = redact_sensitive_values(record.msg)
+        return True
+
+
 def configure_logging() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, CallbackAccessLogFilter) for item in access_logger.filters):
+        access_logger.addFilter(CallbackAccessLogFilter())
     logger = logging.getLogger(LOGGER_NAME)
     if logger.handlers:
         return

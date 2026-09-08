@@ -1,18 +1,21 @@
 # P7 SunoProvider 音乐创作维护说明
 
-更新时间：2026-08-11
+更新时间：2026-09-08
 
 ## 当前状态
 
 蓝乐业务层只认识统一的 `suno` Provider，实际实现可通过
-`SUNO_PROVIDER_IMPLEMENTATION` 选择：
+数据库中的管理员设置选择，未设置时沿用 `SUNO_PROVIDER_IMPLEMENTATION`：
 
 - `official`：默认实现。等待 Suno Platform 账号内正式 API 文档、API Key
   和商用权限；合同未知时明确返回 `SUNO_API_CONTRACT_PENDING`，不猜测路径。
 - `compatibility`：对隔离部署的 `gcui-art/suno-api` 做兼容适配。默认关闭，
   只允许本机或 Docker 内网地址，不把 Suno Cookie 传给蓝乐或智能体。
+- `sunoapi_org`：按 `docs.sunoapi.org` 接入的第三方服务，支持 Token、完整生成、
+  回调唤醒、详情查询和积分查询。管理员可在音乐页热切换；它不等于 Suno 官方 API。
+  当前代码回归已完成、真实联调待完成，详见 [P7.1 接入进度](P7.1_SunoAPI接入进度.md)。
 
-当前本机演示环境已选择 `compatibility`。隔离服务运行在
+先前本机演示环境选择 `compatibility`。隔离服务地址为
 `http://127.0.0.1:3000`；服务、内部令牌、管理员登录会话和真实额度查询均已
 联通。真实音乐生成会消耗账户额度，尚未在未获确认时擅自执行。会话缺失时状态
 必须回落到 `waiting_session`，不得冒充 `ready`。
@@ -25,12 +28,13 @@ POST /api/v1/music/tasks
 -> Redis music queue
 -> app.workers.music
 -> MusicGenerationProvider
--> official 或 compatibility
+-> official / sunoapi_org / compatibility
 ```
 
 切换实现不需要修改采集、分析、作词、工作流或前端代码。环境配置变化后，
 新任务使用新实现；已经入队的任务继续使用创建时记录的
-`provider_implementation`，避免外部任务编号串线。
+`provider_implementation`，避免外部任务编号串线。第三方任务另存加密 Token 快照，
+运行期间更换配置不会让旧任务查询另一个账号。
 
 ## 创作参数与任务模型
 

@@ -82,6 +82,7 @@ class MusicTask(Base):
     provider_submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    provider_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_callback_type: Mapped[str | None] = mapped_column(
         String(30), nullable=True
     )

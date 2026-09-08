@@ -541,7 +541,7 @@ export function MusicPage() {
         sunoapi_org_callback_base_url:
           values.sunoapi_org_callback_base_url?.trim() || null,
       })
-      message.success('音乐接口设置已生效，后续新任务无需重启即可使用')
+      message.success('音乐接口设置已保存')
       setProviderSettingsOpen(false)
       providerForm.resetFields()
       await load(true)
@@ -566,7 +566,8 @@ export function MusicPage() {
     setRefreshingQuota(true)
     try {
       const quota = await refreshSunoQuota()
-      message.success(quota.status === 'available' ? 'Suno 额度已更新' : '额度查询返回错误')
+      if (quota.status === 'available') message.success('Suno 额度已更新')
+      else message.error(quota.error_message || '额度查询失败')
       await load(true)
     } catch (quotaError) {
       message.error(errorMessage(quotaError))
@@ -979,6 +980,7 @@ export function MusicPage() {
                     favorite={favoritesByResult.get(result.id)}
                     favoriting={favoriteResultId === result.id}
                     canCreate={!quotaExhausted}
+                    canTransform={providerStatus?.implementation !== 'sunoapi_org'}
                     regenerating={regeneratingTaskId === result.task_id}
                     onRegenerate={() => void regenerate(result.task_id)}
                     onExtend={() => openExtend(result)}
@@ -1057,7 +1059,7 @@ export function MusicPage() {
       <Modal
         title="音乐接口设置"
         open={providerSettingsOpen}
-        okText="保存并启用"
+        okText="保存设置"
         cancelText="取消"
         confirmLoading={updatingModel}
         onOk={() => void saveProviderSettings()}
@@ -1066,13 +1068,6 @@ export function MusicPage() {
           providerForm.resetFields()
         }}
       >
-        <Alert
-          type="info"
-          showIcon
-          title="切换只影响后续新任务"
-          description="已有任务会继续使用创建时记录的接口。Token 只以密文保存在后端，页面不会显示明文。"
-          style={{ marginBottom: 16 }}
-        />
         <Form<MusicProviderSettingsFormValues>
           form={providerForm}
           layout="vertical"
@@ -1084,7 +1079,7 @@ export function MusicPage() {
           >
             <Select
               options={[
-                { value: 'sunoapi_org', label: 'SunoAPI（Token 接入）' },
+                { value: 'sunoapi_org', label: 'sunoapi.org（第三方 Token 接入）' },
                 { value: 'official', label: 'Suno 官方 API（等待正式权限）' },
                 { value: 'compatibility', label: '本地隔离兼容实现' },
               ]}
@@ -1332,6 +1327,7 @@ function MusicResultItem({
   favorite,
   favoriting,
   canCreate,
+  canTransform,
   regenerating,
   onRegenerate,
   onExtend,
@@ -1344,6 +1340,7 @@ function MusicResultItem({
   favorite: FavoriteItem | undefined
   favoriting: boolean
   canCreate: boolean
+  canTransform: boolean
   regenerating: boolean
   onRegenerate: () => void
   onExtend: () => void
@@ -1424,8 +1421,8 @@ function MusicResultItem({
         >
           再次生成
         </Button>
-        <Button disabled={!canCreate} onClick={onAdapt}>授权改编</Button>
-        <Button icon={<Sparkles size={16} />} disabled={!canCreate} onClick={onExtend}>续写</Button>
+        {canTransform && <Button disabled={!canCreate} onClick={onAdapt}>授权改编</Button>}
+        {canTransform && <Button icon={<Sparkles size={16} />} disabled={!canCreate} onClick={onExtend}>续写</Button>}
         <Tooltip title="需先接入已授权的声音模型库">
           <Button icon={<Mic2 size={16} />} disabled aria-label="声音模型替换" />
         </Tooltip>

@@ -263,7 +263,7 @@ class SunoApiOrgCallbackTrack(BaseModel):
         protected_namespaces=(),
     )
 
-    id: str
+    id: str = Field(min_length=1, max_length=200)
     audio_url: str | None = None
     source_audio_url: str | None = None
     stream_audio_url: str | None = None
@@ -285,14 +285,21 @@ class SunoApiOrgCallbackData(BaseModel):
         alias="callbackType"
     )
     task_id: str = Field(min_length=1, max_length=200)
-    data: list[SunoApiOrgCallbackTrack] | None = None
+    data: list[SunoApiOrgCallbackTrack] | None = Field(default=None, max_length=10)
+
+    @field_validator("task_id")
+    @classmethod
+    def clean_task_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("任务编号不能为空")
+        return value.strip()
 
 
 class SunoApiOrgCallbackRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     code: int
-    msg: str
+    msg: str = Field(max_length=4000)
     data: SunoApiOrgCallbackData
 
 

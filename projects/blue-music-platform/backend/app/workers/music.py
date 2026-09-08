@@ -45,6 +45,8 @@ def run() -> None:
         try:
             queue.promote_due()
             if time.monotonic() - last_pending_scan >= 30:
+                with SessionLocal() as db:
+                    recover_stale_music_tasks(db)
                 recover_pending_music_tasks(queue)
                 last_pending_scan = time.monotonic()
             reservation = queue.reserve(settings.MUSIC_WORKER_RESERVE_SECONDS)

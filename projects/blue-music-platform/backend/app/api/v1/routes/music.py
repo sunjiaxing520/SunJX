@@ -107,7 +107,7 @@ def provider_status(
         if not provider_settings.sunoapi_org_callback_ready:
             missing.append("回调公网地址")
         message = (
-            "SunoAPI 已就绪；任务使用回调通知，并以定时查询作为兜底"
+            "SunoAPI 已配置，可刷新额度检查连接"
             if configured
             else f"SunoAPI 尚缺少：{'、'.join(missing)}"
         )

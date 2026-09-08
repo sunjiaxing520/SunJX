@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import ipaddress
 import logging
 import re
 import secrets
@@ -9,7 +10,8 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from sqlalchemy import Connection, Engine, delete, func, select
+from sqlalchemy import Connection, Engine, delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from app.adapters.music_generation import (
@@ -158,14 +160,13 @@ def create_music_task(
             status_code=404,
         )
 
+    provider_settings = _new_provider_task_settings(db, "generate")
     _consume_music_task_quota(db, requested_by_id)
-
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation="generate",
         provider="suno",
-        provider_implementation=_selected_provider_implementation(db),
-        model=_selected_music_model(db),
+        **provider_settings,
         requested_by_id=requested_by_id,
         lyrics_version_id=lyrics_version.id,
         title=(payload.title or lyrics_version.title).strip(),
@@ -191,13 +192,13 @@ def create_extension_task(
 ) -> MusicTaskResponse:
     source = _get_result(db, result_id)
     source_task = _get_task_model(db, source.task_id)
+    provider_settings = _new_provider_task_settings(db, "extend")
     _consume_music_task_quota(db, requested_by_id)
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation="extend",
         provider="suno",
-        provider_implementation=_selected_provider_implementation(db),
-        model=_selected_music_model(db),
+        **provider_settings,
         requested_by_id=requested_by_id,
         lyrics_version_id=source_task.lyrics_version_id,
         source_result_id=source.id,
@@ -232,13 +233,13 @@ def create_adaptation_task(
 ) -> MusicTaskResponse:
     source = _get_result(db, result_id)
     source_task = _get_task_model(db, source.task_id)
+    provider_settings = _new_provider_task_settings(db, "adapt")
     _consume_music_task_quota(db, requested_by_id)
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation="adapt",
         provider="suno",
-        provider_implementation=_selected_provider_implementation(db),
-        model=_selected_music_model(db),
+        **provider_settings,
         requested_by_id=requested_by_id,
         lyrics_version_id=source_task.lyrics_version_id,
         source_result_id=source.id,
@@ -316,6 +317,12 @@ def retry_music_task(db: Session, task_id: int) -> MusicTaskResponse:
             message="只有失败的音乐任务可以重新入队",
             status_code=409,
         )
+    if task.error_code == "SUNOAPI_SUBMISSION_UNKNOWN" and not task.external_task_id:
+        raise AppException(
+            code="SUNOAPI_SUBMISSION_UNKNOWN",
+            message="提交结果尚不确定，请先在供应商后台核对任务，避免重复生成和扣费",
+            status_code=409,
+        )
     task.status = TaskStatus.PENDING.value
     task.provider_status = "retry_requested"
     task.max_attempts = max(
@@ -348,13 +355,13 @@ def regenerate_music_task(
             message="只有已完成的音乐任务可以再次生成",
             status_code=409,
         )
+    provider_settings = _new_provider_task_settings(db, source.operation)
     _consume_music_task_quota(db, requested_by_id)
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation=source.operation,
         provider="suno",
-        provider_implementation=_selected_provider_implementation(db),
-        model=_selected_music_model(db),
+        **provider_settings,
         requested_by_id=requested_by_id,
         lyrics_version_id=source.lyrics_version_id,
         source_result_id=source.source_result_id,
@@ -469,11 +476,11 @@ def execute_music_task_in_session(
     task = _load_task(db, task_id)
     if task is None or task.status != TaskStatus.PENDING.value:
         return MusicTaskExecutionOutcome(status="ignored")
-    is_sunoapi_status_check = bool(
-        task.provider_implementation == "sunoapi_org" and task.external_task_id
-    )
-    task.status = TaskStatus.RUNNING.value
-    task.started_at = utc_now()
+    claim_outcome = _claim_music_task(db, task)
+    if claim_outcome is not None:
+        return claim_outcome
+    is_sunoapi_task = task.provider_implementation == "sunoapi_org"
+    is_sunoapi_status_check = bool(is_sunoapi_task and task.external_task_id)
     if not is_sunoapi_status_check:
         task.attempt_count += 1
     task.next_attempt_at = None
@@ -487,9 +494,11 @@ def execute_music_task_in_session(
         extra={"task_id": str(task.id), "task_type": "music"},
     )
 
+    provider = None
     try:
         provider = _music_provider_for_task(db, task)
         task.model = provider.model or task.model
+        db.commit()
         source_external_id = None
         if task.source_result_id is not None:
             source = db.get(MusicResult, task.source_result_id)
@@ -529,6 +538,11 @@ def execute_music_task_in_session(
             task.attempt_count += 1
         return _handle_music_task_error(db, task, exc)
     except Exception:
+        submission_unknown = (
+            is_sunoapi_task
+            and not task.__dict__.get("external_task_id")
+        )
+        db.rollback()
         task_logger.exception(
             "music_task_failed",
             extra={
@@ -541,11 +555,49 @@ def execute_music_task_in_session(
             db,
             task,
             MusicProviderError(
-                "音乐生成发生未预期错误，请按任务编号检索日志",
-                code="MUSIC_UNEXPECTED_ERROR",
-                retryable=True,
+                "生成提交状态不确定，请核对供应商后台任务" if submission_unknown
+                else "音乐生成发生未预期错误，请按任务编号检索日志",
+                code="SUNOAPI_SUBMISSION_UNKNOWN" if submission_unknown else "MUSIC_UNEXPECTED_ERROR",
+                retryable=not submission_unknown,
             ),
         )
+    finally:
+        if provider is not None and hasattr(provider, "close"):
+            provider.close()
+
+
+def _claim_music_task(db: Session, task: MusicTask) -> MusicTaskExecutionOutcome | None:
+    now = utc_now()
+    if task.provider_implementation == "sunoapi_org" and not task.external_task_id:
+        _get_or_create_music_settings(db)
+        # Serialize admission across workers; upstream jobs keep their slot while waiting.
+        db.execute(select(MusicProviderSettings.id).where(
+            MusicProviderSettings.id == 1
+        ).with_for_update()).first()
+        active_count = db.scalar(select(func.count(MusicTask.id)).where(
+            MusicTask.id != task.id,
+            MusicTask.provider_implementation == "sunoapi_org",
+            MusicTask.provider_submitted_at.is_not(None),
+            MusicTask.status.in_([TaskStatus.PENDING.value, TaskStatus.RUNNING.value]),
+        )) or 0
+        if active_count >= max(1, settings.MUSIC_MAX_CONCURRENCY):
+            task.provider_status = "waiting_capacity"
+            task.next_attempt_at = now + timedelta(seconds=30)
+            db.commit()
+            return MusicTaskExecutionOutcome("waiting_capacity", 30)
+    values = {"status": TaskStatus.RUNNING.value, "started_at": now}
+    if task.provider_implementation == "sunoapi_org" and not task.external_task_id:
+        values["provider_submitted_at"] = now
+    claimed = db.execute(update(MusicTask).where(
+        MusicTask.id == task.id,
+        MusicTask.status == TaskStatus.PENDING.value,
+        or_(MusicTask.next_attempt_at.is_(None), MusicTask.next_attempt_at <= now),
+    ).values(**values).execution_options(synchronize_session=False))
+    db.commit()
+    db.refresh(task)
+    if claimed.rowcount != 1:
+        return MusicTaskExecutionOutcome(status="ignored")
+    return None
 
 
 def get_music_task(db: Session, task_id: int) -> MusicTaskResponse:
@@ -762,14 +814,17 @@ def _complete_music_task(
     task: MusicTask,
     output: MusicGenerationOutput,
 ) -> None:
+    db.refresh(task, attribute_names=["status", "external_task_id"])
+    if task.status == TaskStatus.COMPLETED.value:
+        return
     if not output.tracks:
         raise MusicProviderError(
             "Suno 任务已结束，但没有返回可用音频",
             code="SUNO_NO_AUDIO_RESULT",
             call=output.call,
         )
-    task.external_task_id = output.external_task_id
-    task.provider_status = output.provider_status
+    if task.external_task_id and task.external_task_id != output.external_task_id:
+        raise MusicProviderError("音乐结果的任务编号不一致", code="SUNO_EXTERNAL_TASK_CONFLICT")
     for track in output.tracks:
         result = MusicResult(
             task_id=task.id,
@@ -795,6 +850,8 @@ def _complete_music_task(
         except MusicStorageError as exc:
             result.storage_error = str(exc)[:500]
 
+    task.external_task_id = output.external_task_id
+    task.provider_status = output.provider_status
     record_api_usage(
         db,
         task_type="music",
@@ -806,6 +863,9 @@ def _complete_music_task(
         status="completed",
     )
     task.status = TaskStatus.COMPLETED.value
+    task.error_code = None
+    task.error_message = None
+    task.error_detail = None
     task.next_attempt_at = None
     task.completed_at = utc_now()
     db.commit()
@@ -820,6 +880,9 @@ def _handle_music_task_error(
     task: MusicTask,
     error: MusicProviderError,
 ) -> MusicTaskExecutionOutcome:
+    db.refresh(task, attribute_names=["external_task_id", "status", "provider_callback_type"])
+    if task.status == TaskStatus.COMPLETED.value:
+        return MusicTaskExecutionOutcome(status="completed")
     detail = dict(error.detail or {})
     external_task_id = detail.get("external_task_id")
     if external_task_id and not task.external_task_id:
@@ -837,6 +900,13 @@ def _handle_music_task_error(
             error_code=error.code,
             error_message=str(error),
         )
+    if error.code == "SUNOAPI_SUBMISSION_UNKNOWN" and task.external_task_id:
+        return _handle_music_task_pending(db, task, MusicProviderPending(
+            external_task_id=task.external_task_id,
+            provider_status="submitted",
+            call=error.call,
+            retry_after_seconds=max(5.0, settings.SUNO_POLL_INTERVAL_SECONDS),
+        ))
     task.error_code = error.code
     task.error_message = str(error)
     task.error_detail = detail or None
@@ -926,8 +996,6 @@ def _handle_music_task_pending(
         )
 
     delay_seconds = max(5.0, pending.retry_after_seconds or 30.0)
-    if task.provider_callback_type == "complete":
-        delay_seconds = 0.0
     task.status = TaskStatus.PENDING.value
     task.provider_status = (
         f"callback_{task.provider_callback_type}"
@@ -994,6 +1062,7 @@ def _persist_external_task_id(
     task: MusicTask,
     external_task_id: str,
 ) -> None:
+    db.refresh(task)
     value = external_task_id.strip()
     if not value or len(value) > 200:
         raise MusicProviderError(
@@ -1011,7 +1080,8 @@ def _persist_external_task_id(
         )
     task.external_task_id = value
     task.provider_submitted_at = task.provider_submitted_at or utc_now()
-    task.provider_status = "submitted"
+    if not task.provider_callback_type:
+        task.provider_status = "submitted"
     db.commit()
 
 
@@ -1021,6 +1091,7 @@ def _music_provider_for_task(db: Session, task: MusicTask):
         task.provider_implementation,
         model=task.model,
         task_id=task.id,
+        token_encrypted=task.provider_token_encrypted,
         on_submitted=lambda external_task_id: _persist_external_task_id(
             db,
             task,
@@ -1044,7 +1115,7 @@ def handle_sunoapi_org_callback(
             message=str(exc),
             status_code=503,
         ) from exc
-    if not hmac.compare_digest(signature, expected_signature):
+    if not hmac.compare_digest(signature.encode("utf-8"), expected_signature.encode("ascii")):
         raise AppException(
             code="SUNOAPI_CALLBACK_UNAUTHORIZED",
             message="SunoAPI 回调签名无效",
@@ -1052,7 +1123,7 @@ def handle_sunoapi_org_callback(
         )
 
     task = db.scalar(
-        select(MusicTask).where(MusicTask.id == task_id).with_for_update()
+        select(MusicTask).where(MusicTask.id == task_id).with_for_update(key_share=True)
     )
     if task is None:
         raise AppException(
@@ -1078,7 +1149,7 @@ def handle_sunoapi_org_callback(
     task.external_task_id = external_task_id
     task.provider_submitted_at = task.provider_submitted_at or utc_now()
 
-    callback_type = payload.data.callback_type
+    callback_type = payload.data.callback_type if payload.code == 200 else "error"
     if task.status == TaskStatus.COMPLETED.value:
         db.commit()
         return (
@@ -1113,27 +1184,17 @@ def handle_sunoapi_org_callback(
             ),
             False,
         )
-    if not is_stale_stage:
-        task.provider_callback_type = callback_type
-        task.provider_callback_received_at = utc_now()
-
+    if current_stage == callback_type:
+        db.commit()
+        return SunoApiOrgCallbackResponse(task_id=task.id, callback_type=callback_type), False
+    task.provider_callback_type = callback_type
+    task.provider_callback_received_at = utc_now()
     should_dispatch = False
-    if callback_type == "error" or payload.code != 200:
-        if task.status != TaskStatus.COMPLETED.value:
-            task.status = TaskStatus.FAILED.value
-            task.provider_status = "callback_error"
-            task.error_code = "SUNOAPI_CALLBACK_ERROR"
-            task.error_message = payload.msg[:1000] or "SunoAPI 回调报告任务失败"
-            task.error_detail = {
-                "provider_code": payload.code,
-                "external_task_id": external_task_id,
-            }
-            task.next_attempt_at = None
-            task.completed_at = utc_now()
-    elif callback_type == "complete":
-        if task.status != TaskStatus.COMPLETED.value:
+    # A callback is a wake-up hint, not proof of success or failure. Query the API.
+    if callback_type in {"complete", "error"}:
+        if task.status != TaskStatus.RUNNING.value:
             task.status = TaskStatus.PENDING.value
-            task.provider_status = "callback_complete"
+            task.provider_status = f"callback_{callback_type}"
             task.error_code = None
             task.error_message = None
             task.error_detail = None
@@ -1171,11 +1232,7 @@ def wake_music_task_from_callback(
             )
         return
     if settings.MUSIC_QUEUE_MODE == "inline":
-        while True:
-            outcome = execute_music_task(task_id, bind)
-            if outcome.retry_delay_seconds is None:
-                return
-            time.sleep(max(0.0, outcome.retry_delay_seconds))
+        execute_music_task(task_id, bind)
 
 
 def _get_task_model(db: Session, task_id: int) -> MusicTask:
@@ -1259,6 +1316,10 @@ def music_provider_settings_response(
     except MusicProviderError:
         token = ""
     callback_base_url = _sunoapi_org_callback_base_url(settings_row)
+    try:
+        callback_ready = bool(_validate_sunoapi_org_callback_base_url(callback_base_url or None))
+    except AppException:
+        callback_ready = False
     return MusicProviderSettingsResponse(
         active_implementation=implementation,
         active_model=settings_row.active_model,
@@ -1272,7 +1333,7 @@ def music_provider_settings_response(
         sunoapi_org_callback_base_url=(
             callback_base_url if include_secret_details else None
         ),
-        sunoapi_org_callback_ready=bool(callback_base_url),
+        sunoapi_org_callback_ready=callback_ready,
         updated_by_id=settings_row.updated_by_id,
         updated_at=settings_row.updated_at,
     )
@@ -1307,7 +1368,7 @@ def update_music_provider_settings(
             )
         )
     if payload.clear_sunoapi_org_token:
-        settings_row.sunoapi_org_token_encrypted = None
+        settings_row.sunoapi_org_token_encrypted = encrypt_credential("")
         settings_row.sunoapi_org_token_hint = None
     elif payload.sunoapi_org_token is not None:
         token = payload.sunoapi_org_token.get_secret_value().strip()
@@ -1319,6 +1380,10 @@ def update_music_provider_settings(
             )
         settings_row.sunoapi_org_token_encrypted = encrypt_credential(token)
         settings_row.sunoapi_org_token_hint = credential_hint(token)
+    if payload.clear_sunoapi_org_token or payload.sunoapi_org_token is not None:
+        db.execute(delete(MusicProviderQuotaSnapshot).where(
+            MusicProviderQuotaSnapshot.provider_implementation == "sunoapi_org"
+        ))
 
     if _effective_provider_implementation(settings_row) == "sunoapi_org":
         missing: list[str] = []
@@ -1350,7 +1415,7 @@ def update_music_provider_settings(
                 message=f"SunoAPI 不支持模型 {settings_row.active_model}",
                 status_code=422,
             )
-        if missing:
+        if missing and not payload.clear_sunoapi_org_token:
             raise AppException(
                 code="SUNOAPI_CONFIGURATION_INCOMPLETE",
                 message=f"启用 SunoAPI 前请配置：{'、'.join(missing)}",
@@ -1371,6 +1436,7 @@ def refresh_music_quota(
     implementation: str | None = None,
 ) -> SunoQuotaResponse:
     selected = implementation or _selected_provider_implementation(db)
+    provider = None
     try:
         provider = _music_provider_for_implementation(db, selected)
         quota = provider.get_quota()
@@ -1394,6 +1460,9 @@ def refresh_music_quota(
             error_message=str(exc),
             checked_at=utc_now(),
         )
+    finally:
+        if provider is not None and hasattr(provider, "close"):
+            provider.close()
     db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
@@ -1482,20 +1551,63 @@ def _selected_music_model(db: Session) -> str:
     return _get_or_create_music_settings(db).active_model
 
 
+def _new_provider_task_settings(db: Session, operation: str) -> dict:
+    row = _get_or_create_music_settings(db)
+    implementation = _effective_provider_implementation(row)
+    if implementation == "sunoapi_org" and operation != "generate":
+        raise AppException(
+            code="SUNOAPI_OPERATION_NOT_SUPPORTED",
+            message="当前接口已接入完整音乐生成，续写和改编尚未接入",
+            status_code=422,
+        )
+    token = None
+    if implementation == "sunoapi_org":
+        try:
+            token = _sunoapi_org_token(row)
+        except MusicProviderError as exc:
+            raise AppException(code=exc.code, message=str(exc), status_code=422) from exc
+        callback_base = _sunoapi_org_callback_base_url(row)
+        if not token or not callback_base:
+            raise AppException(
+                code="SUNOAPI_CONFIGURATION_INCOMPLETE",
+                message="请管理员先配置 SunoAPI Token 和回调公网地址",
+                status_code=422,
+            )
+        _validate_sunoapi_org_callback_base_url(callback_base)
+    return {
+        "provider_implementation": implementation,
+        "model": row.active_model,
+        "provider_token_encrypted": (
+            encrypt_credential(token)
+            if implementation == "sunoapi_org" else None
+        ),
+    }
+
+
 def _get_or_create_music_settings(db: Session) -> MusicProviderSettings:
     settings_row = db.get(MusicProviderSettings, 1)
     if settings_row is None:
-        settings_row = MusicProviderSettings(
-            id=1,
-            active_model=(settings.SUNO_MODEL or "v4.5").strip() or "v4.5",
-        )
-        db.add(settings_row)
-        db.flush()
+        try:
+            with db.begin_nested():
+                settings_row = MusicProviderSettings(
+                    id=1,
+                    active_model=(settings.SUNO_MODEL or "v4.5").strip() or "v4.5",
+                    sunoapi_org_callback_secret_encrypted=encrypt_credential(
+                        secrets.token_urlsafe(32)
+                    ),
+                )
+                db.add(settings_row)
+                db.flush()
+            db.commit()
+        except IntegrityError:
+            settings_row = db.get(MusicProviderSettings, 1)
     if not settings_row.sunoapi_org_callback_secret_encrypted:
-        settings_row.sunoapi_org_callback_secret_encrypted = encrypt_credential(
+        db.execute(update(MusicProviderSettings).where(
+            MusicProviderSettings.id == 1,
+            MusicProviderSettings.sunoapi_org_callback_secret_encrypted.is_(None),
+        ).values(sunoapi_org_callback_secret_encrypted=encrypt_credential(
             secrets.token_urlsafe(32)
-        )
-    if settings_row in db.new or db.is_modified(settings_row):
+        )))
         db.commit()
         db.refresh(settings_row)
     return settings_row
@@ -1507,6 +1619,7 @@ def _music_provider_for_implementation(
     *,
     model: str | None = None,
     task_id: int | None = None,
+    token_encrypted: str | None = None,
     on_submitted=None,
 ):
     if implementation != "sunoapi_org":
@@ -1523,7 +1636,10 @@ def _music_provider_for_implementation(
         implementation,
         model=model or settings_row.active_model,
         on_submitted=on_submitted,
-        api_key=_sunoapi_org_token(settings_row),
+        api_key=(
+            _decrypt_sunoapi_token(token_encrypted)
+            if token_encrypted is not None else _sunoapi_org_token(settings_row)
+        ),
         base_url=settings.SUNOAPI_ORG_BASE_URL,
         callback_url=callback_url,
     )
@@ -1531,14 +1647,18 @@ def _music_provider_for_implementation(
 
 def _sunoapi_org_token(settings_row: MusicProviderSettings) -> str:
     if settings_row.sunoapi_org_token_encrypted:
-        try:
-            return decrypt_credential(settings_row.sunoapi_org_token_encrypted)
-        except CredentialDecryptionError as exc:
-            raise MusicProviderError(
-                "SunoAPI Token 无法解密，请管理员重新填写 Token",
-                code="SUNOAPI_CREDENTIAL_DECRYPTION_FAILED",
-            ) from exc
+        return _decrypt_sunoapi_token(settings_row.sunoapi_org_token_encrypted)
     return settings.SUNOAPI_ORG_API_KEY.strip()
+
+
+def _decrypt_sunoapi_token(encrypted: str) -> str:
+    try:
+        return decrypt_credential(encrypted)
+    except CredentialDecryptionError as exc:
+        raise MusicProviderError(
+            "SunoAPI Token 无法解密，请管理员检查加密配置",
+            code="SUNOAPI_CREDENTIAL_DECRYPTION_FAILED",
+        ) from exc
 
 
 def _sunoapi_org_callback_base_url(
@@ -1560,6 +1680,10 @@ def _sunoapi_org_callback_url(
             "尚未配置 SunoAPI 回调公网地址",
             code="SUNOAPI_CALLBACK_NOT_CONFIGURED",
         )
+    try:
+        _validate_sunoapi_org_callback_base_url(base_url)
+    except AppException as exc:
+        raise MusicProviderError(str(exc), code="SUNOAPI_CALLBACK_URL_INVALID") from exc
     signature = _sunoapi_org_callback_signature(settings_row, task_id)
     return (
         f"{base_url}{settings.API_V1_PREFIX}/music/callbacks/"
@@ -1594,7 +1718,20 @@ def _sunoapi_org_callback_signature(
 def _validate_sunoapi_org_callback_base_url(value: str | None) -> str | None:
     if value is None:
         return None
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+        parsed.port
+    except ValueError as exc:
+        raise AppException(
+            code="SUNOAPI_CALLBACK_URL_INVALID",
+            message="回调公网地址的主机或端口格式无效",
+            status_code=422,
+        ) from exc
+    hostname = (parsed.hostname or "").lower()
+    try:
+        private_host = not ipaddress.ip_address(hostname).is_global
+    except ValueError:
+        private_host = hostname in {"localhost", "localhost.localdomain"} or hostname.endswith((".localhost", ".local"))
     if (
         parsed.scheme != "https"
         or not parsed.hostname
@@ -1602,10 +1739,12 @@ def _validate_sunoapi_org_callback_base_url(value: str | None) -> str | None:
         or parsed.password
         or parsed.query
         or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or private_host
     ):
         raise AppException(
             code="SUNOAPI_CALLBACK_URL_INVALID",
-            message="SunoAPI 回调公网地址必须是完整的 HTTPS 地址",
+            message="请填写公网 HTTPS 站点地址，不要填写本机地址或附加 /api 路径",
             status_code=422,
         )
     return value.rstrip("/")

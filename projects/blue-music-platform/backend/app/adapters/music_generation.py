@@ -214,6 +214,16 @@ class SunoApiOrgMusicProvider:
             transport=transport,
         )
 
+    def close(self) -> None:
+        self._client.close()
+
+    def _submission_unknown(self, call: ProviderCallMetadata | None = None) -> MusicProviderError:
+        return MusicProviderError(
+            "生成请求已发出但未确认任务编号；已暂停，请先在供应商后台核对，避免重复扣费",
+            code="SUNOAPI_SUBMISSION_UNKNOWN",
+            call=call,
+        )
+
     def generate(self, payload: MusicGenerationInput) -> MusicGenerationOutput:
         self._validate_callback_url()
         model = self._provider_model()
@@ -252,9 +262,7 @@ class SunoApiOrgMusicProvider:
             else ""
         )
         if not external_task_id or len(external_task_id) > 200:
-            raise MusicProviderError(
-                "SunoAPI 没有返回有效的任务编号",
-                code="SUNOAPI_INVALID_RESPONSE",
+            raise self._submission_unknown(
                 call=self._call_metadata(
                     response,
                     method="POST",
@@ -333,7 +341,7 @@ class SunoApiOrgMusicProvider:
                     "received_external_task_id": returned_task_id,
                 },
             )
-        provider_status = str(data.get("status") or "PENDING").strip().upper()
+        provider_status = str(data.get("status") or "").strip().upper()
         completed_at = utc_now()
         call = self._call_metadata(
             response,
@@ -374,10 +382,10 @@ class SunoApiOrgMusicProvider:
                 },
             )
         if provider_status != "SUCCESS":
-            raise MusicProviderPending(
-                external_task_id=task_id,
-                provider_status=provider_status.lower(),
-                retry_after_seconds=max(5.0, settings.SUNO_POLL_INTERVAL_SECONDS),
+            raise MusicProviderError(
+                "SunoAPI 返回了未知的任务状态",
+                code="SUNOAPI_INVALID_RESPONSE",
+                retryable=True,
                 call=call,
             )
 
@@ -396,6 +404,8 @@ class SunoApiOrgMusicProvider:
                 detail={"external_task_id": task_id},
             )
         tracks = [self._track_output(item) for item in items if isinstance(item, dict)]
+        if len({track.external_id for track in tracks}) != len(tracks):
+            raise MusicProviderError("SunoAPI 返回了重复的音乐编号", code="SUNOAPI_INVALID_RESPONSE")
         if not tracks or any(not track.audio_url for track in tracks):
             raise MusicProviderError(
                 "SunoAPI 任务已完成，但音频下载地址尚不可用",
@@ -422,7 +432,7 @@ class SunoApiOrgMusicProvider:
             started_at=started_at,
         )
         credits = _optional_number(body.get("data"))
-        if credits is None:
+        if credits is None or not math.isfinite(credits) or credits < 0:
             raise MusicProviderError(
                 "SunoAPI 额度接口没有返回有效积分",
                 code="SUNOAPI_INVALID_RESPONSE",
@@ -456,6 +466,8 @@ class SunoApiOrgMusicProvider:
         try:
             response = self._client.request(method, path, **kwargs)
         except httpx.TimeoutException as exc:
+            if method == "POST" and not isinstance(exc, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+                raise self._submission_unknown(self._failed_call(method, path, started_at)) from exc
             raise MusicProviderError(
                 "连接 SunoAPI 超时，系统将稍后重试",
                 code="SUNOAPI_TIMEOUT",
@@ -463,6 +475,8 @@ class SunoApiOrgMusicProvider:
                 call=self._failed_call(method, path, started_at),
             ) from exc
         except httpx.HTTPError as exc:
+            if method == "POST" and not isinstance(exc, httpx.ConnectError):
+                raise self._submission_unknown(self._failed_call(method, path, started_at)) from exc
             raise MusicProviderError(
                 "无法连接 SunoAPI，系统将稍后重试",
                 code="SUNOAPI_NETWORK_ERROR",
@@ -489,6 +503,8 @@ class SunoApiOrgMusicProvider:
         try:
             body = response.json()
         except ValueError as exc:
+            if method == "POST":
+                raise self._submission_unknown(self._failed_call(method, path, started_at)) from exc
             raise MusicProviderError(
                 "SunoAPI 返回的不是有效 JSON",
                 code="SUNOAPI_INVALID_RESPONSE",
@@ -501,6 +517,8 @@ class SunoApiOrgMusicProvider:
                 ),
             ) from exc
         if not isinstance(body, dict):
+            if method == "POST":
+                raise self._submission_unknown(self._failed_call(method, path, started_at))
             raise MusicProviderError(
                 "SunoAPI 返回的数据结构不正确",
                 code="SUNOAPI_INVALID_RESPONSE",
@@ -530,6 +548,13 @@ class SunoApiOrgMusicProvider:
         provider_code: int | None = None,
         provider_message: str | None = None,
     ) -> MusicProviderError:
+        if provider_code is None:
+            try:
+                body = response.json()
+                if isinstance(body, dict) and isinstance(body.get("code"), int):
+                    provider_code = body["code"]
+            except ValueError:
+                pass
         code = provider_code or response.status_code
         message = provider_message or _response_error_message(response)
         call = self._call_metadata(
@@ -550,7 +575,7 @@ class SunoApiOrgMusicProvider:
                 call=call,
                 detail=detail,
             )
-        if code == 429:
+        if provider_code == 429:
             return MusicProviderError(
                 "SunoAPI 积分不足，请充值后刷新额度",
                 code="SUNOAPI_QUOTA_EXHAUSTED",
@@ -574,6 +599,8 @@ class SunoApiOrgMusicProvider:
                 detail=detail,
             )
         if code == 455 or code >= 500 or response.status_code >= 500:
+            if method == "POST" and code != 455:
+                return self._submission_unknown(call)
             return MusicProviderError(
                 f"SunoAPI 暂时不可用：{message[:300]}",
                 code="SUNOAPI_UPSTREAM_ERROR",
@@ -591,7 +618,7 @@ class SunoApiOrgMusicProvider:
     def _track_output(self, item: dict[str, Any]) -> MusicTrackOutput:
         external_id = str(item.get("id") or "").strip()
         audio_url = str(item.get("audioUrl") or item.get("audio_url") or "").strip()
-        if not external_id:
+        if not external_id or len(external_id) > 200:
             raise MusicProviderError(
                 "SunoAPI 音乐结果缺少编号",
                 code="SUNOAPI_INVALID_RESPONSE",
@@ -604,7 +631,7 @@ class SunoApiOrgMusicProvider:
             image_url=_optional_string(
                 item.get("imageUrl") or item.get("image_url")
             ),
-            provider_page_url=f"https://suno.com/song/{external_id}",
+            provider_page_url=None,
         )
 
     def _call_metadata(

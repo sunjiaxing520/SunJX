@@ -116,6 +116,14 @@ def recover_stale_music_tasks(db: Session) -> int:
         )
     ).all()
     for task in tasks:
+        if task.provider_implementation == "sunoapi_org" and not task.external_task_id:
+            task.status = TaskStatus.FAILED.value
+            task.provider_status = "submission_unknown"
+            task.error_code = "SUNOAPI_SUBMISSION_UNKNOWN"
+            task.error_message = "worker 在提交期间中断，尚未确认外部任务编号；请核对供应商后台，避免重复扣费"
+            task.next_attempt_at = None
+            task.completed_at = now
+            continue
         task.status = TaskStatus.PENDING.value
         task.provider_status = "interrupted_requeued"
         task.error_code = "MUSIC_TASK_INTERRUPTED"
@@ -133,11 +141,11 @@ def recover_stale_music_tasks(db: Session) -> int:
     db.commit()
     for task in tasks:
         task_logger.warning(
-            "stale_music_task_requeued",
+            "stale_music_task_recovered",
             extra={
                 "task_id": str(task.id),
                 "task_type": "music",
-                "error_code": "MUSIC_TASK_INTERRUPTED",
+                "error_code": task.error_code,
                 "max_runtime_seconds": round(max_runtime_seconds),
             },
         )
