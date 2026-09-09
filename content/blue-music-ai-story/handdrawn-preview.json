@@ -1,0 +1,13 @@
+{
+  "output": "D:/DevTools/VideoProjects/BlueMusic-AIStory/handdrawn-preview",
+  "direction": "不采用人物漫画。保留第一版文字与页面结构，改为手绘笔记；原页面截图不转绘、不伪造。",
+  "voices": [
+    {"id":"A", "name":"zh-CN-YunxiaNeural", "label":"轻松年轻男声"},
+    {"id":"B", "name":"zh-CN-YunjianNeural", "label":"较低声线男声"}
+  ],
+  "scenes": [
+    {"title":"接了个\n真实项目。", "label":"蓝乐 / 开发手记", "voice":"项目是接了。", "note":"真实项目界面 · 隔离测试数据"},
+    {"title":"说真的，\n我也有不会的。", "label":"开发时的真实提问", "voice":"但连怎么启动，我还得问AI。", "note":"历史对话摘录 · 手绘排版，非原始截图"},
+    {"title":"边问，边做。\n还能往前走。", "label":"#我被AI接住了", "voice":"好在，不会的地方，可以边问边做。", "note":"人提出需求、检查结果；AI协助实现"}
+  ]
+}

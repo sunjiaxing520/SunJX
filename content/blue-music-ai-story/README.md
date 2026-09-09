@@ -1,5 +1,19 @@
 # 蓝乐真实项目视频：首版审阅剪辑
 
+## 最新风格小样
+
+用户最新要求：不要人物漫画，整体仍为第一版文字和页面结构，采用手绘笔记视觉。
+曾生成的人物概念图不采用，保存在 D 盘 unused-character-concept，不进入视频或仓库。
+
+`handdrawn-preview.json`、`render-handdrawn.cjs`、`build-handdrawn.py` 生成新的无人物小样。
+成片目录：`D:\DevTools\VideoProjects\BlueMusic-AIStory\handdrawn-preview`。
+`Handdrawn_Opening_A.mp4` 采用 Yunxia 男声，`Handdrawn_Opening_B.mp4` 采用 Yunjian 男声。
+两版约 10 秒，同一口语化文案、同一画面；不添加背景音乐以便比较声音。
+`compare.html` 可对比播放，`audio`/`voice-*.wav` 保留单独配音。画面为真实隔离测试截图
+加手绘边框与标题，没有把截图转绘为虚构界面。小样不代表完整版已经改完；待用户选声音与风格。
+
+## 原60秒版本
+
 成片：`D:\DevTools\VideoProjects\BlueMusic-AIStory\BlueMusic_AIStory_60s.mp4`
 
 60 秒、1080x1920、30fps、H.264/AAC；无需人物出镜。包含中文合成旁白、烧录字幕、
