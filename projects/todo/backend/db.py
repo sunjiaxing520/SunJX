@@ -33,6 +33,11 @@ class LoginSession(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey('todo_users.id'), index=True)
     expires: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
+class MemoConnection(Base):
+    __tablename__ = 'todo_memo_connections'
+    user_id: Mapped[str] = mapped_column(ForeignKey('todo_users.id'), primary_key=True)
+    key_cipher: Mapped[str] = mapped_column(Text)
+
 class Message(Base):
     __tablename__ = 'todo_messages'
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

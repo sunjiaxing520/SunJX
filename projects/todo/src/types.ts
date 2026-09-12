@@ -10,6 +10,7 @@ export type Project = {
   details: string;
 };
 export type Task = {
+  task_type?: "normal" | "vocabulary";
   id: string;
   project_id: string;
   title: string;

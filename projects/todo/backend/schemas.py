@@ -24,6 +24,7 @@ class Task(Strict):
     id: str = Field(min_length=1, max_length=36)
     project_id: str = Field(min_length=1, max_length=36)
     title: str = Field(min_length=1, max_length=200)
+    task_type: Literal['normal','vocabulary'] = 'normal'
     date: Date | None = None
     time: str = Field(default='', pattern=r'^$|^([01]\d|2[0-3]):[0-5]\d$')
     minutes: int = Field(default=30, ge=0, le=960)
@@ -64,6 +65,12 @@ class Auth(Strict):
 class AIConfig(Strict):
     key: str | None = Field(default=None,max_length=512)
     model: str = Field(default='kimi-k2.6',min_length=1,max_length=100,pattern=r'^[a-zA-Z0-9._\-]+$')
+
+class MemoConfig(Strict):
+    key: str = Field(min_length=10,max_length=2048)
+
+class MemoQuestion(Strict):
+    message: str = Field(default='根据今天墨墨的真实学习进度，帮我分析完成情况，并给出下一步背词和复习建议。',min_length=1,max_length=3000)
 
 class ChatInput(Strict):
     project_id: str = Field(min_length=1,max_length=36)

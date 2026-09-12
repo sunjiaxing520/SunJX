@@ -63,10 +63,18 @@ import {
 } from "./types";
 import "./styles.css";
 import { Select } from "./Select";
+import { MemoPage, type MemoSnapshot } from "./MemoPage";
 import { useEntrance } from "./motion";
 
 const initial: State = { projects: [], tasks: [], revision: 0 };
-type View = "today" | "projects" | "calendar" | "review" | "settings" | "ai";
+type View =
+  | "today"
+  | "projects"
+  | "calendar"
+  | "review"
+  | "settings"
+  | "ai"
+  | "memo";
 const nav = [
   { id: "today", label: "今天", icon: Sun },
   { id: "projects", label: "我的计划", icon: Layers3 },
@@ -307,6 +315,38 @@ function App() {
     [chatProject, setChatProject] = useState("");
   const pageRoot = useRef<HTMLElement>(null);
   useEntrance(pageRoot, "page", [view, projectId, date, user?.id]);
+  const [memoBound, setMemoBound] = useState(false),
+    [memoSnapshot, setMemoSnapshot] = useState<MemoSnapshot | null>(null);
+  useEffect(() => {
+    let active = true;
+    setMemoBound(false);
+    setMemoSnapshot(null);
+    if (user)
+      api<{ bound: boolean }>("/memo/status")
+        .then((r) => {
+          if (active) setMemoBound(r.bound);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+  useEffect(() => {
+    if (!user || !memoBound) return;
+    let active = true;
+    const sync = () =>
+      api<MemoSnapshot>("/memo/today")
+        .then((s) => {
+          if (active) setMemoSnapshot(s);
+        })
+        .catch(() => {});
+    sync();
+    const timer = setInterval(sync, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [user?.id, memoBound]);
   const currentData = useRef(data),
     busyRef = useRef(false);
   currentData.current = data;
@@ -594,6 +634,15 @@ function App() {
           <Plus size={16} /> 添加一个新计划
         </button>
         <div className="sidebar-bottom">
+          <button
+            className={
+              view === "memo" ? "settings-link active" : "settings-link"
+            }
+            onClick={() => go("memo")}
+          >
+            <BookOpen size={18} />
+            背单词
+          </button>
           <div className="small-ai-card">
             <Sparkles size={18} />
             <span>
@@ -643,7 +692,11 @@ function App() {
             <strong>
               {selected?.name ||
                 nav.find((n) => n.id === view)?.label ||
-                (view === "ai" ? "AI 管理" : "设置")}
+                (view === "ai"
+                  ? "AI 管理"
+                  : view === "memo"
+                    ? "背单词"
+                    : "设置")}
             </strong>
           </div>
           <div className="top-actions">
@@ -682,7 +735,7 @@ function App() {
         )}
         <main
           ref={pageRoot}
-          className={`content ${view === "calendar" ? "calendar-content" : ""}`}
+          className={`content ${view === "calendar" ? "calendar-content" : ""} ${view === "memo" && !memoBound ? "memo-blank-content" : ""}`}
         >
           {view === "today" && (
             <>
@@ -923,6 +976,7 @@ function App() {
               <div className="task-list">
                 {pending.map((t) => (
                   <TaskRow
+                    memoSnapshot={memoSnapshot}
                     key={t.id}
                     task={t}
                     project={data.projects.find((p) => p.id === t.project_id)}
@@ -967,6 +1021,7 @@ function App() {
                   </summary>
                   {completed.map((t) => (
                     <TaskRow
+                      memoSnapshot={memoSnapshot}
                       key={t.id}
                       task={t}
                       project={data.projects.find((p) => p.id === t.project_id)}
@@ -1010,11 +1065,19 @@ function App() {
               }}
             />
           )}
+          {view === "memo" && (
+            <MemoPage
+              bound={memoBound}
+              onBound={setMemoBound}
+              onSnapshot={setMemoSnapshot}
+            />
+          )}
           {view === "review" && <Review data={data} onAI={() => openAI()} />}
           {view === "ai" && <AIManagement user={user} onUser={setUser} />}
           {view === "settings" && (
             <SettingsView
               user={user}
+              onMemo={() => go("memo")}
               onAI={() => go("ai")}
               notify={notify}
               onLogout={async () => {
@@ -1089,6 +1152,7 @@ function App() {
       )}
       {taskEdit && (
         <TaskEditor
+          memoBound={memoBound}
           task={taskEdit}
           projects={data.projects}
           onClose={() => setTaskEdit(null)}
@@ -1147,7 +1211,7 @@ function App() {
       )}
       <button
         className="mobile-fab"
-        hidden={view === "ai" || view === "settings"}
+        hidden={view === "ai" || view === "settings" || view === "memo"}
         aria-label="添加待办"
         onClick={add}
       >
@@ -1233,6 +1297,7 @@ function QuickAdd({
   );
 }
 function TaskRow({
+  memoSnapshot,
   task,
   project,
   busy,
@@ -1240,6 +1305,7 @@ function TaskRow({
   onEdit,
   onDelete,
 }: {
+  memoSnapshot: MemoSnapshot | null;
   task: Task;
   project?: Project;
   busy: boolean;
@@ -1266,6 +1332,16 @@ function TaskRow({
           {task.locked && <LockKeyhole size={13} />}
         </span>
         <span className="task-meta">
+          {task.task_type === "vocabulary" && (
+            <span className="vocabulary-tag">
+              背单词
+              {memoSnapshot &&
+              task.date === day() &&
+              task.date === memoSnapshot.date
+                ? ` · ${memoSnapshot.progress.finished}/${memoSnapshot.progress.total} 词`
+                : " · 查看墨墨今日进度"}
+            </span>
+          )}
           {project && (
             <span className={`project-text ${project.color}`}>
               <span className={`project-dot ${project.color}`} />
@@ -1315,6 +1391,7 @@ function TaskRow({
 }
 
 function TaskEditor({
+  memoBound,
   task,
   projects,
   onClose,
@@ -1323,6 +1400,7 @@ function TaskEditor({
 }: {
   task: Task;
   projects: Project[];
+  memoBound: boolean;
   onClose: () => void;
   onSave: (t: Task) => Promise<void>;
   onDelete: () => void;
@@ -1358,6 +1436,26 @@ function TaskEditor({
             placeholder="写下一个具体的小行动"
           />
         </label>
+        {(memoBound || draft.task_type === "vocabulary") && (
+          <label>
+            任务类型
+            <Select
+              aria-label="任务类型"
+              value={draft.task_type || "normal"}
+              onChange={(e) =>
+                patch({ task_type: e.target.value as Task["task_type"] })
+              }
+            >
+              <option value="normal">普通任务</option>
+              {(memoBound || draft.task_type === "vocabulary") && (
+                <option value="vocabulary">背单词 · 墨墨</option>
+              )}
+            </Select>
+            {!memoBound && (
+              <small>已解除墨墨绑定，可保留已有任务或改为普通任务。</small>
+            )}
+          </label>
+        )}
         <label>
           所属计划
           <Select
@@ -2284,12 +2382,14 @@ function AIManagement({
   );
 }
 function SettingsView({
+  onMemo,
   user,
   onAI,
   notify,
   onLogout,
   onImport,
 }: {
+  onMemo: () => void;
   user: User;
   onAI: () => void;
   notify: (s: string) => void;
@@ -2312,6 +2412,14 @@ function SettingsView({
         <span>
           <b>AI 管理</b>
           <small>Kimi 余额、API Key 与模型配置</small>
+        </span>
+        <ArrowUpRight size={20} />
+      </button>
+      <button className="ai-management-entry settings-card" onClick={onMemo}>
+        <BookOpen size={24} />
+        <span>
+          <b>背单词</b>
+          <small>绑定墨墨，跟进每日单词进度</small>
         </span>
         <ArrowUpRight size={20} />
       </button>

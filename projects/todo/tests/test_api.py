@@ -114,3 +114,54 @@ def test_balance_provider_validation(body, valid, monkeypatch):
         with pytest.raises(HTTPException) as error:
             asyncio.run(ai.fetch_balance('test'))
         assert error.value.status_code == 502
+
+def test_memo_binding_tasks_and_kimi(client,monkeypatch):
+    snapshot={'progress':{'finished':12,'total':30,'study_time':180000},'words':[],'date':'2026-09-12','checked_at':'2026-09-12T01:00:00Z','list_limited':False}
+    async def fetch(key):
+        assert key=='memo-test-token'
+        return snapshot
+    monkeypatch.setattr(main,'read_today',fetch)
+    assert client.get('/api/memo/status').json()=={'bound':False}
+    assert client.get('/api/memo/today').status_code==400
+    state=client.get('/api/state').json()
+    state['tasks']=[{'id':'vocab','project_id':state['projects'][0]['id'],'title':'背单词','task_type':'vocabulary'}]
+    assert client.put('/api/state',json=state).status_code==400
+    result=client.put('/api/memo/key',json={'key':'memo-test-token'})
+    assert result.status_code==200
+    assert 'memo-test-token' not in result.text
+    assert client.put('/api/state',json=state).status_code==200
+    with TestClient(main.app,headers={'X-Todo-Client':'web'}) as other:
+        other.post('/api/auth/register',json={'username':uuid4().hex,'password':'test-password'})
+        assert other.get('/api/memo/status').json()=={'bound':False}
+        assert other.get('/api/memo/today').status_code==400
+    async def model(key,model,messages):
+        assert 'memo-test-token' not in str(messages)
+        assert '180000' in str(messages)
+        return AIReply(message='已完成12词，还需18词，学习3分钟。')
+    monkeypatch.setattr(main,'call_model',model)
+    client.put('/api/settings/ai',json={'key':'kimi-test-token'})
+    assert client.post('/api/memo/analyze',json={}).status_code==200
+    from fastapi import HTTPException
+    async def failure(key): raise HTTPException(502,'provider unavailable')
+    monkeypatch.setattr(main,'read_today',failure)
+    assert client.put('/api/memo/key',json={'key':'another-token'}).status_code==502
+    assert client.get('/api/memo/status').json()['bound'] is True
+    assert 'memo-test-token' not in client.get('/api/export').text
+    assert client.delete('/api/memo/key').status_code==200
+    assert client.get('/api/memo/status').json()['bound'] is False
+    assert client.get('/api/state').json()['tasks'][0]['task_type']=='vocabulary'
+
+def test_memo_official_contract(monkeypatch):
+    import asyncio,httpx
+    from backend.memo import read_today
+    async def post(self,url,**kwargs):
+        assert url.startswith('https://open.maimemo.com/open/api/v1/memo/study/')
+        assert self.headers['Authorization']=='Bearer token'
+        if url.endswith('get_study_progress'):
+            return httpx.Response(200,json={'progress':{'finished':0,'total':0,'study_time':0}})
+        assert kwargs['json']=={'limit':1000}
+        return httpx.Response(200,json={'today_items':[]})
+    monkeypatch.setattr(httpx.AsyncClient,'post',post)
+    result=asyncio.run(read_today('token'))
+    assert result['progress']['total']==0
+    assert result['words']==[]
