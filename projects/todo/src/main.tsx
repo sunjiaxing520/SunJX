@@ -62,6 +62,7 @@ import {
   type Kind,
 } from "./types";
 import "./styles.css";
+import { Select } from "./Select";
 import { useEntrance } from "./motion";
 
 const initial: State = { projects: [], tasks: [], revision: 0 };
@@ -98,6 +99,7 @@ function Modal({
     const node = ref.current;
     node?.querySelector<HTMLElement>("input,button,select,textarea")?.focus();
     const listener = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector(".select-menu")) return;
       if (e.key === "Escape") onClose();
       if (e.key === "Tab" && node) {
         const items = Array.from(
@@ -1209,7 +1211,7 @@ function QuickAdd({
           }}
         />
         {projects.length > 1 && (
-          <select
+          <Select
             aria-label="添加到计划"
             value={p || projects[0]?.id}
             onChange={(e) => setP(e.target.value)}
@@ -1219,7 +1221,7 @@ function QuickAdd({
                 {x.name}
               </option>
             ))}
-          </select>
+          </Select>
         )}
         <button disabled={busy || !value.trim()} type="submit">
           <span>添加</span>
@@ -1358,7 +1360,8 @@ function TaskEditor({
         </label>
         <label>
           所属计划
-          <select
+          <Select
+            aria-label="所属计划"
             value={draft.project_id}
             onChange={(e) => patch({ project_id: e.target.value })}
           >
@@ -1367,7 +1370,7 @@ function TaskEditor({
                 {p.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <div className="form-grid">
           <label>
@@ -1410,7 +1413,8 @@ function TaskEditor({
           </label>
           <label>
             优先级
-            <select
+            <Select
+              aria-label="优先级"
               value={draft.priority}
               onChange={(e) =>
                 patch({ priority: e.target.value as Task["priority"] })
@@ -1418,11 +1422,12 @@ function TaskEditor({
             >
               <option value="normal">普通</option>
               <option value="high">优先完成</option>
-            </select>
+            </Select>
           </label>
           <label>
             掌握情况
-            <select
+            <Select
+              aria-label="掌握情况"
               value={draft.mastery}
               onChange={(e) =>
                 patch({ mastery: e.target.value as Task["mastery"] })
@@ -1431,7 +1436,7 @@ function TaskEditor({
               <option value="none">暂不记录</option>
               <option value="learned">已掌握</option>
               <option value="review">需要复习</option>
-            </select>
+            </Select>
           </label>
         </div>
         <label className="check-label">
@@ -1582,7 +1587,8 @@ function ProjectEditor({
         </label>
         <label>
           学习类型
-          <select
+          <Select
+            aria-label="学习类型"
             value={draft.kind}
             onChange={(e) => patch({ kind: e.target.value as Kind })}
           >
@@ -1591,7 +1597,7 @@ function ProjectEditor({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label>
           想达到什么目标
@@ -1786,7 +1792,7 @@ function CalendarView({
           </button>
         </div>
         <div>
-          <select
+          <Select
             aria-label="日历计划筛选"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -1797,7 +1803,7 @@ function CalendarView({
                 {p.name}
               </option>
             ))}
-          </select>
+          </Select>
           <div className="segmented">
             <button
               className={mode === "week" ? "active" : ""}
@@ -2488,7 +2494,7 @@ function ChatPanel({
       </header>
       <div className="chat-context">
         <span className={`project-dot ${project?.color || "blue"}`} />
-        <select
+        <Select
           aria-label="AI 当前计划"
           value={projectId}
           disabled={busy}
@@ -2499,7 +2505,7 @@ function ChatPanel({
               {p.name}
             </option>
           ))}
-        </select>
+        </Select>
         <span>当前计划</span>
       </div>
       {!user.ai_enabled ? (
