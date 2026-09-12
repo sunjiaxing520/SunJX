@@ -77,3 +77,40 @@ def test_ai_cannot_change_protected_task(flag):
     data['tasks'][0][flag] = True
     with pytest.raises(HTTPException):
         prepare_changes(data, 'p', [Change(op='delete', id='t')])
+
+def test_balance_requires_own_key(client, monkeypatch):
+    assert client.get('/api/settings/ai/balance').status_code == 400
+    async def fake(key):
+        assert key == 'balance-test-key'
+        return {'available_balance': 0, 'cash_balance': -1, 'voucher_balance': 0, 'currency': 'CNY'}
+    monkeypatch.setattr(main, 'fetch_balance', fake)
+    client.put('/api/settings/ai', json={'key': 'balance-test-key'})
+    response = client.get('/api/settings/ai/balance')
+    assert response.status_code == 200
+    assert response.json()['available_balance'] == 0
+    assert 'checked_at' in response.json()
+    assert 'balance-test-key' not in response.text
+    with TestClient(main.app, headers={'X-Todo-Client': 'web'}) as other:
+        other.post('/api/auth/register', json={'username': uuid4().hex, 'password': 'test-password'})
+        assert other.get('/api/settings/ai/balance').status_code == 400
+
+@pytest.mark.parametrize('body,valid', [
+    ({'code':0,'status':True,'data':{'available_balance':0,'cash_balance':-1,'voucher_balance':0}},True),
+    ({'code':0,'status':True,'data':{'available_balance':1}},False),
+    ({'code':0,'status':False,'data':{}},False),
+    ({'code':0,'status':True,'data':{'available_balance':'NaN','cash_balance':0,'voucher_balance':0}},False),
+])
+def test_balance_provider_validation(body, valid, monkeypatch):
+    import asyncio, httpx
+    from backend import ai
+    from fastapi import HTTPException
+    async def get(self, url, **kwargs):
+        assert url == 'https://api.moonshot.cn/v1/users/me/balance'
+        return httpx.Response(200, json=body)
+    monkeypatch.setattr(httpx.AsyncClient, 'get', get)
+    if valid:
+        assert asyncio.run(ai.fetch_balance('test'))['cash_balance'] == -1
+    else:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(ai.fetch_balance('test'))
+        assert error.value.status_code == 502

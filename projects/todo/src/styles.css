@@ -3182,3 +3182,103 @@ progress::-moz-progress-bar {
     background: #fff;
   }
 }
+
+.balance-card {
+  padding: 28px;
+  margin-bottom: 26px;
+  border: 1px solid #dce4ff;
+  border-radius: 18px;
+  background: linear-gradient(120deg, #eef2ffcc, #ffffffde);
+}
+.balance-heading,
+.balance-heading > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.balance-heading {
+  justify-content: space-between;
+}
+.balance-heading small {
+  color: #687995;
+  font-size: 12px;
+}
+.balance-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 24px;
+  margin: 28px 0;
+}
+.balance-grid small {
+  display: block;
+  color: #64748b;
+  margin-bottom: 12px;
+}
+.balance-grid strong {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.6px;
+  overflow-wrap: anywhere;
+}
+.balance-grid > div:first-child strong {
+  color: #4263eb;
+}
+.balance-card p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: #65758b;
+  margin: 8px 0;
+}
+.balance-card .form-error {
+  color: #b34242;
+}
+.balance-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6477aa;
+}
+.ai-management-entry {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 16px;
+  padding: 22px;
+  text-align: left;
+  color: #4263eb;
+}
+.ai-management-entry span {
+  flex: 1;
+}
+.ai-management-entry small {
+  display: block;
+  color: #64748b;
+  margin-top: 8px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .balance-card {
+    padding: 20px;
+  }
+  .balance-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  .balance-grid > div:first-child {
+    grid-column: 1/-1;
+  }
+  .balance-grid > div:first-child strong {
+    font-size: 34px;
+  }
+  .balance-grid strong {
+    font-size: 22px;
+  }
+  .balance-heading > span {
+    font-size: 14px;
+  }
+  .balance-heading {
+    gap: 16px;
+  }
+}

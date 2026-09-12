@@ -1,5 +1,6 @@
 import json
 import os
+import math
 from copy import deepcopy
 from uuid import uuid4
 import httpx
@@ -39,6 +40,28 @@ async def call_model(key, model, messages):
     except (ValueError,KeyError,IndexError,TypeError): raise HTTPException(502,'AI 返回的计划格式不完整，清单没有改变，请重试。')
 
 ALLOWED={'title','date','time','minutes','priority','notes','subtasks'}
+
+async def fetch_balance(key):
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=10)) as client:
+            response = await client.get('https://api.moonshot.cn/v1/users/me/balance', headers={'Authorization': f'Bearer {key}'})
+        if response.status_code != 200:
+            detail = {401: 'Kimi Key 无效，请检查国内站 Key。', 403: '此 Key 没有查询余额的权限。', 429: '余额查询较频繁，请稍后重试。'}
+            raise HTTPException(502, detail.get(response.status_code, 'Kimi 余额服务暂时不可用，请稍后重试。'))
+        body = response.json()
+        if body.get('status') is not True or body.get('code') != 0:
+            raise ValueError('unsuccessful balance response')
+        values = {name: body['data'][name] for name in ('available_balance', 'cash_balance', 'voucher_balance')}
+        if any(type(value) not in (int, float) or not math.isfinite(value) for value in values.values()):
+            raise ValueError('invalid balance amount')
+        if values['voucher_balance'] < 0: raise ValueError('invalid voucher balance')
+        return {**values, 'currency': 'CNY'}
+    except httpx.TimeoutException:
+        raise HTTPException(504, '余额查询超时，请稍后刷新。')
+    except httpx.RequestError:
+        raise HTTPException(502, '无法连接 Kimi 余额服务，请稍后刷新。')
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(502, 'Kimi 返回的余额数据不完整，请稍后刷新。')
 def prepare_changes(data,project_id,changes):
     result=deepcopy(data)
     normalized=[]

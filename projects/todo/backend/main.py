@@ -15,7 +15,7 @@ from cryptography.fernet import Fernet
 from pydantic import ValidationError
 from .db import Base, engine, Session, User, LoginSession, Message, ROOT, now
 from .schemas import Auth, StateWrite, State, AIConfig, ChatInput
-from .ai import PROMPT, call_model, prepare_changes, apply_changes
+from .ai import PROMPT, call_model, prepare_changes, apply_changes, fetch_balance
 
 hasher=PasswordHash.recommended()
 crypto_key=os.getenv('ENCRYPTION_KEY')
@@ -152,6 +152,15 @@ async def test_ai(user=Depends(current)):
     limit(('ai',user.id),8,60)
     await call_model(cipher.decrypt(user.key_cipher.encode()).decode(),user.model,[{'role':'user','content':'只输出JSON：{"message":"连接成功","changes":[]}'}])
     return {'ok':True,'message':'Kimi 连接成功，可以开始商议计划。'}
+
+@app.get('/api/settings/ai/balance')
+async def balance(user=Depends(current),session=Depends(db)):
+    if not user.key_cipher: raise HTTPException(400,'请先保存 Kimi Key，再查询余额。')
+    limit(('balance',user.id),12,60)
+    key=cipher.decrypt(user.key_cipher.encode()).decode()
+    session.rollback()
+    result=await fetch_balance(key)
+    return {**result,'checked_at':now().isoformat()}
 
 def message_result(m):
     return {'id':m.id,'role':m.role,'content':m.content,'created':m.created.isoformat(),'proposal':m.proposal,'status':m.status,'base_revision':m.base_revision}

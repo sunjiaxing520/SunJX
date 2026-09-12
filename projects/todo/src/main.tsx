@@ -64,7 +64,7 @@ import {
 import "./styles.css";
 
 const initial: State = { projects: [], tasks: [], revision: 0 };
-type View = "today" | "projects" | "calendar" | "review" | "settings";
+type View = "today" | "projects" | "calendar" | "review" | "settings" | "ai";
 const nav = [
   { id: "today", label: "今天", icon: Sun },
   { id: "projects", label: "我的计划", icon: Layers3 },
@@ -665,6 +665,13 @@ function App() {
             </button>
           </div>
           <button
+            className={view === "ai" ? "settings-link active" : "settings-link"}
+            onClick={() => go("ai")}
+          >
+            <Sparkles size={18} /> AI 管理
+            <span className="key-status">余额与连接</span>
+          </button>
+          <button
             className={
               view === "settings" ? "settings-link active" : "settings-link"
             }
@@ -692,7 +699,7 @@ function App() {
             <strong>
               {selected?.name ||
                 nav.find((n) => n.id === view)?.label ||
-                "设置"}
+                (view === "ai" ? "AI 管理" : "设置")}
             </strong>
           </div>
           <div className="top-actions">
@@ -1064,10 +1071,11 @@ function App() {
             />
           )}
           {view === "review" && <Review data={data} onAI={() => openAI()} />}
+          {view === "ai" && <AIManagement user={user} onUser={setUser} />}
           {view === "settings" && (
             <SettingsView
               user={user}
-              onUser={setUser}
+              onAI={() => go("ai")}
               notify={notify}
               onLogout={async () => {
                 await api("/auth/logout", "POST");
@@ -1128,7 +1136,7 @@ function App() {
           onProject={setChatProject}
           onClose={() => setAiOpen(false)}
           onSettings={() => {
-            go("settings");
+            go("ai");
             setAiOpen(false);
           }}
           onState={(fresh) =>
@@ -2057,19 +2065,115 @@ function Review({ data, onAI }: { data: State; onAI: () => void }) {
     </>
   );
 }
-function SettingsView({
+type Balance = {
+  available_balance: number;
+  cash_balance: number;
+  voucher_balance: number;
+  currency: string;
+  checked_at: string;
+};
+function BalanceCard({ enabled }: { enabled: boolean }) {
+  const [balance, setBalance] = useState<Balance | null>(null),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState("");
+  const request = useRef(0);
+  async function refresh() {
+    const id = ++request.current;
+    setLoading(true);
+    setError("");
+    try {
+      const value = await api<Balance>("/settings/ai/balance");
+      if (request.current === id) setBalance(value);
+    } catch (e) {
+      if (request.current === id) setError((e as Error).message);
+    } finally {
+      if (request.current === id) setLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (enabled) refresh();
+    return () => {
+      request.current++;
+    };
+  }, [enabled]);
+  const money = (n: number) =>
+    new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency: "CNY",
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    }).format(n);
+  return (
+    <section className="balance-card glass" aria-label="Kimi 账户余额">
+      <div className="balance-heading">
+        <span>
+          <CloudCheck size={18} /> Kimi 账户余额 <small>人民币 CNY</small>
+        </span>
+        <button
+          className="secondary"
+          disabled={!enabled || loading}
+          onClick={refresh}
+        >
+          <RefreshCw size={15} className={loading ? "spin" : ""} />
+          {loading ? "查询中…" : "刷新余额"}
+        </button>
+      </div>
+      <div className="balance-grid">
+        {(
+          [
+            ["可用余额", "available_balance"],
+            ["现金余额", "cash_balance"],
+            ["代金券余额", "voucher_balance"],
+          ] as const
+        ).map(([label, field]) => (
+          <div key={field}>
+            <small>{label}</small>
+            <strong>{balance ? money(balance[field]) : "—"}</strong>
+          </div>
+        ))}
+      </div>
+      {!enabled ? (
+        <p>保存你的 Kimi Key 后，即可查看账户余额。</p>
+      ) : (
+        <p>
+          {balance
+            ? `${error ? "上次成功查询" : "更新于"} ${new Date(balance.checked_at).toLocaleString("zh-CN")}`
+            : loading
+              ? "正在向 Kimi 查询真实余额…"
+              : "尚未获取余额"}{" "}
+          · 此 Key 所属账户的总余额，包含其他应用的使用。
+        </p>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+          {balance ? " 当前显示的是上次结果。" : ""}
+        </p>
+      )}
+      {balance && balance.available_balance <= 0 && (
+        <p className="form-error">
+          可用余额不足，请前往 Kimi 开放平台检查充值或代金券。基础待办仍可使用。
+        </p>
+      )}
+      <a
+        className="balance-source"
+        href="https://platform.kimi.com/docs/api/balance"
+        target="_blank"
+        rel="noreferrer"
+      >
+        余额说明 <ExternalLink size={12} />
+      </a>
+    </section>
+  );
+}
+function AIManagement({
   user,
   onUser,
-  notify,
-  onLogout,
-  onImport,
 }: {
   user: User;
   onUser: (u: User) => void;
-  notify: (s: string) => void;
-  onLogout: () => Promise<void>;
-  onImport: (f: File) => Promise<void>;
 }) {
+  const [balanceVersion, setBalanceVersion] = useState(0);
   const [key, setKey] = useState(""),
     [model, setModel] = useState(user.model),
     [busy, setBusy] = useState(false),
@@ -2085,6 +2189,7 @@ function SettingsView({
         ...(key.trim() ? { key: key.trim() } : {}),
       });
       onUser(u);
+      setBalanceVersion((v) => v + 1);
       setKey("");
       if (test) {
         const r = await api<{ message: string }>("/settings/ai/test", "POST");
@@ -2100,13 +2205,25 @@ function SettingsView({
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">YOUR SPACE, YOUR WAY</div>
+          <div className="eyebrow">YOUR AI, YOUR CONTROL</div>
           <h1>
-            把空间，调成你的样子<span className="heading-dot">.</span>
+            AI 管理<span className="heading-dot">.</span>
           </h1>
-          <p>基础清单随时可用，AI 由你决定是否开启。</p>
+          <p>连接你的 Kimi，余额与模型设置都在这里。</p>
         </div>
+        <a
+          className="secondary"
+          href="https://platform.kimi.com"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Kimi 开放平台 <ExternalLink size={16} />
+        </a>
       </div>
+      <BalanceCard
+        key={`${user.id}-${user.ai_enabled}-${balanceVersion}`}
+        enabled={user.ai_enabled}
+      />
       <section className="settings-card">
         <header>
           <span className="settings-symbol">
@@ -2185,6 +2302,8 @@ function SettingsView({
                         model,
                       }),
                     );
+                    setKey("");
+                    setBalanceVersion((v) => v + 1);
                     setStatus("已移除 Key，待办与历史记录仍可使用");
                   } catch (e) {
                     setError((e as Error).message);
@@ -2210,6 +2329,41 @@ function SettingsView({
           )}
         </div>
       </section>
+    </>
+  );
+}
+function SettingsView({
+  user,
+  onAI,
+  notify,
+  onLogout,
+  onImport,
+}: {
+  user: User;
+  onAI: () => void;
+  notify: (s: string) => void;
+  onLogout: () => Promise<void>;
+  onImport: (f: File) => Promise<void>;
+}) {
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow">YOUR SPACE, YOUR WAY</div>
+          <h1>
+            设置<span className="heading-dot">.</span>
+          </h1>
+          <p>管理你的账号与学习数据。</p>
+        </div>
+      </div>
+      <button className="ai-management-entry settings-card" onClick={onAI}>
+        <Sparkles size={24} />
+        <span>
+          <b>AI 管理</b>
+          <small>Kimi 余额、API Key 与模型配置</small>
+        </span>
+        <ArrowUpRight size={20} />
+      </button>
       <section className="settings-card">
         <header>
           <span className="settings-symbol">
