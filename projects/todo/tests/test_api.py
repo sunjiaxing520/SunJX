@@ -151,17 +151,33 @@ def test_memo_binding_tasks_and_kimi(client,monkeypatch):
     assert client.get('/api/memo/status').json()['bound'] is False
     assert client.get('/api/state').json()['tasks'][0]['task_type']=='vocabulary'
 
-def test_memo_official_contract(monkeypatch):
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_memo_official_contract(monkeypatch, wrapped):
     import asyncio,httpx
     from backend.memo import read_today
     async def post(self,url,**kwargs):
         assert url.startswith('https://open.maimemo.com/open/api/v1/memo/study/')
         assert self.headers['Authorization']=='Bearer token'
         if url.endswith('get_study_progress'):
-            return httpx.Response(200,json={'progress':{'finished':0,'total':0,'study_time':0}})
+            body={'progress':{'finished':0,'total':0,'study_time':0}}
+            return httpx.Response(200,json={'success':True,'data':body} if wrapped else body)
         assert kwargs['json']=={'limit':1000}
-        return httpx.Response(200,json={'today_items':[]})
+        body={'today_items':[{'voc_id':'1','spelling' if wrapped else 'voc_spelling':'learn','is_new':True,'is_finished':False}]}
+        return httpx.Response(200,json={'success':True,'data':body} if wrapped else body)
     monkeypatch.setattr(httpx.AsyncClient,'post',post)
     result=asyncio.run(read_today('token'))
     assert result['progress']['total']==0
-    assert result['words']==[]
+    assert result['words'][0]['voc_spelling']=='learn'
+
+@pytest.mark.parametrize('upstream,expected', [(401,422),(403,422),(429,424),(500,424)])
+def test_memo_provider_errors_keep_json(client,monkeypatch,upstream,expected):
+    import httpx
+    async def post(self,url,**kwargs):
+        return httpx.Response(upstream,text='private provider response')
+    monkeypatch.setattr(httpx.AsyncClient,'post',post)
+    response=client.put('/api/memo/key',json={'key':'invalid-test-token'})
+    assert response.status_code==expected
+    assert response.headers['content-type']=='application/json'
+    assert isinstance(response.json()['detail'],str)
+    assert 'private provider response' not in response.text
+    assert client.get('/api/memo/status').json()=={'bound':False}
