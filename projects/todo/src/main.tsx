@@ -62,6 +62,7 @@ import {
   type Kind,
 } from "./types";
 import "./styles.css";
+import { useEntrance } from "./motion";
 
 const initial: State = { projects: [], tasks: [], revision: 0 };
 type View = "today" | "projects" | "calendar" | "review" | "settings" | "ai";
@@ -91,6 +92,7 @@ function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  useEntrance(ref, "dialog");
   useEffect(() => {
     const before = document.activeElement as HTMLElement;
     const node = ref.current;
@@ -149,6 +151,8 @@ function Modal({
 }
 
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
+  const loginRoot = useRef<HTMLDivElement>(null);
+  useEntrance(loginRoot, "login");
   const [register, setRegister] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -172,7 +176,7 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
     }
   }
   return (
-    <div className="login-page">
+    <div className="login-page" ref={loginRoot}>
       <div className="login-brand">
         <Mark />
         <b>
@@ -192,35 +196,6 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
             <br />
             学习、备考，或一项想学很久的新技能。
           </p>
-          <div className="login-preview">
-            <div className="preview-top">
-              <Sun size={20} />
-              <b>今天，向前一点</b>
-              <span>2 / 3</span>
-            </div>
-            <div>
-              <span className="sample-check">
-                <Check size={13} />
-              </span>
-              <s>复习昨天的知识点</s>
-              <small>25 分钟</small>
-            </div>
-            <div>
-              <span className="sample-check">
-                <Check size={13} />
-              </span>
-              <s>完成第一个练习作品</s>
-              <small>45 分钟</small>
-            </div>
-            <div>
-              <span className="sample-empty" />
-              <b>记下今天的新收获</b>
-              <small>10 分钟</small>
-            </div>
-            <footer>
-              <Sparkles size={15} /> 有计划，也有陪你调整计划的 AI
-            </footer>
-          </div>
           <div className="login-note">
             <CloudCheck size={16} /> 电脑与手机同步 <span>·</span> 自接
             AI，按需开启
@@ -328,6 +303,8 @@ function App() {
       run: () => Promise<void>;
     } | null>(null),
     [chatProject, setChatProject] = useState("");
+  const pageRoot = useRef<HTMLElement>(null);
+  useEntrance(pageRoot, "page", [view, projectId, date, user?.id]);
   const currentData = useRef(data),
     busyRef = useRef(false);
   currentData.current = data;
@@ -525,41 +502,6 @@ function App() {
     }
     setTaskEdit(blankTask(p, view === "today" ? date : day()));
   };
-  async function seedExample() {
-    const id = uid(),
-      latest = currentData.current;
-    const project: Project = {
-      id,
-      name: "学会做自己的网页 · 示例",
-      kind: "personal",
-      color: "purple",
-      goal: "做出一个可以分享的个人作品页",
-      deadline: shiftDay(today, 30),
-      hours: 2,
-      details: "从零开始，每天一点练习。这是一份可自由修改或删除的示例计划。",
-    };
-    const tasks = [
-      ["看懂 HTML 的基本结构", 30, false],
-      ["动手搭一个个人介绍页", 45, false],
-      ["记录今天的学习收获", 15, false],
-      ["确定想做的网站主题", 20, true],
-    ].map(([title, minutes, done]) => ({
-      ...blankTask(id, today),
-      title: String(title),
-      minutes: Number(minutes),
-      done: Boolean(done),
-      completed_at: done ? new Date().toISOString() : null,
-    }));
-    try {
-      await mutate({
-        ...latest,
-        projects: [...latest.projects, project],
-        tasks: [...tasks, ...latest.tasks],
-      });
-      setChatProject(id);
-      notify("已添加示例计划，可自由修改或删除");
-    } catch {}
-  }
   if (loading)
     return (
       <div className="loading-screen">
@@ -737,6 +679,7 @@ function App() {
           </div>
         )}
         <main
+          ref={pageRoot}
           className={`content ${view === "calendar" ? "calendar-content" : ""}`}
         >
           {view === "today" && (
@@ -1011,11 +954,6 @@ function App() {
                           ? "休息一下，再带着轻松的心情继续。"
                           : "在上方记下来，或和 AI 一起安排。"}
                     </p>
-                    {data.tasks.length === 0 && (
-                      <button className="text-button" onClick={seedExample}>
-                        先看看一份示例计划 <ArrowRight size={15} />
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -1205,7 +1143,12 @@ function App() {
           </button>
         </div>
       )}
-      <button className="mobile-fab" aria-label="添加待办" onClick={add}>
+      <button
+        className="mobile-fab"
+        hidden={view === "ai" || view === "settings"}
+        aria-label="添加待办"
+        onClick={add}
+      >
         <Plus size={25} />
       </button>
     </div>
@@ -1302,9 +1245,11 @@ function TaskRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const rowRoot = useRef<HTMLDivElement>(null);
+  useEntrance(rowRoot, "task", [task.done]);
   const overdue = !task.done && task.date && task.date < day();
   return (
-    <div className={`task-row ${task.done ? "done" : ""}`}>
+    <div ref={rowRoot} className={`task-row ${task.done ? "done" : ""}`}>
       <input
         className="task-check"
         type="checkbox"
@@ -2469,6 +2414,8 @@ function ChatPanel({
   onState: (s: State) => void;
   notify: (s: string) => void;
 }) {
+  const panelRoot = useRef<HTMLElement>(null);
+  useEntrance(panelRoot, "panel");
   const [messages, setMessages] = useState<Message[]>([]),
     [text, setText] = useState(""),
     [busy, setBusy] = useState(false),
@@ -2522,7 +2469,7 @@ function ChatPanel({
   }
   const project = projects.find((p) => p.id === projectId);
   return (
-    <aside className="ai-panel glass" aria-label="AI 计划助手">
+    <aside ref={panelRoot} className="ai-panel glass" aria-label="AI 计划助手">
       <header className="ai-header">
         <span className="ai-orb">
           <Sparkles size={20} />

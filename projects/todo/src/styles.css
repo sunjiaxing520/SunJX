@@ -3282,3 +3282,36 @@ progress::-moz-progress-bar {
     gap: 16px;
   }
 }
+
+/* Quiet interaction feedback; motion is optional and never blocks saving. */
+.mobile-fab[hidden] {
+  display: none;
+}
+.login-note {
+  margin-top: 40px;
+}
+.task-row:focus-within {
+  background: #f7f9ff;
+}
+.task-check:focus-visible {
+  outline: 3px solid #bcc9ff;
+  outline-offset: 4px;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .primary,
+  .secondary,
+  .icon-button {
+    transition:
+      background-color 0.16s,
+      box-shadow 0.16s,
+      transform 0.16s;
+  }
+  .primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px #4263eb26;
+  }
+  .primary:active:not(:disabled),
+  .secondary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+}

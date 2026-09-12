@@ -77,3 +77,7 @@ node tests/browser-smoke.cjs
 - `Dockerfile` / `compose.yaml`：独立运行环境。
 
 许可证：MIT。产品名暂定，可后续调整。
+
+## 界面动效
+
+使用 GSAP 与 @gsap/react，在 React 生命周期内实现短页面入场、任务完成反馈、弹窗和 AI 面板过渡。优先 transform/opacity，组件卸载自动清理；系统启用减少动态效果时跳过 GSAP 动画。页面不再提供示例计划入口或登录演示清单。Playwright MCP 未安装，现有脚本继续用于验收。
