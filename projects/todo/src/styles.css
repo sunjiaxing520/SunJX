@@ -3648,3 +3648,23 @@ progress::-moz-progress-bar {
     padding-bottom: 90px !important;
   }
 }
+
+/* Minimal violet connection surface. */
+.memo-blank-content{background:#fcfbff}
+.memo-unbound{position:relative;isolation:isolate;background:radial-gradient(ellipse at 43% 40%,#ede6ff80,transparent 44%),radial-gradient(ellipse at 66% 64%,#f1eaff70,transparent 40%)}
+.memo-connect-card{width:100%;max-width:430px;padding:36px;border:1px solid #ffffff;border-radius:26px;background:linear-gradient(145deg,#ffffffb8,#ffffff75);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:0 16px 60px #6e4baf10,inset 0 0 0 1px #ffffffb0;color:#403451}
+.memo-connect-icon{width:58px;height:58px;display:grid;place-items:center;background:linear-gradient(140deg,#ede4ff,#f5efff);border:1px solid #fff;border-radius:18px;color:#9064ca;margin-bottom:24px;box-shadow:0 5px 16px #8d69bc0d}
+.memo-connect-card h1{font-size:25px;letter-spacing:-.5px;margin:0 0 10px;font-weight:650}
+.memo-connect-caption{font-size:14px;line-height:1.8;color:#95879f;margin:0 0 28px}
+.memo-key-label{display:block;font-size:12px;font-weight:600;color:#91809f;letter-spacing:1px;margin-bottom:10px}
+.memo-connect-card .memo-bind-form{display:flex;flex-direction:column;gap:12px;max-width:none}
+.memo-connect-card .memo-bind-form input{flex:auto;width:100%;min-height:50px;padding:14px 16px;background:#ffffffa8;border:1px solid #e9e0f4;border-radius:13px;color:#544263;font-size:15px;outline:none;transition:box-shadow .15s,border-color .15s}
+.memo-connect-card .memo-bind-form input::placeholder{color:#b4a6c0}
+.memo-connect-card .memo-bind-form input:focus{border-color:#b79bd9;box-shadow:0 0 0 4px #b18adc12}
+.memo-connect-card .primary{justify-content:center;min-height:46px;border-radius:13px;background:#946cc5;border-color:#946cc5;box-shadow:0 4px 12px #8c64bc18;color:#fff}
+.memo-connect-card .primary:hover:not(:disabled){background:#855db6}
+.memo-connect-card .memo-bind-form p{font-size:12px;color:#a296ac;line-height:1.9;margin:6px 0 0}
+.memo-connect-card .memo-bind-form .form-error{color:#b34242}
+.memo-connect-footer{display:block;border-top:1px solid #ece5f180;padding-top:18px;margin-top:22px;font-size:11px;color:#b0a3bb;text-align:center}
+@media(max-width:760px){.memo-connect-card{padding:28px 24px;border-radius:23px}.memo-unbound{padding:26px 20px}.memo-connect-card .memo-bind-form input{font-size:16px}}
+@supports not (backdrop-filter:blur(1px)){.memo-connect-card{background:#fff}}

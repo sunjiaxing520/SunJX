@@ -71,6 +71,7 @@ export function MemoPage({
   const bindForm = (
     <form className="memo-bind-form" onSubmit={bind}>
       <input
+        id="memo-token-input"
         aria-label="墨墨 API Key"
         type="password"
         autoComplete="new-password"
@@ -97,13 +98,14 @@ export function MemoPage({
   if (!bound)
     return (
       <section className="memo-unbound">
-        {editing ? (
-          bindForm
-        ) : (
-          <button className="memo-bind-prompt" onClick={() => setEditing(true)}>
-            请输入 API Key
-          </button>
-        )}
+        <div className="memo-connect-card">
+          <span className="memo-connect-icon"><BookOpen size={27}/></span>
+          <h1>连接墨墨</h1>
+          <p className="memo-connect-caption">让每一天的单词积累，都看得见。</p>
+          <label className="memo-key-label" htmlFor="memo-token-input">API Key</label>
+          {bindForm}
+          <span className="memo-connect-footer">仅用于同步你的学习进度</span>
+        </div>
       </section>
     );
   return (

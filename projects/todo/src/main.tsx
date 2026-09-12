@@ -634,15 +634,6 @@ function App() {
           <Plus size={16} /> 添加一个新计划
         </button>
         <div className="sidebar-bottom">
-          <button
-            className={
-              view === "memo" ? "settings-link active" : "settings-link"
-            }
-            onClick={() => go("memo")}
-          >
-            <BookOpen size={18} />
-            背单词
-          </button>
           <div className="small-ai-card">
             <Sparkles size={18} />
             <span>
@@ -657,6 +648,15 @@ function App() {
               <ArrowUpRight size={16} />
             </button>
           </div>
+          <button
+            className={
+              view === "memo" ? "settings-link active" : "settings-link"
+            }
+            onClick={() => go("memo")}
+          >
+            <BookOpen size={18} />
+            背单词
+          </button>
           <button
             className={view === "ai" ? "settings-link active" : "settings-link"}
             onClick={() => go("ai")}
