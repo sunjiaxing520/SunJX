@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env', override=False)
-DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./.runtime/todo.db')
+DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{ROOT / ".runtime" / "todo.db"}')
 (ROOT / '.runtime').mkdir(exist_ok=True)
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, hide_parameters=True,
     connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {})

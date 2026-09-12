@@ -1,0 +1,36 @@
+// Explicit opt-in only: this test uses the local owner's Kimi key and incurs API usage.
+const {chromium,expect}=require('@playwright/test');
+const fs=require('fs');
+(async()=>{
+  if(process.env.TODO_LIVE_AI!=='1')throw Error('Set TODO_LIVE_AI=1 to authorize live provider usage');
+  const b=await chromium.launch({channel:'msedge'}),c=await b.newContext({viewport:{width:1440,height:1000}}),p=await c.newPage();
+  const base=process.env.TODO_URL||'http://127.0.0.1:4175';
+  await p.goto(base);
+  const account=JSON.parse(fs.readFileSync('.runtime/account.json'));
+  await p.locator('[name=username]').fill(account.username);await p.locator('[name=password]').fill(account.password);
+  await p.getByRole('button',{name:'进入我的空间'}).click();
+  await p.getByRole('button',{name:'新建计划',exact:true}).click();
+  await p.getByLabel('计划名称').fill('Kimi 联调 · 学会网页布局');
+  await p.getByLabel('想达到什么目标').fill('已有 HTML 基础，练习 CSS Flexbox，每天 1 小时，无考试期限。');
+  await p.getByRole('button',{name:'保存计划',exact:true}).click();
+  await p.getByRole('button',{name:'一起制定计划'}).click();
+  await p.getByLabel('与 AI 聊天').fill('这是功能联调。请直接生成今天一条20分钟的CSS Flexbox练习待办，不用追问。标题必须是“练习 Flexbox 水平居中”。');
+  await p.getByRole('button',{name:'发送消息'}).click();
+  await expect(p.getByRole('button',{name:'确认并应用'})).toBeVisible({timeout:200000});
+  let state=await (await c.request.get(base+'/api/state')).json();
+  const project=state.projects.find(x=>x.name==='Kimi 联调 · 学会网页布局');
+  if(state.tasks.some(t=>t.project_id===project.id))throw Error('Draft applied before confirmation');
+  await p.getByRole('button',{name:'确认并应用'}).click();
+  await expect(p.locator('.task-list').getByText('练习 Flexbox 水平居中',{exact:true})).toBeVisible();
+  await p.getByLabel('与 AI 聊天').fill('请将刚才的“练习 Flexbox 水平居中”从20分钟改为30分钟，其他不变。');
+  await p.getByRole('button',{name:'发送消息'}).click();
+  await expect(p.getByRole('button',{name:'确认并应用'})).toBeVisible({timeout:200000});
+  await p.getByRole('button',{name:'确认并应用'}).click();
+  await expect.poll(async()=>{state=await (await c.request.get(base+'/api/state')).json();return state.tasks.find(t=>t.project_id===project.id)?.minutes}).toBe(30);
+  await p.screenshot({path:'.runtime/kimi-live.png',fullPage:true});
+  state=await (await c.request.get(base+'/api/state')).json();
+  const cleaned={...state,projects:state.projects.filter(x=>x.id!==project.id),tasks:state.tasks.filter(x=>x.project_id!==project.id)};
+  const response=await c.request.put(base+'/api/state',{headers:{'X-Todo-Client':'web'},data:cleaned});
+  if(!response.ok())throw Error('Test project cleanup failed');
+  await b.close();console.log('PASS: real Kimi draft, explicit confirmation, chat modification 20→30 minutes; isolated test project cleaned.');
+})().catch(e=>{console.error(e);process.exit(1)});

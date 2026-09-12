@@ -1,0 +1,43 @@
+name: yijian
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: yijian
+      POSTGRES_DB: yijian
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run setup first}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55475:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yijian -d yijian"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-4175}:8175"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://yijian:${POSTGRES_PASSWORD}@db:5432/yijian
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Run setup first}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8175/api/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  postgres_data:
