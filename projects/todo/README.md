@@ -24,7 +24,7 @@ docker compose up -d --build
 
 容器应用端口 4175，数据库管理端口仅绑定本机 55475。数据库使用独立 `postgres_data` 卷。`docker compose stop` 停止服务，`docker compose up -d` 恢复；不要用 `down -v`，它会删除数据库卷。
 
-部署到远程服务器后可以跨网络同步；正式公网服务应配置 HTTPS 反向代理，并在 `.env` 中设置 `COOKIE_SECURE=true`。本仓库没有自动发布公网服务。
+部署到远程服务器后可以跨网络同步；正式公网服务应配置 HTTPS 反向代理，并在 `.env` 中设置 `COOKIE_SECURE=true`。本机已按需开通临时内网穿透，地址与运行方式见 [开发接续](docs/开发接续.md)；它不是固定域名部署。
 
 ## 开发
 
