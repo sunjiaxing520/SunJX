@@ -3668,3 +3668,23 @@ progress::-moz-progress-bar {
 .memo-connect-footer{display:block;border-top:1px solid #ece5f180;padding-top:18px;margin-top:22px;font-size:11px;color:#b0a3bb;text-align:center}
 @media(max-width:760px){.memo-connect-card{padding:28px 24px;border-radius:23px}.memo-unbound{padding:26px 20px}.memo-connect-card .memo-bind-form input{font-size:16px}}
 @supports not (backdrop-filter:blur(1px)){.memo-connect-card{background:#fff}}
+
+.repeat-panel,.memory-card { border:1px solid #e6ddf1; background:linear-gradient(125deg,#faf7ffdd,#ffffffcc); border-radius:18px; padding:16px; backdrop-filter:blur(16px); }
+.repeat-panel { display:grid; gap:12px; }
+.repeat-panel label { display:grid; gap:8px; font-size:13px; color:#82768e; }
+.repeat-panel input { width:100%; min-width:0; }
+.repeat-panel small,.memory-card small { color:#82768e; line-height:1.65; display:block; font-size:12px; }
+.weekday-picker { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; }
+.weekday-picker button { min-width:0; height:40px; border-radius:12px; border:1px solid #e6ddf1; background:#fff; color:#776984; }
+.weekday-picker button[aria-pressed=true] { background:#8e6abd; border-color:#8e6abd; color:white; box-shadow:0 3px 10px #8e6abd26; }
+.weekday-picker button:focus-visible,.repeat-presets button:focus-visible { outline:2px solid #8057b5; outline-offset:3px; }
+.repeat-presets { display:flex; gap:14px; }
+.repeat-presets button { border:0; background:transparent; color:#8057b5; padding:4px 0; font-size:12px; }
+.repeat-tag { color:#8b6eaa; font-size:11px; }
+.memory-card { margin:0 16px 10px; padding:11px 13px; flex-shrink:0; max-height:36vh; overflow:auto; font-size:12px; }
+.memory-card summary { cursor:pointer; color:#70528e; font-weight:600; }
+.memory-card summary span { font-weight:400; color:#9a8ba7; margin-left:6px; }
+.memory-card p { color:#857b90; line-height:1.7; margin:10px 0; }
+.memory-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; margin:10px 0; color:#584e63; }
+.memory-card .secondary { margin-bottom:8px; font-size:12px; }
+@media(max-width:400px) { .repeat-panel {padding:12px;} .weekday-picker {gap:4px;} .weekday-picker button {height:38px;} }

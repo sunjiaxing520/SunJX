@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryCard } from "./MemoryCard";
 import {
   Check,
   Plus,
@@ -409,12 +410,14 @@ function App() {
           "",
       );
   }, [data.projects, chatProject]);
-  async function mutate(next: State) {
+  async function mutate(next: State, weekly?: Task) {
     if (busyRef.current) throw new Error("正在保存，请稍等");
     busyRef.current = true;
     setBusy(true);
     try {
-      const saved = await api<State>("/state", "PUT", next);
+      const saved = weekly
+        ? await api<State>("/tasks/repeat", "POST", { revision: next.revision, task: weekly })
+        : await api<State>("/state", "PUT", next);
       setData(saved);
       setOnline(true);
       return saved;
@@ -430,7 +433,7 @@ function App() {
       setBusy(false);
     }
   }
-  async function saveTask(task: Task) {
+  async function saveTask(task: Task, weekly = false) {
     const latest = currentData.current;
     if (taskEdit?.id === task.id && taskBase.current !== latest.revision)
       throw new Error("清单已在其他操作中更新，请关闭详情后重新打开再编辑。");
@@ -440,9 +443,9 @@ function App() {
       tasks: exists
         ? latest.tasks.map((t) => (t.id === task.id ? task : t))
         : [task, ...latest.tasks],
-    });
+    }, weekly ? task : undefined);
     setTaskEdit(null);
-    notify(exists ? "任务已更新" : "已加入清单");
+    notify(weekly ? "每周安排已保存，每天可以独立打卡" : exists ? "任务已更新" : "已加入清单");
   }
   async function toggle(task: Task) {
     const latest = currentData.current;
@@ -1332,6 +1335,7 @@ function TaskRow({
           {task.locked && <LockKeyhole size={13} />}
         </span>
         <span className="task-meta">
+          {!!task.repeat_weekdays?.length && <span className="repeat-tag">每周{task.repeat_weekdays.map(d => "一二三四五六日"[d]).join("、")}</span>}
           {task.task_type === "vocabulary" && (
             <span className="vocabulary-tag">
               背单词
@@ -1402,7 +1406,7 @@ function TaskEditor({
   projects: Project[];
   memoBound: boolean;
   onClose: () => void;
-  onSave: (t: Task) => Promise<void>;
+  onSave: (t: Task, weekly?: boolean) => Promise<void>;
   onDelete: () => void;
 }) {
   const [draft, setDraft] = useState(task),
@@ -1410,6 +1414,8 @@ function TaskEditor({
     [busy, setBusy] = useState(false),
     [sub, setSub] = useState("");
   const patch = (p: Partial<Task>) => setDraft({ ...draft, ...p });
+  const [weekly, setWeekly] = useState(false);
+  const repeatDays = draft.repeat_weekdays || [];
   return (
     <Modal title={task.title ? "任务详情" : "新建待办"} onClose={onClose}>
       <form
@@ -1418,7 +1424,7 @@ function TaskEditor({
           e.preventDefault();
           setBusy(true);
           try {
-            await onSave(draft);
+            await onSave(draft, weekly);
           } catch (e) {
             setError((e as Error).message);
           } finally {
@@ -1470,6 +1476,27 @@ function TaskEditor({
             ))}
           </Select>
         </label>
+        <section className="repeat-panel">
+          <label>重复安排
+            <Select aria-label="重复安排" value={weekly ? "weekly" : "once"} onChange={e => {
+              const enabled = e.target.value === "weekly";
+              setWeekly(enabled);
+              if (enabled) patch({ date: draft.date || day(), repeat_weekdays: repeatDays.length ? repeatDays : [(new Date((draft.date || day()) + "T12:00:00").getDay()+6)%7], repeat_until: draft.repeat_until || shiftDay(draft.date || day(),83) });
+              else patch({ repeat_weekdays: task.repeat_weekdays || [], repeat_until: task.repeat_until || null });
+            }}>
+              <option value="once">{task.series_id ? "仅编辑这一天" : "不重复"}</option>
+              {!task.done && !task.locked && <option value="weekly">{task.series_id ? "修改这天及后续安排" : "每周重复"}</option>}
+            </Select>
+          </label>
+          {weekly ? <>
+            <div className="weekday-picker" role="group" aria-label="重复星期">
+              {Array.from("一二三四五六日").map((label,index) => <button key={index} type="button" aria-label={`周${label}`} aria-pressed={repeatDays.includes(index)} onClick={() => patch({ repeat_weekdays: repeatDays.includes(index) ? repeatDays.filter(d => d!==index) : [...repeatDays,index].sort() })}>{label}</button>)}
+            </div>
+            <div className="repeat-presets"><button type="button" onClick={() => patch({repeat_weekdays:[0,1,2,3,4]})}>工作日</button><button type="button" onClick={() => patch({repeat_weekdays:[5,6]})}>周末</button><button type="button" onClick={() => patch({repeat_weekdays:[0,1,2,3,4,5,6]})}>每天</button></div>
+            <label>重复结束日期<input type="date" required min={draft.date || day()} max={shiftDay(draft.date || day(),730)} value={draft.repeat_until || ""} onChange={e => patch({repeat_until:e.target.value || null})}/></label>
+            <small>从下方安排日期开始，到结束日期为止。每天独立打卡；已完成、锁定和已有学习记录会保留。</small>
+          </> : task.series_id && <small>这是一组每周重复任务。当前仅保存这一天的修改，删除也只影响这一天。</small>}
+        </section>
         <div className="form-grid">
           <label>
             安排日期
@@ -2616,6 +2643,7 @@ function ChatPanel({
         </Select>
         <span>当前计划</span>
       </div>
+      <MemoryCard projectId={projectId} enabled={user.ai_enabled} version={messages.length} />
       {!user.ai_enabled ? (
         <div className="ai-welcome">
           <div className="welcome-spark">

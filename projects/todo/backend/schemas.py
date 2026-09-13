@@ -36,6 +36,9 @@ class Task(Strict):
     mastery: Literal['none','learned','review'] = 'none'
     locked: bool = False
     subtasks: list[Subtask] = Field(default_factory=list, max_length=50)
+    series_id: str | None = Field(default=None, max_length=36)
+    repeat_weekdays: list[Literal[0,1,2,3,4,5,6]] = Field(default_factory=list, max_length=7)
+    repeat_until: Date | None = None
     @field_validator('title')
     @classmethod
     def title_not_blank(cls,v):
@@ -56,6 +59,20 @@ class State(Strict):
 
 class StateWrite(State):
     revision: int = Field(ge=0)
+
+class RepeatWrite(Strict):
+    revision: int = Field(ge=0)
+    task: Task
+    @model_validator(mode='after')
+    def validate_repeat(self):
+        t = self.task
+        if not t.date or not t.repeat_until or not t.repeat_weekdays:
+            raise ValueError('请选择开始日期、结束日期和重复星期')
+        if not 0 <= (t.repeat_until-t.date).days <= 730:
+            raise ValueError('结束日期不能早于开始日期，一次最多安排两年')
+        if len(set(t.repeat_weekdays)) != len(t.repeat_weekdays):
+            raise ValueError('重复星期不能重复')
+        return self
 
 class Auth(Strict):
     username: str = Field(min_length=3,max_length=40,pattern=r'^[a-zA-Z0-9_@.\-]+$')

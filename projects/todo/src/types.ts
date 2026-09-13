@@ -10,6 +10,9 @@ export type Project = {
   details: string;
 };
 export type Task = {
+  series_id?: string | null;
+  repeat_weekdays?: number[];
+  repeat_until?: string | null;
   task_type?: "normal" | "vocabulary";
   id: string;
   project_id: string;

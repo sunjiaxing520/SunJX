@@ -1,0 +1,40 @@
+const { chromium, expect } = require('@playwright/test');
+const fs=require('fs');
+(async()=>{
+  const browser=await chromium.launch({channel:'msedge',headless:true});
+  const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+  const page=await context.newPage();
+  const base=process.env.TODO_URL || 'http://127.0.0.1:4175';
+  const account=JSON.parse(fs.readFileSync('.runtime/qa-account.json','utf8'));
+  await context.request.post(base+'/api/auth/login',{headers:{'X-Todo-Client':'web'},data:account});
+  await page.goto(base);
+  await expect(page.getByText('看懂 HTML 的基本结构',{exact:true})).toBeVisible();
+  const title='每周练习 '+Date.now();
+  await page.getByLabel('添加待办内容').fill(title);
+  await page.getByLabel('添加待办内容').press('Enter');
+  await page.getByText(title,{exact:true}).click();
+  await page.getByRole('combobox',{name:'重复安排',exact:true}).click();
+  await page.getByRole('option',{name:'每周重复',exact:true}).click();
+  await page.getByRole('button',{name:'工作日',exact:true}).click();
+  await page.getByLabel('安排日期',{exact:true}).fill('2026-09-14');
+  await page.getByLabel('重复结束日期',{exact:true}).fill('2026-09-25');
+  await page.screenshot({path:'.runtime/weekly-desktop.png',fullPage:true});
+  for(const width of [320,390]){
+    await page.setViewportSize({width,height:844});
+    if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('overflow');
+    await expect(page.getByRole('button',{name:'周五',exact:true})).toHaveAttribute('aria-pressed','true');
+  }
+  await page.screenshot({path:'.runtime/weekly-mobile.png',fullPage:true});
+  await page.getByRole('button',{name:'保存任务',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const state=await (await context.request.get(base+'/api/state')).json();
+  const tasks=state.tasks.filter(t=>t.title===title);
+  expect(tasks).toHaveLength(10);
+  expect(tasks.every(t=>t.repeat_weekdays.join(',')==='0,1,2,3,4')).toBe(true);
+  await page.getByRole('button',{name:'AI 助手',exact:true}).click();
+  await page.locator('.memory-card summary').click();
+  await expect(page.getByRole('button',{name:'立即浓缩旧对话'})).toBeVisible();
+  await page.screenshot({path:'.runtime/memory-mobile.png',fullPage:true});
+  await browser.close();
+  console.log('PASS: weekly multi-select, 10 independent days, 320/390 layouts, memory panel');
+})().catch(e=>{console.error(e);process.exit(1)});

@@ -51,3 +51,12 @@ class Message(Base):
     base_revision: Mapped[int] = mapped_column(Integer, default=0)
     previous_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     applied_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+class ChatMemory(Base):
+    __tablename__ = 'todo_chat_memories'
+    user_id: Mapped[str] = mapped_column(ForeignKey('todo_users.id'), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    summary: Mapped[str] = mapped_column(Text, default='')
+    through_created: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    through_id: Mapped[str] = mapped_column(String(36), default='')
+    source_count: Mapped[int] = mapped_column(Integer, default=0)

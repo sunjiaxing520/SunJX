@@ -181,3 +181,93 @@ def test_memo_provider_errors_keep_json(client,monkeypatch,upstream,expected):
     assert isinstance(response.json()['detail'],str)
     assert 'private provider response' not in response.text
     assert client.get('/api/memo/status').json()=={'bound':False}
+
+def test_weekly_schedule_preserves_progress_and_conflicts(client):
+    state=client.get('/api/state').json()
+    task={'id':'weekly','project_id':state['projects'][0]['id'],'title':'学习','date':'2026-09-14','repeat_weekdays':[0,2,4],'repeat_until':'2026-09-25'}
+    body={'revision':state['revision'],'task':task}
+    response=client.post('/api/tasks/repeat',json=body)
+    assert response.status_code==200
+    state=response.json()
+    assert [t['date'] for t in state['tasks']]==['2026-09-14','2026-09-16','2026-09-18','2026-09-21','2026-09-23','2026-09-25']
+    assert len({t['series_id'] for t in state['tasks']})==1
+    assert client.post('/api/tasks/repeat',json=body).status_code==409
+    state['tasks'][0]['done']=True
+    state['tasks'][2]['locked']=True
+    state['tasks'][3]['actual_minutes']=15
+    state['tasks'][5]['mastery']='learned'
+    state=client.put('/api/state',json=state).json()
+    protected=deepcopy([state['tasks'][0],state['tasks'][2]])
+    draft={**state['tasks'][1],'repeat_weekdays':[1,3],'title':'调整学习'}
+    response=client.post('/api/tasks/repeat',json={'revision':state['revision'],'task':draft})
+    assert response.status_code==200
+    tasks=response.json()['tasks']
+    for old in protected: assert old in tasks
+    assert next(t for t in tasks if t['date']=='2026-09-21')['actual_minutes']==15
+    assert all(not t['done'] and t['actual_minutes']==0 for t in tasks if t['title']=='调整学习')
+    assert all(t['date']!='2026-09-23' for t in tasks)
+    assert next(t for t in tasks if t['date']=='2026-09-25')['mastery']=='learned'
+    assert len({t['id'] for t in tasks})==len(tasks)
+
+@pytest.mark.parametrize('fields',[
+    {'repeat_weekdays':[]}, {'repeat_weekdays':[7]}, {'repeat_weekdays':[0,0]},
+    {'repeat_until':'2026-09-01'}, {'repeat_until':'2030-01-01'},
+    {'repeat_weekdays':[1],'repeat_until':'2026-09-14'},
+])
+def test_weekly_invalid_is_atomic(client,fields):
+    state=client.get('/api/state').json()
+    task={'id':'weekly','project_id':state['projects'][0]['id'],'title':'学习','date':'2026-09-14','repeat_weekdays':[0],'repeat_until':'2026-09-25',**fields}
+    assert client.post('/api/tasks/repeat',json={'revision':state['revision'],'task':task}).status_code==422
+    assert client.get('/api/state').json()==state
+
+def test_memory_isolated_incremental_and_bounded(client,monkeypatch):
+    from backend import memory
+    from backend.db import Session,Message,User
+    from sqlalchemy import select
+    from datetime import datetime,timedelta,timezone,date
+    state=client.get('/api/state').json(); project=state['projects'][0]
+    with Session() as session:
+        user=session.scalar(select(User).where(User.data=={'projects':state['projects'],'tasks':[]}))
+        user_id=user.id
+        for index in range(20):
+            session.add(Message(id=str(uuid4()),user_id=user_id,project_id=project['id'],role='user' if index%2==0 else 'assistant',content='学习目标和约束'*1000,created=datetime.now(timezone.utc)+timedelta(seconds=index)))
+        session.commit()
+    async def summarize(key,model,messages):
+        assert sum(len(m['content']) for m in messages)<18000
+        return AIReply(message='目标：学习数学。约束：工作日晚间。')
+    monkeypatch.setattr(memory,'call_model',summarize)
+    client.put('/api/settings/ai',json={'key':'test-kimi-key'})
+    response=client.post('/api/memory/'+project['id']+'/compact')
+    assert response.status_code==200
+    count=response.json()['source_count']; assert 0<count<=12
+    response=client.post('/api/memory/'+project['id']+'/compact')
+    assert response.json()['source_count']>count
+    with TestClient(main.app,headers={'X-Todo-Client':'web'}) as other:
+        other.post('/api/auth/register',json={'username':uuid4().hex,'password':'test-password'})
+        assert other.get('/api/memory/'+project['id']).status_code==404
+    with Session() as session:
+        assert len(session.scalars(select(Message).where(Message.user_id==user_id)).all())==20
+    tasks=[{'id':str(i),'project_id':project['id'],'title':'任务'*100,'date':'2026-09-14','notes':'长备注'*1600} for i in range(5000)]
+    context=memory.bounded_context({'tasks':tasks},project,date(2026,9,14))
+    assert len(context['tasks'])<=60
+    assert context['omitted_tasks']>4900
+    import json
+    assert len(json.dumps(context,ensure_ascii=False))<18000
+
+def test_memory_failure_keeps_previous_summary(client,monkeypatch):
+    from backend import memory
+    from backend.db import Session,Message,ChatMemory
+    from datetime import datetime,timedelta,timezone
+    from fastapi import HTTPException
+    state=client.get('/api/state').json(); project_id=state['projects'][0]['id']
+    user_id=client.get('/api/auth/me').json()['id']
+    with Session() as session:
+        session.add(ChatMemory(user_id=user_id,project_id=project_id,summary='原记忆',source_count=2))
+        for index in range(18):
+            session.add(Message(id=str(uuid4()),user_id=user_id,project_id=project_id,role='user',content='历史对话',created=datetime.now(timezone.utc)+timedelta(seconds=index)))
+        session.commit()
+    async def failure(*args): raise HTTPException(424,'upstream unavailable')
+    monkeypatch.setattr(memory,'call_model',failure)
+    client.put('/api/settings/ai',json={'key':'test-kimi-key'})
+    assert client.post('/api/memory/'+project_id+'/compact').status_code==424
+    assert client.get('/api/memory/'+project_id).json()['summary']=='原记忆'
