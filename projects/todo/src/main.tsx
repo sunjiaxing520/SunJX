@@ -545,8 +545,13 @@ function App() {
       newProject();
       return;
     }
-    setTaskEdit(blankTask(p, view === "today" ? date : day()));
+    if (view === "projects") addWeekly(p);
+    else setTaskEdit(blankTask(p, view === "today" ? date : day()));
   };
+  function addWeekly(p: string) {
+    const start = day();
+    setTaskEdit({ ...blankTask(p, start), repeat_weekdays: [(new Date().getDay()+6)%7], repeat_until: shiftDay(start,83) });
+  }
   if (loading)
     return (
       <div className="loading-screen">
@@ -941,15 +946,21 @@ function App() {
                   <Sparkles size={16} /> 一起制定计划
                 </button>
               </div>
-              <QuickAdd
-                projects={[selected]}
-                date={day()}
-                busy={busy}
-                onAdd={saveTask}
-              />
+              <section className="plan-task-actions" aria-label="安排计划任务">
+                <button className="glass" disabled={busy} onClick={() => addWeekly(selected.id)}>
+                  <RefreshCw size={23} />
+                  <span><b>周期性添加</b><small>选择每周哪几天学习，一次安排后续任务</small></span>
+                  <ArrowUpRight size={18} />
+                </button>
+                <button className="glass" onClick={() => setView("calendar")}>
+                  <CalendarDays size={23} />
+                  <span><b>去日历单独添加</b><small>选择具体日期，安排临时任务或查看进度</small></span>
+                  <ArrowUpRight size={18} />
+                </button>
+              </section>
             </>
           )}
-          {(view === "today" || (view === "projects" && selected)) && (
+          {view === "today" && (
             <>
               <div className="list-toolbar">
                 <div>
@@ -1051,10 +1062,11 @@ function App() {
           {view === "calendar" && (
             <CalendarView
               data={data}
+              initialProjectId={projectId || "all"}
               onEdit={setTaskEdit}
-              onNew={(d) => {
+              onNew={(d, p) => {
                 if (data.projects.length)
-                  setTaskEdit(blankTask(projectId || data.projects[0].id, d));
+                  setTaskEdit(blankTask(p === "all" ? data.projects[0].id : p, d));
                 else newProject();
               }}
               onMove={async (t, d) => {
@@ -1414,7 +1426,7 @@ function TaskEditor({
     [busy, setBusy] = useState(false),
     [sub, setSub] = useState("");
   const patch = (p: Partial<Task>) => setDraft({ ...draft, ...p });
-  const [weekly, setWeekly] = useState(false);
+  const [weekly, setWeekly] = useState(!task.title && !!task.repeat_weekdays?.length);
   const repeatDays = draft.repeat_weekdays || [];
   return (
     <Modal title={task.title ? "任务详情" : "新建待办"} onClose={onClose}>
@@ -1848,18 +1860,20 @@ function ConfirmModal({
 
 function CalendarView({
   data,
+  initialProjectId,
   onEdit,
   onNew,
   onMove,
 }: {
   data: State;
+  initialProjectId: string;
   onEdit: (t: Task) => void;
-  onNew: (d: string) => void;
+  onNew: (d: string, projectId: string) => void;
   onMove: (t: Task, d: string) => Promise<void>;
 }) {
   const [anchor, setAnchor] = useState(day()),
     [mode, setMode] = useState<"week" | "month">("week"),
-    [filter, setFilter] = useState("all");
+    [filter, setFilter] = useState(initialProjectId);
   const d = new Date(anchor + "T12:00:00"),
     weekStart = shiftDay(anchor, -((d.getDay() + 6) % 7));
   const monthStart = day(new Date(d.getFullYear(), d.getMonth(), 1)),
@@ -1889,7 +1903,7 @@ function CalendarView({
           </h1>
           <p>看见每一天的任务量，给自己留一点余地。</p>
         </div>
-        <button className="primary" onClick={() => onNew(anchor)}>
+        <button className="primary" onClick={() => onNew(anchor, filter)}>
           <Plus size={17} /> 添加任务
         </button>
       </div>
@@ -1981,7 +1995,7 @@ function CalendarView({
                 <button
                   className="icon-button"
                   aria-label={`在${value}添加任务`}
-                  onClick={() => onNew(value)}
+                  onClick={() => onNew(value, filter)}
                 >
                   <Plus size={15} />
                 </button>
@@ -2018,7 +2032,7 @@ function CalendarView({
                 })}
               </div>
               {!tasks.length && mode === "week" && (
-                <button className="free-day" onClick={() => onNew(value)}>
+                <button className="free-day" onClick={() => onNew(value, filter)}>
                   留白，也很好
                   <br />
                   <Plus size={16} />

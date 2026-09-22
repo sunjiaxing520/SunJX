@@ -3688,3 +3688,13 @@ progress::-moz-progress-bar {
 .memory-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; margin:10px 0; color:#584e63; }
 .memory-card .secondary { margin-bottom:8px; font-size:12px; }
 @media(max-width:400px) { .repeat-panel {padding:12px;} .weekday-picker {gap:4px;} .weekday-picker button {height:38px;} }
+
+.plan-task-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:24px 0; }
+.plan-task-actions > button { display:flex; align-items:center; gap:16px; padding:24px; text-align:left; border:1px solid #e7e1f0; border-radius:20px; color:#8b6bb2; transition:border-color .2s, background .2s; }
+.plan-task-actions > button:hover { border-color:#bfa6df; background:#faf7ff; }
+.plan-task-actions > button:focus-visible { outline:2px solid #8b6bb2; outline-offset:4px; }
+.plan-task-actions > button > svg { flex-shrink:0; }
+.plan-task-actions > button > span { flex:1; min-width:0; }
+.plan-task-actions b { display:block; color:#43516c; font-size:16px; margin-bottom:8px; }
+.plan-task-actions small { display:block; color:#8c96a8; font-size:12px; line-height:1.7; }
+@media(max-width:900px) { .plan-task-actions { grid-template-columns:1fr; } .plan-task-actions > button { padding:20px; } }
