@@ -509,6 +509,7 @@ function App() {
     });
   const go = (v: View) => {
     setView(v);
+    if (v === "today") setDate(day());
     setProjectId(null);
     setMenuOpen(false);
     setQuery("");
@@ -520,9 +521,7 @@ function App() {
     planned = todayTasks.reduce((n, t) => n + t.minutes, 0);
   let shown = (
     view === "today"
-      ? data.tasks.filter(
-          (t) => t.date === date || (!t.done && !!t.date && t.date < date),
-        )
+      ? todayTasks
       : selected
         ? data.tasks.filter((t) => t.project_id === selected.id)
         : data.tasks
@@ -789,7 +788,7 @@ function App() {
                     <CheckCheck size={21} />
                   </span>
                   <div>
-                    <small>今日完成</small>
+                    <small>{date === today ? "今日完成" : "当日完成"}</small>
                     <strong>
                       {doneToday}
                       <span> / {todayTasks.length} 件</span>
