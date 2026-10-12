@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.security import hash_password
 from app.main import create_app
-from app.models import User, UserRole
+from app.models import User, UserRole, WorkflowRun
 from app.services.music_storage import StoredMusicObject
 from tests.fakes import FakeSunoProvider
 
@@ -70,6 +70,36 @@ def workflow_context(monkeypatch: pytest.MonkeyPatch) -> WorkflowContext:
 
 def _headers(context: WorkflowContext) -> dict[str, str]:
     return {"Authorization": f"Bearer {context.token}"}
+
+
+@pytest.mark.parametrize("active_status", ["pending", "running"])
+def test_two_account_tasks_block_third_reference(
+    workflow_context: WorkflowContext,
+    active_status: str,
+) -> None:
+    session_generator = workflow_context.client.app.dependency_overrides[get_db]()
+    db = next(session_generator)
+    try:
+        paused = WorkflowRun(
+            template_name="Waiting for review", configuration={}, status="paused", requested_by_id=1,
+        )
+        active = WorkflowRun(
+            template_name="Active workflow", configuration={}, status=active_status, requested_by_id=1,
+        )
+        db.add_all([paused, active])
+        db.commit()
+        paused_id = paused.id
+        response = workflow_context.client.post(
+            "/api/v1/music/reference-runs", headers=_headers(workflow_context),
+            json={"source_entry_id": 1},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "ACCOUNT_TASK_QUEUE_FULL"
+        assert response.json()["error"]["detail"]["active_count"] == 2
+        db.expire_all()
+        assert db.get(WorkflowRun, paused_id).status == "paused"
+    finally:
+        session_generator.close()
 
 
 def _collect_sample(
@@ -852,7 +882,7 @@ def test_workflow_review_pauses_after_one_failed_review_and_can_continue(
     ).json()
     assert reviews["total"] == 1
 
-    blocked_start = workflow_context.client.post(
+    next_start = workflow_context.client.post(
         f"/api/v1/workflows/templates/{template.json()['id']}/runs",
         headers=_headers(workflow_context),
     )
@@ -860,8 +890,13 @@ def test_workflow_review_pauses_after_one_failed_review_and_can_continue(
         f"/api/v1/workflows/runs/{run_id}",
         headers=_headers(workflow_context),
     )
-    assert blocked_start.status_code == 409
-    assert blocked_start.json()["error"]["code"] == "WORKFLOW_ALREADY_RUNNING"
+    assert next_start.status_code == 202
+    assert next_start.json()["id"] != run_id
+    next_run = workflow_context.client.get(
+        f"/api/v1/workflows/runs/{next_start.json()['id']}",
+        headers=_headers(workflow_context),
+    ).json()
+    assert next_run["status"] == "paused"
     assert blocked_delete.status_code == 409
 
     accepted = workflow_context.client.post(

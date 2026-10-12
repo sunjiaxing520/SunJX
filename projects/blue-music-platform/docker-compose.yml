@@ -97,6 +97,24 @@ services:
     networks:
       - blue_music_net
 
+  workflow-worker:
+    build: ./backend
+    command: ["python", "-m", "app.workers.workflows"]
+    environment:
+      <<: *music-runtime-environment
+      DATABASE_URL: postgresql://blue_music:blue_music_pass@postgres:5432/blue_music_db
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - blue_music_net
+
 volumes:
   postgres_data:
 

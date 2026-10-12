@@ -53,6 +53,7 @@ import { listReviewAgents } from '../api/reviewAgents'
 import { hasAgentAccess } from '../auth/permissions'
 import { useAuth } from '../auth/useAuth'
 import { CollapsibleList } from '../components/CollapsibleList'
+import { TaskQueuePanel } from '../components/TaskQueuePanel'
 import { WorkflowStepOutputDrawer } from '../components/WorkflowStepOutputDrawer'
 import { errorMessage, isLyricsPromptRejected } from '../lib/errors'
 import {
@@ -854,6 +855,7 @@ export function WorkflowsPage() {
 
   return (
     <div className="page-stack">
+      <TaskQueuePanel />
       <div className="page-heading-row">
         <div>
           <Typography.Title level={1}>自动流程</Typography.Title>

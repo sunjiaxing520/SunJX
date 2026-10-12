@@ -63,6 +63,7 @@ import {
 import { getWorkflowRun, listWorkflowRuns } from '../api/workflows'
 import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
+import { TaskQueuePanel } from '../components/TaskQueuePanel'
 import { LyricsOutputPreview } from '../components/LyricsOutputPreview'
 import {
   UpstreamOutputField,
@@ -665,6 +666,7 @@ export function MusicPage() {
 
   return (
     <div className="page-stack">
+      <TaskQueuePanel />
       <div className="page-heading-row">
         <div>
           <Typography.Title level={1}>音乐创作</Typography.Title>
@@ -849,7 +851,7 @@ export function MusicPage() {
               type="primary"
               icon={<Sparkles size={16} />}
               loading={referenceStarting}
-              disabled={!selectedReferenceSong || quotaExhausted || referenceRunActive}
+              disabled={!selectedReferenceSong || quotaExhausted}
               onClick={() => void startReferenceCreation()}
             >
               一键生成完整歌曲

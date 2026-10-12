@@ -1,9 +1,10 @@
 import logging
 import time
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import Engine, Connection, func, select
+from sqlalchemy import Engine, Connection, func, select, text
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from app.core.config import settings
@@ -57,9 +58,11 @@ from app.services.music import (
 )
 from app.services.rankings import create_collection
 from app.services.review_agents import create_lyrics_review, require_review_agent_access
+from app.services.task_queue import ensure_account_task_capacity, expire_paused_workflows
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
+_dispatch_lock = threading.Lock()
 STEP_AGENT = {
     WorkflowStepType.COLLECTION.value: AgentType.CRAWLER,
     WorkflowStepType.ANALYSIS.value: AgentType.ANALYSIS,
@@ -305,7 +308,7 @@ def start_workflow_run(
     user: User,
 ) -> WorkflowRunResponse:
     recover_stale_workflow_runs(db)
-    _ensure_no_active_workflow_run(db)
+    ensure_account_task_capacity(db, user.id)
 
     template = _get_template(db, template_id)
     _ensure_step_permissions(db, user, template.steps)
@@ -337,7 +340,7 @@ def start_reference_workflow_run(
     user: User,
 ) -> WorkflowRunResponse:
     recover_stale_workflow_runs(db)
-    _ensure_no_active_workflow_run(db)
+    ensure_account_task_capacity(db, user.id)
     entry = db.get(RankingEntry, payload.source_entry_id)
     if entry is None:
         raise AppException(
@@ -380,30 +383,6 @@ def start_reference_workflow_run(
     db.add(run)
     db.commit()
     return get_workflow_run(db, run.id)
-
-
-def _ensure_no_active_workflow_run(db: Session) -> None:
-    active_run = db.scalar(
-        select(WorkflowRun)
-        .where(
-            WorkflowRun.status.in_(
-                (
-                    TaskStatus.PENDING.value,
-                    TaskStatus.RUNNING.value,
-                    TaskStatus.PAUSED.value,
-                )
-            )
-        )
-        .order_by(WorkflowRun.created_at)
-        .limit(1)
-    )
-    if active_run is not None:
-        raise AppException(
-            code="WORKFLOW_ALREADY_RUNNING",
-            message="已有自动流程正在运行，请等待完成后再启动下一条",
-            status_code=409,
-            detail={"run_id": active_run.id},
-        )
 
 
 def _load_run(db: Session, run_id: int) -> WorkflowRun | None:
@@ -604,6 +583,37 @@ def execute_workflow_run(
     run_id: int,
     bind: Engine | Connection,
 ) -> None:
+    session_factory = sessionmaker(bind=bind, autocommit=False, autoflush=False)
+    while True:
+        with _dispatch_lock, session_factory() as db:
+            if db.get_bind().dialect.name == "postgresql":
+                db.execute(text("SELECT pg_advisory_xact_lock(72419, 1)"))
+            if db.scalar(select(WorkflowRun.id).where(WorkflowRun.status == "running").limit(1)):
+                return
+            next_run = db.scalar(select(WorkflowRun).where(
+                WorkflowRun.status == "pending",
+            ).order_by(WorkflowRun.created_at, WorkflowRun.id).limit(1).with_for_update())
+            if next_run is None:
+                return
+            next_id = next_run.id
+            next_run.status = TaskStatus.RUNNING.value
+            next_run.started_at = utc_now()
+            db.commit()
+        try:
+            _execute_claimed_workflow_run(next_id, bind)
+        except Exception:
+            task_logger.exception("workflow_dispatch_failed", extra={"task_id": str(next_id)})
+            with session_factory() as db:
+                failed = db.get(WorkflowRun, next_id)
+                if failed is not None and failed.status == "running":
+                    failed.status = "failed"
+                    failed.error_code = "WORKFLOW_UNEXPECTED_ERROR"
+                    failed.error_message = "流程执行异常，请按流程编号查询日志"
+                    failed.completed_at = utc_now()
+                    db.commit()
+
+
+def _execute_claimed_workflow_run(run_id: int, bind: Engine | Connection) -> None:
     session_factory = sessionmaker(
         bind=bind,
         autocommit=False,
@@ -611,7 +621,7 @@ def execute_workflow_run(
     )
     with session_factory() as db:
         run = _load_run(db, run_id)
-        if run is None or run.status != TaskStatus.PENDING.value:
+        if run is None or run.status != TaskStatus.RUNNING.value:
             return
         run.status = TaskStatus.RUNNING.value
         run.started_at = run.started_at or utc_now()
@@ -880,6 +890,7 @@ def _execute_step(
                 requirements=configuration.music.requirements,
             ),
             run.requested_by_id,
+            workflow_step_id=step.id,
         )
         dispatch_music_task(db, music_task.id)
         completed_task = wait_for_music_task_completion(db, music_task.id)
@@ -1252,6 +1263,7 @@ def _mark_workflow_failed(
 
 
 def recover_stale_workflow_runs(db: Session) -> int:
+    expire_paused_workflows(db)
     cutoff = utc_now() - timedelta(
         seconds=max(60.0, settings.WORKFLOW_STALE_SECONDS)
     )
@@ -1259,9 +1271,7 @@ def recover_stale_workflow_runs(db: Session) -> int:
         select(WorkflowRun)
         .options(selectinload(WorkflowRun.steps))
         .where(
-            WorkflowRun.status.in_(
-                (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
-            ),
+            WorkflowRun.status == TaskStatus.RUNNING.value,
             func.coalesce(WorkflowRun.started_at, WorkflowRun.created_at) < cutoff,
         )
     ).all()

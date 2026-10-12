@@ -4648,3 +4648,9 @@ textarea {
     grid-row: 2;
   }
 }
+/* Account queue remains compact on both desktop and mobile. */
+.task-queue-panel { border-block: 1px solid #dce2e6; padding: 16px 0; }
+.task-queue-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.task-queue-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #edf0f2; }
+.task-queue-row > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .task-queue-row { flex-direction: column; } }

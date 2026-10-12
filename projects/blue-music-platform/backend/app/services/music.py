@@ -44,6 +44,7 @@ from app.models import (
     TaskStatus,
     User,
     UserRole,
+    WorkflowRunStep,
 )
 from app.schemas.music import (
     MusicCreateRequest,
@@ -70,6 +71,7 @@ from app.services.music_storage import (
     get_music_object_store,
 )
 from app.services.task_recovery import recover_stale_music_tasks
+from app.services.task_queue import ensure_account_task_capacity, expire_paused_workflows
 
 
 task_logger = logging.getLogger(f"{LOGGER_NAME}.tasks")
@@ -151,6 +153,8 @@ def create_music_task(
     db: Session,
     payload: MusicCreateRequest,
     requested_by_id: int,
+    *,
+    workflow_step_id: int | None = None,
 ) -> MusicTaskResponse:
     lyrics_version = db.get(LyricsVersion, payload.lyrics_version_id)
     if lyrics_version is None:
@@ -161,7 +165,7 @@ def create_music_task(
         )
 
     provider_settings = _new_provider_task_settings(db, "generate")
-    _consume_music_task_quota(db, requested_by_id)
+    _consume_music_task_quota(db, requested_by_id, check_capacity=workflow_step_id is None)
     task = MusicTask(
         status=TaskStatus.PENDING.value,
         operation="generate",
@@ -180,6 +184,12 @@ def create_music_task(
         provider_status="created",
     )
     db.add(task)
+    if workflow_step_id is not None:
+        db.flush()
+        step = db.get(WorkflowRunStep, workflow_step_id)
+        if step is None or step.step_type != "music":
+            raise AppException(code="WORKFLOW_STEP_NOT_FOUND", message="音乐流程步骤不存在", status_code=409)
+        step.task_id = task.id
     db.commit()
     return get_music_task(db, task.id)
 
@@ -323,6 +333,9 @@ def retry_music_task(db: Session, task_id: int) -> MusicTaskResponse:
             message="提交结果尚不确定，请先在供应商后台核对任务，避免重复生成和扣费",
             status_code=409,
         )
+    expire_paused_workflows(db)
+    if task.requested_by_id is not None:
+        ensure_account_task_capacity(db, task.requested_by_id)
     task.status = TaskStatus.PENDING.value
     task.provider_status = "retry_requested"
     task.max_attempts = max(
@@ -1750,7 +1763,10 @@ def _validate_sunoapi_org_callback_base_url(value: str | None) -> str | None:
     return value.rstrip("/")
 
 
-def _consume_music_task_quota(db: Session, user_id: int) -> None:
+def _consume_music_task_quota(db: Session, user_id: int, *, check_capacity: bool = True) -> None:
+    if check_capacity:
+        expire_paused_workflows(db)
+        ensure_account_task_capacity(db, user_id)
     user = db.scalar(
         select(User).where(User.id == user_id).with_for_update()
     )

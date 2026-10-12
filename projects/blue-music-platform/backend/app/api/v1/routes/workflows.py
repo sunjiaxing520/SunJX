@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Query, Response, status
 
 from app.api.dependencies import CurrentUser, DatabaseSession
+from app.services.task_queue import account_task_queue
 from app.schemas.workflow import (
     WorkflowRunDeleteRequest,
     WorkflowRunDeleteResponse,
@@ -26,6 +27,11 @@ from app.services.workflows import (
 
 
 router = APIRouter(prefix="/workflows")
+
+
+@router.get("/queue")
+def queue_status(db: DatabaseSession, user: CurrentUser) -> dict:
+    return account_task_queue(db, user.id)
 
 
 @router.get("/templates", response_model=list[WorkflowTemplateResponse])
