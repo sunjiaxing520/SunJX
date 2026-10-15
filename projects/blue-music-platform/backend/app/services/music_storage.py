@@ -228,8 +228,16 @@ def _download_to_temp(source_url: str) -> Path:
             follow_redirects=False,
         ) as client:
             for _ in range(6):
-                _validate_public_https_url(current_url)
-                with client.stream("GET", current_url) as response:
+                public_ip = _validate_public_https_url(current_url, client=client)
+                request_url = httpx.URL(current_url)
+                headers = {}
+                extensions = {}
+                if public_ip:
+                    # Pin the validated IP while retaining the original HTTPS identity.
+                    headers["Host"] = request_url.netloc.decode("ascii")
+                    extensions["sni_hostname"] = request_url.host
+                    request_url = request_url.copy_with(host=public_ip)
+                with client.stream("GET", request_url, headers=headers, extensions=extensions) as response:
                     if response.is_redirect:
                         location = response.headers.get("location")
                         if not location:
@@ -267,7 +275,7 @@ def _download_to_temp(source_url: str) -> Path:
             temp_path.unlink(missing_ok=True)
 
 
-def _validate_public_https_url(url: str) -> None:
+def _validate_public_https_url(url: str, *, client: httpx.Client | None = None) -> str | None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username:
         raise MusicStorageError("Suno 音频地址不是有效 HTTPS URL")
@@ -279,10 +287,46 @@ def _validate_public_https_url(url: str) -> None:
         )
     except socket.gaierror as exc:
         raise MusicStorageError("无法解析 Suno 音频地址") from exc
-    for address in addresses:
-        ip = ipaddress.ip_address(address[4][0])
-        if not ip.is_global:
-            raise MusicStorageError("Suno 音频地址指向非公网网络")
+    ips = [ipaddress.ip_address(address[4][0]) for address in addresses]
+    if not ips:
+        raise MusicStorageError("无法解析 Suno 音频地址")
+    non_public = [ip for ip in ips if not ip.is_global]
+    if not non_public:
+        return None
+    fake_ip_range = ipaddress.ip_network("198.18.0.0/15")
+    if not settings.MUSIC_DOWNLOAD_DOH_FALLBACK or not all(ip in fake_ip_range for ip in non_public):
+        raise MusicStorageError("Suno 音频地址指向非公网网络")
+    try:
+        ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        pass
+    else:
+        raise MusicStorageError("Suno 音频地址指向非公网网络")
+    if client is None:
+        with httpx.Client(timeout=15, follow_redirects=False) as resolver:
+            return _resolve_public_audio_ip(resolver, parsed.hostname)
+    return _resolve_public_audio_ip(client, parsed.hostname)
+
+
+def _resolve_public_audio_ip(client: httpx.Client, hostname: str) -> str:
+    try:
+        response = client.get(
+            "https://cloudflare-dns.com/dns-query",
+            params={"name": hostname, "type": "A"},
+            headers={"Accept": "application/dns-json"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("Status") != 0:
+            raise ValueError("DNS lookup failed")
+        ips = [ipaddress.ip_address(answer["data"]) for answer in payload.get("Answer", [])
+               if answer.get("type") == 1]
+    except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise MusicStorageError("代理虚拟地址的公网 DNS 核验失败，请稍后重试归档") from exc
+    if not ips or any(not ip.is_global for ip in ips):
+        raise MusicStorageError("Suno 音频公网 DNS 核验未通过")
+    return str(ips[0])
 
 
 def _extension(media_type: str) -> str:

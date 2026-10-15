@@ -99,6 +99,9 @@ class Settings:
     SUNO_MAX_AUDIO_BYTES = int(
         os.getenv("SUNO_MAX_AUDIO_BYTES", str(100 * 1024 * 1024))
     )
+    MUSIC_DOWNLOAD_DOH_FALLBACK = os.getenv(
+        "MUSIC_DOWNLOAD_DOH_FALLBACK", "false"
+    ).lower() in {"1", "true", "yes", "on"}
     MUSIC_QUEUE_MODE = os.getenv("MUSIC_QUEUE_MODE", "redis").lower()
     MUSIC_QUEUE_NAME = os.getenv(
         "MUSIC_QUEUE_NAME", "blue_music:music:queue"
