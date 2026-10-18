@@ -9,6 +9,7 @@ from typing import Any, Generic, Literal, Protocol, TypeVar
 from urllib.parse import urlparse
 
 import httpx
+from app.adapters.text_network import recover_fake_ip_post
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.core.ai_values import (
@@ -1159,15 +1160,15 @@ class OpenAICompatibleTextProvider:
                     and self.model in {"gemini-2.5-flash", "gemini-2.5-flash-lite"}
                 ):
                     request_body["reasoning_effort"] = "none"
-                response = httpx.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.config.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=request_body,
-                    timeout=self.config.request_timeout_seconds,
-                )
+                headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
+                try:
+                    response = httpx.post(url, headers=headers, json=request_body,
+                                          timeout=self.config.request_timeout_seconds)
+                except httpx.ConnectError as connection_error:
+                    if not settings.AI_FAKE_IP_FALLBACK or _connection_failure_kind(connection_error) != "tls":
+                        raise
+                    response = recover_fake_ip_post(url, headers=headers, json=request_body,
+                        timeout=self.config.request_timeout_seconds, original_error=connection_error)
                 response.raise_for_status()
                 body = response.json()
                 last_request_id = str(body.get("request_id") or body.get("id") or "") or None
@@ -1310,14 +1311,26 @@ def _provider_failure_summary(
         return f"AI 接口请求超时（单次等待上限 {_format_seconds(timeout_seconds)} 秒）"
     if isinstance(error, httpx.HTTPStatusError):
         status_code = error.response.status_code
+        code, message = _provider_error_payload(error.response)
         guidance = {
             401: "，请检查 API Key 是否有效或已过期",
             403: "，请检查账号权限、模型权限及服务地域限制",
             402: "，请检查账号余额或付费状态",
             404: "，请检查接口地址及模型名称",
-            429: "，可能是频率限制或额度不足，请核对供应商后台",
+            429: "，供应商限制了本次请求；请按返回原因检查频率或配额，不要连续重复提交",
         }.get(status_code, "")
-        code, message = _provider_error_payload(error.response)
+        if error.response.request.url.host == "open.bigmodel.cn":
+            guidance = {
+                "1305": "；供应商模型繁忙，请稍后重试或由管理员选择其他模型；此错误不代表余额不足",
+                "1302": "；账号请求频率或并发达到上限，请等待已有任务结束后再试",
+                "1113": "；供应商账户已欠费，请管理员充值后重试，重复提交无效",
+                "1211": "；模型名称不存在，请管理员核对接口中的模型配置",
+                "1308": "；已达到供应商使用配额，请按供应商提示的重置时间再试",
+                "1310": "；已达到周/月配额，请等待重置或调整供应商套餐",
+                "1311": "；当前供应商套餐没有该模型权限，请管理员核对授权",
+            }.get(code, guidance)
+        elif code in {"insufficient_quota", "insufficient_balance"}:
+            guidance = "；供应商余额或配额不足，请管理员核对账户；重复提交无效"
         details = ""
         if code and message:
             details = f"（{code}：{message}）"
@@ -1327,7 +1340,22 @@ def _provider_failure_summary(
             details = f"（{message}）"
         return f"AI 接口返回 HTTP {status_code}{details}{guidance}"
     if isinstance(error, httpx.ConnectError):
-        return "无法连接 AI 接口，请检查网络、域名和代理设置"
+        try:
+            host = error.request.url.host
+        except RuntimeError:
+            host = "供应商"
+        reason = _connection_failure_kind(error)
+        if reason == "certificate":
+            return f"AI 接口证书校验失败（{host}），请检查系统时间、证书及代理；请勿关闭证书校验"
+        if reason == "tls":
+            return f"AI 接口 TLS 握手中断（{host}），尚未收到供应商响应；请检查代理/TUN与网络链路，不能据此判断密钥或余额"
+        if reason == "dns":
+            return f"AI 接口域名解析失败（{host}），请检查 DNS 与代理设置"
+        if reason == "refused":
+            return f"AI 接口连接被拒绝（{host}），请检查接口地址及代理服务是否已启动"
+        return f"无法建立 AI 接口连接（{host}），请检查服务器网络与代理；尚未完成密钥和余额校验"
+    if isinstance(error, httpx.ProxyError):
+        return "AI 接口代理连接失败，请检查代理端口、认证或代理服务是否已启动"
     if isinstance(error, httpx.NetworkError):
         return f"AI 接口网络异常（{type(error).__name__}）"
     if isinstance(error, httpx.HTTPError):
@@ -1344,6 +1372,26 @@ def _provider_failure_summary(
     if isinstance(error, ValueError):
         return "AI 接口返回的内容不是有效 JSON 对象"
     return f"AI 接口请求失败（{type(error).__name__}）"
+
+
+def _connection_failure_kind(error: Exception) -> str:
+    parts: list[str] = []
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(str(current).casefold())
+        current = current.__cause__ or current.__context__
+    detail = " ".join(parts)
+    if "certificate_verify_failed" in detail or "certificate verify failed" in detail:
+        return "certificate"
+    if any(value in detail for value in ("ssl", "tls", "handshake", "unexpected_eof")):
+        return "tls"
+    if any(value in detail for value in ("getaddrinfo", "name or service not known", "nodename", "11001")):
+        return "dns"
+    if "10061" in detail or "connection refused" in detail:
+        return "refused"
+    return "unknown"
 
 
 def _provider_error_payload(response: httpx.Response) -> tuple[str | None, str | None]:
@@ -1397,8 +1445,15 @@ def _provider_status_code(error: Exception) -> int | None:
 
 
 def _should_retry_provider_error(error: Exception) -> bool:
+    if isinstance(error, httpx.ConnectError) and _connection_failure_kind(error) in {"certificate", "tls"}:
+        return False
     if isinstance(error, httpx.HTTPStatusError):
         status_code = error.response.status_code
+        code, _ = _provider_error_payload(error.response)
+        if code in {"insufficient_quota", "insufficient_balance"} or (
+            error.response.request.url.host == "open.bigmodel.cn" and code in {"1113", "1311"}
+        ):
+            return False
         if status_code == 429:
             return _provider_retry_after_seconds(error.response) is not None
         return status_code in {408, 409, 425} or status_code >= 500

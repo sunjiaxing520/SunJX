@@ -46,6 +46,7 @@ class Settings:
     KUGOU_MAX_RETRIES = int(os.getenv("KUGOU_MAX_RETRIES", "3"))
 
     AI_PROVIDER = os.getenv("AI_PROVIDER", "local").lower()
+    AI_FAKE_IP_FALLBACK = os.getenv("AI_FAKE_IP_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
     AI_BASE_URL = os.getenv("AI_BASE_URL", "").rstrip("/")
     AI_API_KEY = os.getenv("AI_API_KEY", "")
     AI_MODEL = os.getenv("AI_MODEL", "")

@@ -206,7 +206,7 @@ export function AiProvidersPage() {
       const result = await testAiProviderConfig(provider.id)
       setTestNotice({
         type: result.status === 'success' ? 'success' : 'error',
-        text: `${provider.name}：${result.message}；本次 ${result.api_usage.total_tokens} Token`,
+        text: `${provider.name}：${result.message}；本次记录 ${result.api_usage.total_tokens} Token${!result.provider.is_active ? '；当前运行接口未切换' : ''}`,
         provider: result.status === 'success' ? result.provider : undefined,
       })
     } catch (testError) {

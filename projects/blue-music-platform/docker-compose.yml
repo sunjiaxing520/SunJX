@@ -1,4 +1,5 @@
 x-music-runtime-environment: &music-runtime-environment
+  AI_FAKE_IP_FALLBACK: ${AI_FAKE_IP_FALLBACK:-false}
   MUSIC_QUEUE_MODE: ${MUSIC_QUEUE_MODE:-redis}
   MUSIC_QUEUE_NAME: ${MUSIC_QUEUE_NAME:-blue_music:music:queue}
   MUSIC_MAX_CONCURRENCY: ${MUSIC_MAX_CONCURRENCY:-1}

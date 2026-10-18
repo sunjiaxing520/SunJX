@@ -445,11 +445,45 @@ def test_provider_rate_limit_without_retry_after_stops_immediately(
     with pytest.raises(TextProviderError) as error:
         provider.test_connection()
 
-    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限），可能是频率限制或额度不足，请核对供应商后台"
+    assert str(error.value) == "AI 接口返回 HTTP 429（1302：并发数已达上限）；账号请求频率或并发达到上限，请等待已有任务结束后再试"
     assert error.value.call is not None
     assert error.value.call.attempt_count == 1
     assert error.value.call.request_id == "provider-rate-limit-123"
     assert calls == 1
+
+
+@pytest.mark.parametrize(('code', 'expected'), [
+    ('1305', '供应商模型繁忙'), ('1113', '供应商账户已欠费'),
+    ('1302', '账号请求频率或并发达到上限'), ('1311', '没有该模型权限'),
+])
+def test_provider_errors_distinguish_business_causes(code, expected):
+    response = httpx.Response(429, json={'error': {'code': code, 'message': 'provider error'}},
+        request=httpx.Request('POST', 'https://open.bigmodel.cn/api/paas/v4/chat/completions'))
+    error = httpx.HTTPStatusError('failed', request=response.request, response=response)
+    summary = text_generation._provider_failure_summary(error, timeout_seconds=10)
+    assert expected in summary
+    if code == '1305':
+        assert '不代表余额不足' in summary
+    if code in {'1113', '1311'}:
+        response.headers['retry-after'] = '1'
+        assert not text_generation._should_retry_provider_error(error)
+
+
+@pytest.mark.parametrize(('detail', 'expected'), [
+    ('[SSL: UNEXPECTED_EOF_WHILE_READING]', 'TLS 握手中断'),
+    ('[SSL: CERTIFICATE_VERIFY_FAILED]', '证书校验失败'),
+    ('getaddrinfo failed', '域名解析失败'),
+    ('[WinError 10061]', '连接被拒绝'),
+])
+def test_network_errors_have_actionable_safe_diagnostics(detail, expected):
+    error = httpx.ConnectError(detail + ' sk-secret-value',
+        request=httpx.Request('POST', 'https://api.moonshot.cn/v1/chat/completions'))
+    summary = text_generation._provider_failure_summary(error, timeout_seconds=10)
+    assert expected in summary
+    assert 'api.moonshot.cn' in summary
+    assert 'sk-secret-value' not in summary
+    if 'SSL' in detail:
+        assert not text_generation._should_retry_provider_error(error)
 
 
 def test_provider_rate_limit_respects_retry_after(
