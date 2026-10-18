@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
-  App,
   Button,
   Descriptions,
   Drawer,
@@ -11,11 +10,12 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import { AudioLines, Play, Square } from 'lucide-react'
+import { AudioLines, Play } from 'lucide-react'
 
 import { getAnalysisTask } from '../api/analysis'
 import { getLyricsTask } from '../api/lyrics'
-import { getMusicTask, loadMusicAudio } from '../api/music'
+import { getMusicTask } from '../api/music'
+import { useMusicPlayer, type Player } from './musicPlayerContext'
 import {
   getCollectionTask,
   getRankingSnapshot,
@@ -143,13 +143,10 @@ export function WorkflowStepOutputDrawer({
   step,
   onClose,
 }: WorkflowStepOutputDrawerProps) {
-  const { message } = App.useApp()
+  const player = useMusicPlayer()
   const [data, setData] = useState<OutputData | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [audioUrls, setAudioUrls] = useState<Record<number, string>>({})
-  const [loadingAudioId, setLoadingAudioId] = useState<number | null>(null)
-  const audioUrlsRef = useRef<Record<number, string>>({})
 
   const stepType = step?.step_type
   const taskId = step?.task_id ?? null
@@ -205,31 +202,6 @@ export function WorkflowStepOutputDrawer({
     }
   }, [open, outputId, reviewAgentId, stepType, taskId])
 
-  useEffect(() => {
-    if (open) return
-    Object.values(audioUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
-    audioUrlsRef.current = {}
-    setAudioUrls({})
-  }, [open])
-
-  useEffect(() => () => {
-    Object.values(audioUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
-  }, [])
-
-  const loadAudio = async (resultId: number, path: string) => {
-    if (audioUrls[resultId] || loadingAudioId !== null) return
-    setLoadingAudioId(resultId)
-    try {
-      const blob = await loadMusicAudio(path)
-      const url = URL.createObjectURL(blob)
-      audioUrlsRef.current[resultId] = url
-      setAudioUrls((current) => ({ ...current, [resultId]: url }))
-    } catch (audioError) {
-      message.error(errorMessage(audioError))
-    } finally {
-      setLoadingAudioId(null)
-    }
-  }
 
   const title = step
     ? `${WORKFLOW_STEP_LABELS[step.step_type]}${step.status === 'completed' ? '产出' : '任务详情'}`
@@ -273,9 +245,7 @@ export function WorkflowStepOutputDrawer({
           {!loading && !loadError && data && renderOutputData(
             data,
             step,
-            audioUrls,
-            loadingAudioId,
-            loadAudio,
+            player,
           )}
           {!loading && !loadError && !data && <Empty description="这一步还没有可展示的产出" />}
         </div>
@@ -287,9 +257,7 @@ export function WorkflowStepOutputDrawer({
 function renderOutputData(
   data: OutputData,
   step: WorkflowRunStep,
-  audioUrls: Record<number, string>,
-  loadingAudioId: number | null,
-  loadAudio: (resultId: number, path: string) => Promise<void>,
+  player: Player,
 ) {
   if (data.kind === 'collection') {
     return (
@@ -436,24 +404,15 @@ function renderOutputData(
               <div>
                 <strong>{result.title}</strong>
                 <small>{result.duration_seconds ? `${Math.round(result.duration_seconds)} 秒` : '时长处理中'}</small>
-                {audioUrls[result.id] ? (
-                  <audio
-                    controls
-                    preload="metadata"
-                    src={audioUrls[result.id]}
-                    aria-label={`试听 ${result.title}`}
-                  />
-                ) : (
                   <Button
                     size="small"
-                    icon={loadingAudioId === result.id ? <Square size={14} /> : <Play size={14} />}
-                    loading={loadingAudioId === result.id}
+                    icon={<Play size={14} />}
+                    loading={player.loading && player.track?.id === result.id}
                     disabled={!result.audio_ready}
-                    onClick={() => void loadAudio(result.id, result.audio_path)}
+                    onClick={() => player.track?.id === result.id ? player.toggle() : void player.start(result, data.task.results)}
                   >
-                    {result.audio_ready ? '加载试听' : '音频处理中'}
+                    {!result.audio_ready ? '音频处理中' : player.track?.id === result.id ? (player.playing ? '暂停试听' : '继续试听') : '加载试听'}
                   </Button>
-                )}
               </div>
             </article>
           ))}

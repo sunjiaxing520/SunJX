@@ -7,6 +7,7 @@ import { BrowserRouter } from 'react-router-dom'
 import AppRoutes from './App'
 import { AuthProvider } from './auth/AuthProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { MusicPlayerProvider } from './components/MusicPlayer'
 import 'antd/dist/reset.css'
 import './index.css'
 
@@ -66,7 +67,7 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <ErrorBoundary>
             <AuthProvider>
-              <AppRoutes />
+              <MusicPlayerProvider><AppRoutes /></MusicPlayerProvider>
             </AuthProvider>
           </ErrorBoundary>
         </BrowserRouter>

@@ -3,6 +3,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
+// Synthetic PCM silence for playback checks; no copyrighted/customer music.
+const wav = Buffer.alloc(44 + 16000 * 2 * 30);
+wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
+wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32);
+wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40);
+
 async function main() {
   const output = path.resolve(__dirname, '../logs/task-queue-ui');
   fs.mkdirSync(output, { recursive: true });
@@ -22,6 +29,9 @@ async function main() {
       await context.addInitScript(() => localStorage.setItem('blue_music_access_token', 'queue-ui-fixture'));
       await context.route('**/api/v1/**', async route => {
         const endpoint = new URL(route.request().url()).pathname.replace('/api/v1', '');
+        if (/\/music\/results\/\d+\/audio$/.test(endpoint)) {
+          await route.fulfill({ contentType: 'audio/wav', body: wav }); return;
+        }
         let body = { items: [], total: 0 };
         if (endpoint === '/auth/me') body = { id: 1, username: 'Queue fixture', role: 'super_admin', agent_permissions: ['music'], is_active: true, music_quota: { is_unlimited: true, remaining_tasks: null, used_tasks: 0 }, watermark_text: 'UI fixture' };
         if (endpoint === '/workflows/templates' || endpoint === '/review-agents') body = [];
@@ -68,6 +78,24 @@ async function main() {
           await page.getByRole('dialog').waitFor({ state: 'hidden' });
           assert.equal(group.note, '第二版副歌更自然');
           await page.getByText('客户试听备选', { exact: true }).waitFor();
+          await page.getByRole('button', { name: '加载试听', exact: true }).first().click();
+          await page.waitForFunction(() => { const a = document.querySelector('audio'); return a && !a.paused && a.currentTime > 0; });
+          const mini = page.getByRole('region', { name: '迷你播放器' });
+          assert.equal(await mini.getByRole('button', { name: '上一首', exact: true }).isDisabled(), true);
+          await mini.getByRole('button', { name: '下一首', exact: true }).click();
+          await page.waitForFunction(() => document.querySelector('.mini-music-copy small')?.textContent.includes('2/2') && !document.querySelector('audio').paused);
+          assert.equal(await mini.getByRole('button', { name: '下一首', exact: true }).isDisabled(), true);
+          const source = await page.locator('audio').getAttribute('src');
+          if (width === 390) await page.getByRole('button', { name: '打开导航', exact: true }).click();
+          await page.getByRole('menuitem', { name: '自动流程', exact: true }).click();
+          await page.waitForURL('**/workflows');
+          await page.getByText('我的任务队列', { exact: true }).waitFor();
+          if (width === 390) await page.getByRole('dialog').waitFor({ state: 'hidden' });
+          assert.equal(await page.locator('audio').getAttribute('src'), source);
+          await page.waitForFunction(() => !document.querySelector('audio').paused && document.querySelector('audio').currentTime > 0);
+          await page.screenshot({ path: path.join(output, `player-${width}.png`), animations: 'allow' });
+          await mini.getByRole('button', { name: '停止', exact: true }).click();
+          assert.equal(await page.locator('audio').evaluate(a => a.paused && a.currentTime === 0), true);
         }
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
         assert.equal(overflow, false, `${route} overflow at ${width}`);

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { App, Button, Form, Input, Modal, Tag, Tooltip } from 'antd'
 import { ChevronDown, ChevronUp, Pencil, Star, FileText, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { updateMusicResultGroup } from '../api/music'
 import { errorMessage } from '../lib/errors'
 import type { MusicResult, MusicResultGroup } from '../types/api'
@@ -11,6 +12,7 @@ export function MusicResultGroupBox({ group, onUpdate, renderResult }: {
   renderResult: (result: MusicResult) => ReactNode
 }) {
   const { message } = App.useApp()
+  const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [lyricsOpen, setLyricsOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -52,7 +54,8 @@ export function MusicResultGroupBox({ group, onUpdate, renderResult }: {
             {lyricsOpen ? '收起歌词' : '查看歌词'}
           </Button>
           {group.lyrics_task_id && group.lyrics_version_id && <Button type="link" icon={<ExternalLink size={15} />}
-            href={`/lyrics?task_id=${group.lyrics_task_id}&version_id=${group.lyrics_version_id}`}>
+            href={`/lyrics?task_id=${group.lyrics_task_id}&version_id=${group.lyrics_version_id}`}
+            onClick={event => { event.preventDefault(); navigate(`/lyrics?task_id=${group.lyrics_task_id}&version_id=${group.lyrics_version_id}`) }}>
             歌词记录 #{group.lyrics_task_id} · 版本 #{group.lyrics_version_id}
           </Button>}
         </div>

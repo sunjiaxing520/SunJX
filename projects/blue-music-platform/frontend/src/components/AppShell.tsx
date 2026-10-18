@@ -35,6 +35,7 @@ import { useAuth } from '../auth/useAuth'
 import { copyDiagnosticReport } from '../lib/diagnostics'
 import type { AgentType } from '../types/api'
 import { WatermarkLayer } from './WatermarkLayer'
+import { MiniMusicPlayer } from './MusicPlayer'
 
 const { Header, Sider, Content } = Layout
 
@@ -220,6 +221,7 @@ export function AppShell() {
           <nav className="main-navigation" aria-label="主导航">
             {navigationMenu}
           </nav>
+          <MiniMusicPlayer />
           <div className="sider-environment">
             <Settings size={15} />
             <span>{environmentLabel}</span>
@@ -274,6 +276,7 @@ export function AppShell() {
         <Content className="app-content">
           <Outlet />
         </Content>
+        {!isDesktop && <div className="mobile-music-player"><MiniMusicPlayer /></div>}
       </Layout>
     </Layout>
   )

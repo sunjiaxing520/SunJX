@@ -55,7 +55,6 @@ import {
   listMusicResultGroups,
   listMusicReferenceSongs,
   listMusicTasks,
-  loadMusicAudio,
   refreshSunoQuota,
   retryMusicTask,
   regenerateMusicTask,
@@ -66,6 +65,7 @@ import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { TaskQueuePanel } from '../components/TaskQueuePanel'
 import { MusicResultGroupBox } from '../components/MusicResultGroupBox'
+import { useMusicPlayer } from '../components/musicPlayerContext'
 import { LyricsOutputPreview } from '../components/LyricsOutputPreview'
 import {
   UpstreamOutputField,
@@ -172,6 +172,7 @@ const MUSIC_MODEL_OPTIONS = [
 ]
 
 export function MusicPage() {
+  const player = useMusicPlayer()
   const { message } = App.useApp()
   const { user } = useAuth()
   const [form] = Form.useForm<MusicFormValues>()
@@ -415,6 +416,7 @@ export function MusicPage() {
     setDeletingResultId(result.id)
     try {
       await deleteMusicResult(result.id)
+      player.remove(result.id)
       message.success('音乐产出已删除')
       await load()
     } catch (deleteError) {
@@ -989,6 +991,7 @@ export function MusicPage() {
                   <MusicResultItem
                     key={result.id}
                     result={result}
+                    playlist={group.results}
                     deleting={deletingResultId === result.id}
                     favorite={favoritesByResult.get(result.id)}
                     favoriting={favoriteResultId === result.id}
@@ -1336,6 +1339,7 @@ export function MusicPage() {
 
 
 function MusicResultItem({
+  playlist,
   result,
   deleting,
   favorite,
@@ -1350,6 +1354,7 @@ function MusicResultItem({
   onDelete,
 }: {
   result: MusicResult
+  playlist: MusicResult[]
   deleting: boolean
   favorite: FavoriteItem | undefined
   favoriting: boolean
@@ -1363,26 +1368,9 @@ function MusicResultItem({
   onDelete: () => void
 }) {
   const { message } = App.useApp()
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  const [loadingAudio, setLoadingAudio] = useState(false)
+  const player = useMusicPlayer()
   const [downloading, setDownloading] = useState(false)
 
-  useEffect(() => () => {
-    if (audioUrl) URL.revokeObjectURL(audioUrl)
-  }, [audioUrl])
-
-  const loadAudio = async () => {
-    if (audioUrl) return
-    setLoadingAudio(true)
-    try {
-      const blob = await loadMusicAudio(result.audio_path)
-      setAudioUrl(URL.createObjectURL(blob))
-    } catch (audioError) {
-      message.error(errorMessage(audioError))
-    } finally {
-      setLoadingAudio(false)
-    }
-  }
 
   const download = async () => {
     setDownloading(true)
@@ -1412,18 +1400,14 @@ function MusicResultItem({
         {result.storage_error && <small>{result.storage_error}，当前将尝试使用供应商地址试听</small>}
       </div>
       <div className="music-result-player">
-        {audioUrl ? (
-          <audio controls preload="metadata" src={audioUrl} aria-label={`试听 ${result.title}`} />
-        ) : (
           <Button
             icon={<Play size={16} />}
-            loading={loadingAudio}
+            loading={player.loading && player.track?.id === result.id}
             disabled={!result.audio_ready}
-            onClick={() => void loadAudio()}
+            onClick={() => player.track?.id === result.id ? player.toggle() : void player.start(result, playlist)}
           >
-            加载试听
+            {player.track?.id === result.id ? (player.playing ? '暂停试听' : '继续试听') : '加载试听'}
           </Button>
-        )}
       </div>
       <Space className="music-result-actions">
         <Button

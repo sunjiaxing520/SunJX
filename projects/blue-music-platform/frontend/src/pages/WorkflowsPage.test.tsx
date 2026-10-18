@@ -44,6 +44,7 @@ vi.mock('../api/workflows', () => ({
 vi.mock('../api/analysis', () => ({ getAnalysisTask: vi.fn() }))
 vi.mock('../api/lyrics', () => ({ getLyricsTask: vi.fn() }))
 vi.mock('../api/music', () => ({ getMusicTask: vi.fn(), loadMusicAudio: vi.fn() }))
+vi.mock('../components/musicPlayerContext', () => ({ useMusicPlayer: () => ({ track: null, loading: false, playing: false }) }))
 vi.mock('../api/rankings', () => ({
   getCollectionTask: vi.fn(),
   getRankingSnapshot: vi.fn(),
