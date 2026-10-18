@@ -146,6 +146,37 @@ def _create_music(context: MusicContext, title: str = "城市的灯") -> dict:
     return detail.json()
 
 
+def test_result_groups_keep_versions_together_and_save_annotations(music_context: MusicContext) -> None:
+    context = music_context
+    task = _create_music(context)
+    response = context.client.get("/api/v1/music/result-groups?limit=1", headers=_headers(context))
+    assert response.status_code == 200
+    group = response.json()["items"][0]
+    assert group["task_id"] == task["id"]
+    assert len(group["results"]) == len(task["results"])
+    changed = context.client.patch(
+        f"/api/v1/music/result-groups/{task['id']}", headers=_headers(context),
+        json={"display_label": "Demo A", "note": "Prefer version B", "is_marked": True},
+    )
+    assert changed.status_code == 200
+    reloaded = context.client.get("/api/v1/music/result-groups", headers=_headers(context)).json()["items"][0]
+    assert reloaded["display_label"] == "Demo A"
+    assert reloaded["note"] == "Prefer version B"
+    assert reloaded["is_marked"] is True
+    from app.models import MusicTask
+    with context.session_factory() as db:
+        owner = User(username="other-owner", password_hash="unused", role=UserRole.MEMBER)
+        db.add(owner)
+        db.flush()
+        db.get(MusicTask, task["id"]).requested_by_id = owner.id
+        db.commit()
+    assert context.client.get("/api/v1/music/result-groups", headers=_headers(context)).json()["total"] == 0
+    assert context.client.patch(
+        f"/api/v1/music/result-groups/{task['id']}", headers=_headers(context),
+        json={"is_marked": False},
+    ).status_code == 404
+
+
 def test_sunoapi_org_adapter_submits_polls_and_reads_credits() -> None:
     requests: list[httpx.Request] = []
 

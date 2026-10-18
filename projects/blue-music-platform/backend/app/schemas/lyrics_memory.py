@@ -61,3 +61,17 @@ class LyricsMemoryChatListResponse(BaseModel):
 class LyricsMemoryChatResultResponse(BaseModel):
     message: LyricsMemoryChatMessageResponse
     memory: LyricsTeamMemoryResponse
+
+
+class LyricsMemoryCompressionRequest(BaseModel):
+    max_items: int = Field(default=40, ge=1, le=100)
+
+
+class LyricsMemoryCompressionPreview(BaseModel):
+    id: int
+    base_revision: int
+    before_items: int
+    after_items: int
+    before_chars: int
+    after_chars: int
+    items: list[LyricsMemoryItemResponse]

@@ -11,17 +11,37 @@ from app.schemas.lyrics_memory import (
     LyricsMemoryChatResultResponse,
     LyricsMemorySettingsRequest,
     LyricsTeamMemoryResponse,
+    LyricsMemoryCompressionRequest,
+    LyricsMemoryCompressionPreview,
 )
 from app.services.lyrics_memory import (
     edit_lyrics_team_memory,
     get_lyrics_team_memory,
     list_lyrics_memory_chat_messages,
     update_lyrics_memory_settings,
+    preview_memory_compression,
+    confirm_memory_compression,
 )
 
 
 router = APIRouter(prefix="/lyrics-memory")
 audit_logger = logging.getLogger(f"{LOGGER_NAME}.audit")
+
+
+@router.post("/compress", response_model=LyricsMemoryCompressionPreview)
+def memory_compression_preview(payload: LyricsMemoryCompressionRequest, request: Request,
+                               db: DatabaseSession, admin: SuperAdmin) -> LyricsMemoryCompressionPreview:
+    result = preview_memory_compression(db, payload, admin.id)
+    _audit(request, admin.id, "lyrics_memory_compression_preview_created")
+    return result
+
+
+@router.post("/compress/{preview_id}/confirm", response_model=LyricsTeamMemoryResponse)
+def memory_compression_confirm(preview_id: int, request: Request,
+                               db: DatabaseSession, admin: SuperAdmin) -> LyricsTeamMemoryResponse:
+    result = confirm_memory_compression(db, preview_id, admin.id)
+    _audit(request, admin.id, "lyrics_memory_compression_confirmed")
+    return result
 
 
 @router.get("", response_model=LyricsTeamMemoryResponse)

@@ -27,6 +27,9 @@ from app.schemas.music import (
     MusicReferenceRunCreateRequest,
     MusicReferenceSongListResponse,
     MusicResultListResponse,
+    MusicResultGroupListResponse,
+    MusicResultGroupResponse,
+    MusicResultGroupUpdate,
     MusicTaskDeleteRequest,
     MusicTaskDeleteResponse,
     MusicTaskListResponse,
@@ -53,6 +56,8 @@ from app.services.music import (
     handle_sunoapi_org_callback,
     latest_music_quota,
     list_music_results,
+    list_music_result_groups,
+    update_music_result_group,
     list_music_reference_songs,
     list_music_tasks,
     refresh_music_quota,
@@ -68,6 +73,19 @@ from app.services.workflows import execute_workflow_run, start_reference_workflo
 
 router = APIRouter(prefix="/music")
 MusicUser = Annotated[User, Depends(require_agent_permission(AgentType.MUSIC))]
+
+
+@router.get("/result-groups", response_model=MusicResultGroupListResponse)
+def music_groups(db: DatabaseSession, user: MusicUser,
+                 limit: int = Query(default=12, ge=1, le=50),
+                 offset: int = Query(default=0, ge=0)) -> MusicResultGroupListResponse:
+    return list_music_result_groups(db, user.id, limit=limit, offset=offset)
+
+
+@router.patch("/result-groups/{task_id}", response_model=MusicResultGroupResponse)
+def music_group_update(task_id: int, payload: MusicResultGroupUpdate,
+                       db: DatabaseSession, user: MusicUser) -> MusicResultGroupResponse:
+    return update_music_result_group(db, task_id, user.id, payload)
 
 
 @router.get("/provider-status", response_model=SunoProviderStatusResponse)

@@ -180,6 +180,28 @@ class MusicTaskResponse(BaseModel):
     results: list[MusicResultResponse]
 
 
+class MusicResultGroupResponse(BaseModel):
+    task_id: int
+    title: str
+    display_label: str | None
+    note: str | None
+    is_marked: bool
+    created_at: datetime
+    model: str | None
+    results: list[MusicResultResponse]
+
+
+class MusicResultGroupListResponse(BaseModel):
+    items: list[MusicResultGroupResponse]
+    total: int
+
+
+class MusicResultGroupUpdate(BaseModel):
+    display_label: str | None = Field(default=None, max_length=80)
+    note: str | None = Field(default=None, max_length=1000)
+    is_marked: bool | None = None
+
+
 class MusicTaskListResponse(BaseModel):
     items: list[MusicTaskResponse]
     total: int

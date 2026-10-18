@@ -25,6 +25,8 @@ from app.schemas.lyrics_memory import (
     LyricsMemoryChatResultResponse,
     LyricsMemorySettingsRequest,
     LyricsTeamMemoryResponse,
+    LyricsMemoryCompressionRequest,
+    LyricsMemoryCompressionPreview,
 )
 from app.services.ai_providers import resolve_text_provider
 from app.services.api_usage import record_api_usage
@@ -33,6 +35,93 @@ from app.services.api_usage import record_api_usage
 DEFAULT_INJECTION_LIMIT = 60
 MAX_INJECTION_LIMIT = 200
 MAX_STORED_ITEMS = 300
+
+
+def preview_memory_compression(db: Session, payload: LyricsMemoryCompressionRequest,
+                               user_id: int) -> LyricsMemoryCompressionPreview:
+    memory = _get_or_create_team_memory(db)
+    original = _clean_items(memory.items)
+    revision = memory.revision
+    db.commit()
+    if not original:
+        raise AppException(code="LYRICS_MEMORY_EMPTY", message="当前没有需要压缩的记忆", status_code=422)
+    provider = None
+    try:
+        provider = resolve_text_provider(db)
+        result = provider.edit_lyrics_memory({
+            "operation": "compact",
+            "instruction": (
+                f"将当前记忆合并提炼为最多{payload.max_items}条，减少总字数。"
+                "仅合并重复和相似经验，保留不同主题、明确偏好、否定约束及适用条件。"
+                "不得新增规则，不得把本条压缩指令写入记忆，不得为了减少数量删除独特经验。"
+                "保留或合理合并evidence_count。返回压缩后的items。"
+            ),
+            "current_memory": {"items": original, "injection_limit": memory.injection_limit,
+                               "source_count": memory.source_count},
+            "recent_conversation": [],
+        })
+        items = _dedupe_items([item.model_dump() for item in result.output.items])
+        before_chars = sum(len(item["content"]) for item in original)
+        after_chars = sum(len(item["content"]) for item in items)
+        if not items or len(items) > payload.max_items or after_chars > before_chars:
+            raise ValueError("压缩结果为空、超出数量或字数增加")
+        if items == original:
+            raise ValueError("当前记忆没有可进一步压缩的内容")
+        preview = LyricsMemoryCompressionPreview(
+            id=0, base_revision=revision, before_items=len(original), after_items=len(items),
+            before_chars=before_chars, after_chars=after_chars, items=items,
+        )
+        message = LyricsMemoryChatMessage(
+            role="assistant", content=f"记忆压缩预览：{len(original)}条 → {len(items)}条，尚未保存。",
+            proposal={"kind": "compression", "base_revision": revision,
+                      "original_items": original, "items": items},
+            is_applied=False, provider=provider.name, model=provider.model, created_by_id=user_id,
+        )
+        db.add(message)
+        db.flush()
+        record_api_usage(db, task_type="lyrics_memory", task_id=message.id, operation="lyrics.memory_compact",
+                         provider=provider.name, model=provider.model, call=result.call,
+                         status=TaskStatus.COMPLETED.value)
+        db.commit()
+        preview.id = message.id
+        return preview
+    except (TextProviderError, ValueError) as exc:
+        db.rollback()
+        record_api_usage(db, task_type="lyrics_memory", task_id=user_id, operation="lyrics.memory_compact",
+                         provider=provider.name if provider else "unconfigured", model=provider.model if provider else None,
+                         call=getattr(exc, "call", None), status=TaskStatus.FAILED.value,
+                         error_code="LYRICS_MEMORY_COMPRESSION_FAILED", error_message=str(exc))
+        db.commit()
+        raise AppException(code="LYRICS_MEMORY_COMPRESSION_FAILED", message="记忆压缩未通过校验，原记忆保持不变",
+                           status_code=502) from exc
+    finally:
+        if provider is not None and hasattr(provider, "close"):
+            provider.close()
+
+
+def confirm_memory_compression(db: Session, preview_id: int, user_id: int) -> LyricsTeamMemoryResponse:
+    message = db.scalar(select(LyricsMemoryChatMessage).where(
+        LyricsMemoryChatMessage.id == preview_id,
+    ).with_for_update())
+    if message is None or not message.proposal or message.proposal.get("kind") != "compression":
+        raise AppException(code="LYRICS_MEMORY_PREVIEW_NOT_FOUND", message="压缩预览不存在", status_code=404)
+    memory = _get_or_create_team_memory(db, lock=True)
+    if message.is_applied:
+        return _memory_response(memory)
+    if message.proposal.get("base_revision") != memory.revision:
+        raise AppException(code="LYRICS_MEMORY_REVISION_CONFLICT", message="记忆已更新，请重新生成压缩预览", status_code=409)
+    items = _clean_items(message.proposal.get("items"))
+    if not items:
+        raise AppException(code="LYRICS_MEMORY_PREVIEW_INVALID", message="压缩预览内容无效", status_code=409)
+    memory.items = items
+    memory.revision += 1
+    memory.updated_by_id = user_id
+    message.is_applied = True
+    message.applied_at = datetime.now(timezone.utc)
+    message.content = f"已确认记忆压缩，当前共{len(items)}条。"
+    db.commit()
+    db.refresh(memory)
+    return _memory_response(memory)
 
 
 def build_lyrics_skill_context(

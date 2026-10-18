@@ -52,6 +52,9 @@ class MusicTask(Base):
         index=True,
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    display_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_marked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     lyrics: Mapped[str] = mapped_column(Text, nullable=False)
     style_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     style_tags: Mapped[list[str]] = mapped_column(

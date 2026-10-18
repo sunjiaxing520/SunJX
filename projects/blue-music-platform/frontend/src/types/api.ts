@@ -634,6 +634,32 @@ export interface MusicResultList {
   total: number
 }
 
+export interface MusicResultGroup {
+  task_id: number
+  title: string
+  display_label: string | null
+  note: string | null
+  is_marked: boolean
+  created_at: string
+  model: string | null
+  results: MusicResult[]
+}
+
+export interface MusicResultGroupList {
+  items: MusicResultGroup[]
+  total: number
+}
+
+export interface LyricsMemoryCompression {
+  id: number
+  base_revision: number
+  before_items: number
+  after_items: number
+  before_chars: number
+  after_chars: number
+  items: LyricsMemoryItem[]
+}
+
 export interface MusicCreatePayload {
   lyrics_version_id: number
   title?: string

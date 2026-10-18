@@ -6,6 +6,8 @@ import type {
   MusicProviderSettingsUpdate,
   MusicReferenceSongList,
   MusicResultList,
+  MusicResultGroup,
+  MusicResultGroupList,
   MusicTask,
   MusicTaskList,
   SunoQuota,
@@ -99,6 +101,16 @@ export function deleteMusicTasks(taskIds: number[]) {
 
 export function listMusicResults(limit = 30) {
   return apiRequest<MusicResultList>(`/music/results?limit=${limit}`)
+}
+
+export function listMusicResultGroups(page = 1, limit = 12) {
+  return apiRequest<MusicResultGroupList>(`/music/result-groups?limit=${limit}&offset=${(page - 1) * limit}`)
+}
+
+export function updateMusicResultGroup(taskId: number, payload: Partial<Pick<MusicResultGroup, 'display_label' | 'note' | 'is_marked'>>) {
+  return apiRequest<MusicResultGroup>(`/music/result-groups/${taskId}`, {
+    method: 'PATCH', body: JSON.stringify(payload),
+  })
 }
 
 export function extendMusicResult(resultId: number, payload: MusicExtendPayload) {

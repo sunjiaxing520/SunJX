@@ -158,3 +158,60 @@ def test_member_cannot_access_team_memory(
     )
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+
+def test_compression_preview_confirmation_and_revision_guard(lyrics_memory_api_context, monkeypatch):
+    from types import SimpleNamespace
+    from app.models.lyrics_memory import LyricsTeamMemory
+    from app.adapters.text_generation import GeneratedLyricsMemoryItem
+
+    context = lyrics_memory_api_context
+    headers = _headers(context.admin_token)
+    context.client.get("/api/v1/lyrics-memory", headers=headers)
+    sessions = context.client.app.dependency_overrides[get_db]
+    generator = sessions()
+    db = next(generator)
+    try:
+        memory = db.get(LyricsTeamMemory, 1)
+        memory.items = [{"category": "preference", "content": "Keep the chorus short and memorable", "evidence_count": 2}]
+        db.commit()
+    finally:
+        generator.close()
+    provider = SimpleNamespace(name="test", model="test", edit_lyrics_memory=lambda _: SimpleNamespace(
+        output=SimpleNamespace(items=[GeneratedLyricsMemoryItem(category="preference", content="Short memorable chorus", evidence_count=2)]), call=None))
+    monkeypatch.setattr("app.services.lyrics_memory.resolve_text_provider", lambda _: provider)
+    preview = context.client.post("/api/v1/lyrics-memory/compress", headers=headers, json={"max_items": 40})
+    assert preview.status_code == 200, preview.text
+    assert context.client.get("/api/v1/lyrics-memory", headers=headers).json()["items"][0]["content"].startswith("Keep")
+    preview_id = preview.json()["id"]
+    confirmed = context.client.post(f"/api/v1/lyrics-memory/compress/{preview_id}/confirm", headers=headers)
+    assert confirmed.status_code == 200
+    assert confirmed.json()["items"][0]["content"] == "Short memorable chorus"
+    assert context.client.post(f"/api/v1/lyrics-memory/compress/{preview_id}/confirm", headers=headers).json()["revision"] == confirmed.json()["revision"]
+    generator = sessions()
+    db = next(generator)
+    try:
+        memory = db.get(LyricsTeamMemory, 1)
+        memory.items = [{"category": "preference", "content": "Keep the chorus short and memorable", "evidence_count": 2}]
+        memory.revision += 1
+        db.commit()
+    finally:
+        generator.close()
+    second = context.client.post("/api/v1/lyrics-memory/compress", headers=headers, json={}).json()["id"]
+    generator = sessions()
+    db = next(generator)
+    try:
+        db.get(LyricsTeamMemory, 1).revision += 1
+        db.commit()
+    finally:
+        generator.close()
+    assert context.client.post(f"/api/v1/lyrics-memory/compress/{second}/confirm", headers=headers).status_code == 409
+    assert context.client.post("/api/v1/lyrics-memory/compress", headers=_headers(context.member_token), json={}).status_code == 403
+    assert context.client.post(f"/api/v1/lyrics-memory/compress/{second}/confirm", headers=_headers(context.member_token)).status_code == 403
+    provider.edit_lyrics_memory = lambda _: SimpleNamespace(
+        output=SimpleNamespace(items=[]), call=None)
+    before = context.client.get("/api/v1/lyrics-memory", headers=headers).json()
+    assert context.client.post("/api/v1/lyrics-memory/compress", headers=headers, json={}).status_code == 502
+    after = context.client.get("/api/v1/lyrics-memory", headers=headers).json()
+    assert after["items"] == before["items"]
+    assert after["revision"] == before["revision"]

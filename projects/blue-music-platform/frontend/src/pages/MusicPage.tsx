@@ -11,6 +11,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Pagination,
   Select,
   Space,
   Steps,
@@ -51,7 +52,7 @@ import {
   extendMusicResult,
   getSunoProviderStatus,
   getMusicProviderSettings,
-  listMusicResults,
+  listMusicResultGroups,
   listMusicReferenceSongs,
   listMusicTasks,
   loadMusicAudio,
@@ -64,6 +65,7 @@ import { getWorkflowRun, listWorkflowRuns } from '../api/workflows'
 import { ApiUsageDetails } from '../components/ApiUsageDetails'
 import { CollapsibleList } from '../components/CollapsibleList'
 import { TaskQueuePanel } from '../components/TaskQueuePanel'
+import { MusicResultGroupBox } from '../components/MusicResultGroupBox'
 import { LyricsOutputPreview } from '../components/LyricsOutputPreview'
 import {
   UpstreamOutputField,
@@ -84,6 +86,7 @@ import type {
   MusicProviderSettings,
   MusicReferenceSong,
   MusicResult,
+  MusicResultGroup,
   MusicTask,
   SunoProviderStatus,
   WorkflowRun,
@@ -188,7 +191,9 @@ export function MusicPage() {
   const [referenceStarting, setReferenceStarting] = useState(false)
   const [referenceRun, setReferenceRun] = useState<WorkflowRun | null>(null)
   const [tasks, setTasks] = useState<MusicTask[]>([])
-  const [results, setResults] = useState<MusicResult[]>([])
+  const [resultGroups, setResultGroups] = useState<MusicResultGroup[]>([])
+  const [resultPage, setResultPage] = useState(1)
+  const [resultTotal, setResultTotal] = useState(0)
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
   const [activeTask, setActiveTask] = useState<MusicTask | null>(null)
   const [extendSource, setExtendSource] = useState<MusicResult | null>(null)
@@ -247,7 +252,7 @@ export function MusicPage() {
         getMusicProviderSettings(),
         listLyricsTasks(),
         listMusicTasks(),
-        listMusicResults(),
+        listMusicResultGroups(resultPage),
         listFavorites('music'),
         listFavorites('lyrics'),
         listWorkflowRuns(),
@@ -262,7 +267,13 @@ export function MusicPage() {
       setProviderSettings(musicSettings)
       setLyricsVersions(versions)
       setTasks(taskHistory.items)
-      setResults(resultHistory.items)
+      setResultGroups(resultHistory.items)
+      setResultTotal(resultHistory.total)
+      if (resultHistory.total > 0 && resultPage > Math.ceil(resultHistory.total / 12)) {
+        setResultPage(Math.ceil(resultHistory.total / 12))
+      } else if (!resultHistory.total && resultPage !== 1) {
+        setResultPage(1)
+      }
       setFavorites(favoriteHistory.items)
       setLyricsFavorites(lyricsFavoriteHistory.items)
       const latestReferenceRun = workflowHistory.items.find((run) => (
@@ -277,7 +288,7 @@ export function MusicPage() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [])
+  }, [resultPage])
 
   useEffect(() => {
     void load()
@@ -965,16 +976,16 @@ export function MusicPage() {
       <section className="content-section music-listening-section">
         <div className="section-title-row">
           <div>
-            <Typography.Title level={2}>试听区</Typography.Title>
-            <Typography.Text type="secondary">每首音频独立试听、下载、收藏、再次生成或授权改编</Typography.Text>
+            <Typography.Title level={2}>我的试听区</Typography.Title>
           </div>
-          <Tag icon={<ListMusic size={13} />}>{results.length} 首</Tag>
+          <Tag icon={<ListMusic size={13} />}>{resultTotal} 组</Tag>
         </div>
-        {results.length ? (
-          <CollapsibleList items={results} previewCount={6}>
-            {(visibleResults) => (
-              <div className="music-result-list">
-                {visibleResults.map((result) => (
+        {resultGroups.length ? (
+          <div className="music-result-groups">
+            {resultGroups.map((group) => (
+              <MusicResultGroupBox key={group.task_id} group={group}
+                onUpdate={(updated) => setResultGroups((current) => current.map((item) => item.task_id === updated.task_id ? updated : item))}
+                renderResult={(result) => (
                   <MusicResultItem
                     key={result.id}
                     result={result}
@@ -990,10 +1001,11 @@ export function MusicPage() {
                     onFavorite={() => void toggleFavorite(result)}
                     onDelete={() => void removeResult(result)}
                   />
-                ))}
-              </div>
-            )}
-          </CollapsibleList>
+                )}
+              />
+            ))}
+            <Pagination current={resultPage} total={resultTotal} pageSize={12} showSizeChanger={false} hideOnSinglePage onChange={setResultPage} />
+          </div>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可试听音乐" />
         )}

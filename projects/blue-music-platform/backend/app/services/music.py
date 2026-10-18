@@ -56,6 +56,9 @@ from app.schemas.music import (
     MusicReferenceSongResponse,
     MusicResultListResponse,
     MusicResultResponse,
+    MusicResultGroupResponse,
+    MusicResultGroupListResponse,
+    MusicResultGroupUpdate,
     MusicTaskDeleteResponse,
     MusicTaskListResponse,
     MusicTaskResponse,
@@ -638,6 +641,43 @@ def list_music_tasks(db: Session, limit: int = 15) -> MusicTaskListResponse:
         items=[music_task_response(db, task) for task in tasks],
         total=total,
     )
+
+
+def list_music_result_groups(db: Session, user_id: int, *, limit: int = 12, offset: int = 0) -> MusicResultGroupListResponse:
+    condition = (MusicTask.requested_by_id == user_id, MusicTask.results.any())
+    tasks = db.scalars(select(MusicTask).where(*condition)
+                       .options(selectinload(MusicTask.results))
+                       .order_by(MusicTask.created_at.desc(), MusicTask.id.desc())
+                       .offset(offset).limit(limit)).all()
+    return MusicResultGroupListResponse(
+        items=[music_result_group_response(task) for task in tasks],
+        total=db.scalar(select(func.count(MusicTask.id)).where(*condition)) or 0,
+    )
+
+
+def music_result_group_response(task: MusicTask) -> MusicResultGroupResponse:
+    return MusicResultGroupResponse(
+        task_id=task.id, title=task.title, display_label=task.display_label,
+        note=task.note, is_marked=task.is_marked, created_at=task.created_at, model=task.model,
+        results=[music_result_response(result) for result in sorted(task.results, key=lambda item: item.id)],
+    )
+
+
+def update_music_result_group(db: Session, task_id: int, user_id: int, payload: MusicResultGroupUpdate) -> MusicResultGroupResponse:
+    task = db.scalar(select(MusicTask).where(
+        MusicTask.id == task_id, MusicTask.requested_by_id == user_id,
+    ).options(selectinload(MusicTask.results)).with_for_update())
+    if task is None:
+        raise AppException(code="MUSIC_GROUP_NOT_FOUND", message="该账号的音乐分组不存在", status_code=404)
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if key == "is_marked":
+            if value is not None:
+                task.is_marked = value
+        else:
+            setattr(task, key, value.strip() or None if isinstance(value, str) else None)
+    db.commit()
+    db.refresh(task)
+    return music_result_group_response(task)
 
 
 def list_music_results(db: Session, limit: int = 30) -> MusicResultListResponse:

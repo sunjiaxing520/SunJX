@@ -13,6 +13,8 @@ vi.mock('../api/lyricsMemory', () => ({
   listLyricsMemoryChat: vi.fn(),
   updateLyricsMemoryByChat: vi.fn(),
   updateLyricsMemoryInjectionLimit: vi.fn(),
+  previewLyricsMemoryCompression: vi.fn(),
+  confirmLyricsMemoryCompression: vi.fn(),
 }))
 
 class ResizeObserverMock {
@@ -63,6 +65,22 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('LyricsTeamMemoryDrawer', () => {
+  it('previews compression before explicit confirmation', async () => {
+    const user = userEvent.setup()
+    vi.mocked(memoryApi.previewLyricsMemoryCompression).mockResolvedValue({
+      id: 9, base_revision: 5, before_items: 2, after_items: 1,
+      before_chars: 40, after_chars: 12, items: [memory.items[0]],
+    })
+    vi.mocked(memoryApi.confirmLyricsMemoryCompression).mockResolvedValue({ ...memory, revision: 6, total_items: 1, items: [memory.items[0]] })
+    render(<App><LyricsTeamMemoryDrawer open onClose={vi.fn()} /></App>)
+    await screen.findByText('副歌核心句简短直接。')
+    await user.click(screen.getByRole('button', { name: '压缩记忆' }))
+    await screen.findByText('确认压缩记忆')
+    expect(memoryApi.confirmLyricsMemoryCompression).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '确认保存' }))
+    await waitFor(() => expect(memoryApi.confirmLyricsMemoryCompression).toHaveBeenCalledWith(9))
+  })
+
   it('shows the consolidated memory and updates the injection limit', async () => {
     const user = userEvent.setup()
     render(

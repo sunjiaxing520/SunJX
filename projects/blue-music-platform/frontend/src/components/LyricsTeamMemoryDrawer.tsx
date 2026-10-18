@@ -8,18 +8,21 @@ import {
   Empty,
   Input,
   InputNumber,
+  Modal,
   Space,
   Spin,
   Tag,
   Typography,
 } from 'antd'
-import { Save, Send } from 'lucide-react'
+import { Save, Send, Minimize2 } from 'lucide-react'
 
 import {
   getLyricsTeamMemory,
   listLyricsMemoryChat,
   updateLyricsMemoryByChat,
   updateLyricsMemoryInjectionLimit,
+  previewLyricsMemoryCompression,
+  confirmLyricsMemoryCompression,
 } from '../api/lyricsMemory'
 import { errorMessage } from '../lib/errors'
 import type {
@@ -27,6 +30,7 @@ import type {
   LyricsMemoryChatMessage,
   LyricsMemoryItem,
   LyricsTeamMemory,
+  LyricsMemoryCompression,
 } from '../types/api'
 import { CollapsibleList } from './CollapsibleList'
 
@@ -62,6 +66,35 @@ export function LyricsTeamMemoryDrawer({ open, onClose }: LyricsTeamMemoryDrawer
   const [savingLimit, setSavingLimit] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [compression, setCompression] = useState<LyricsMemoryCompression | null>(null)
+  const [compressing, setCompressing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+
+  const compress = async () => {
+    setCompressing(true)
+    try {
+      setCompression(await previewLyricsMemoryCompression())
+    } catch (err) {
+      message.error(errorMessage(err))
+    } finally {
+      setCompressing(false)
+    }
+  }
+
+  const confirmCompression = async () => {
+    if (!compression) return
+    setConfirming(true)
+    try {
+      setMemory(await confirmLyricsMemoryCompression(compression.id))
+      setCompression(null)
+      setChat((await listLyricsMemoryChat()).items)
+      message.success('压缩记忆已保存')
+    } catch (err) {
+      message.error(errorMessage(err))
+    } finally {
+      setConfirming(false)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -159,7 +192,15 @@ export function LyricsTeamMemoryDrawer({ open, onClose }: LyricsTeamMemoryDrawer
       onClose={onClose}
       size="large"
       className="lyrics-team-memory-drawer"
+      extra={<Button icon={<Minimize2 size={16} />} loading={compressing} disabled={sending || !memory?.total_items} onClick={() => void compress()}>压缩记忆</Button>}
     >
+      <Modal title="确认压缩记忆" open={compression !== null} onCancel={() => setCompression(null)}
+        onOk={() => void confirmCompression()} confirmLoading={confirming} okText="确认保存" cancelText="暂不保存">
+        {compression && <>
+          <p>{compression.before_items} 条 → {compression.after_items} 条 · {compression.before_chars} 字 → {compression.after_chars} 字</p>
+          <div className="memory-compression-preview">{compression.items.map((item, index) => <p key={index}>{item.content}</p>)}</div>
+        </>}
+      </Modal>
       {error && <Alert type="error" showIcon title={error} />}
       {loading && !memory ? (
         <div className="lyrics-team-memory-loading"><Spin /></div>
