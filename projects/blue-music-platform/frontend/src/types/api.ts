@@ -636,6 +636,10 @@ export interface MusicResultList {
 
 export interface MusicResultGroup {
   task_id: number
+  lyrics: string
+  instrumental: boolean
+  lyrics_version_id: number | null
+  lyrics_task_id: number | null
   title: string
   display_label: string | null
   note: string | null

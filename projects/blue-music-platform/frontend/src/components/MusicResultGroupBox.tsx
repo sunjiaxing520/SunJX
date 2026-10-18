@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { App, Button, Form, Input, Modal, Tag, Tooltip } from 'antd'
-import { ChevronDown, ChevronUp, Pencil, Star } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, Star, FileText, ExternalLink } from 'lucide-react'
 import { updateMusicResultGroup } from '../api/music'
 import { errorMessage } from '../lib/errors'
 import type { MusicResult, MusicResultGroup } from '../types/api'
@@ -12,6 +12,7 @@ export function MusicResultGroupBox({ group, onUpdate, renderResult }: {
 }) {
   const { message } = App.useApp()
   const [expanded, setExpanded] = useState(false)
+  const [lyricsOpen, setLyricsOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
@@ -46,6 +47,19 @@ export function MusicResultGroupBox({ group, onUpdate, renderResult }: {
       {!expanded && group.note && <span className="music-group-note-badge">有备注</span>}
       {expanded && <div className="music-group-body">
         {group.note && <p className="music-group-note">{group.note}</p>}
+        <div className="music-group-lyrics-actions">
+          <Button icon={<FileText size={16} />} aria-expanded={lyricsOpen} onClick={() => setLyricsOpen(!lyricsOpen)}>
+            {lyricsOpen ? '收起歌词' : '查看歌词'}
+          </Button>
+          {group.lyrics_task_id && group.lyrics_version_id && <Button type="link" icon={<ExternalLink size={15} />}
+            href={`/lyrics?task_id=${group.lyrics_task_id}&version_id=${group.lyrics_version_id}`}>
+            歌词记录 #{group.lyrics_task_id} · 版本 #{group.lyrics_version_id}
+          </Button>}
+        </div>
+        {lyricsOpen && <div className="music-group-lyrics">
+          <strong>生成时使用的歌词</strong>
+          <pre>{group.instrumental ? '纯音乐，无歌词' : group.lyrics || '此任务未保存歌词'}</pre>
+        </div>}
         {group.results.map((result, index) => <div key={result.id} className="music-group-track">
           <strong className="music-group-version">版本 {index < 26 ? String.fromCharCode(65 + index) : index + 1}</strong>
           {renderResult(result)}

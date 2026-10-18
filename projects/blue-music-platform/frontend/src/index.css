@@ -4684,3 +4684,6 @@ textarea {
   .music-group-tools { flex-direction: column; }
   .task-queue-summary { width: 100%; justify-content: space-between; }
 }
+.music-group-lyrics-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.music-group-lyrics { border-left: 3px solid #d9e2eb; padding: 8px 12px; margin-bottom: 16px; }
+.music-group-lyrics pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; max-height: 360px; overflow: auto; }

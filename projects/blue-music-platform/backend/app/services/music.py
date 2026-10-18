@@ -650,13 +650,17 @@ def list_music_result_groups(db: Session, user_id: int, *, limit: int = 12, offs
                        .order_by(MusicTask.created_at.desc(), MusicTask.id.desc())
                        .offset(offset).limit(limit)).all()
     return MusicResultGroupListResponse(
-        items=[music_result_group_response(task) for task in tasks],
+        items=[music_result_group_response(db, task) for task in tasks],
         total=db.scalar(select(func.count(MusicTask.id)).where(*condition)) or 0,
     )
 
 
-def music_result_group_response(task: MusicTask) -> MusicResultGroupResponse:
+def music_result_group_response(db: Session, task: MusicTask) -> MusicResultGroupResponse:
+    source = db.get(LyricsVersion, task.lyrics_version_id) if task.lyrics_version_id else None
     return MusicResultGroupResponse(
+        lyrics=task.lyrics, instrumental=task.instrumental,
+        lyrics_version_id=source.id if source else None,
+        lyrics_task_id=source.task_id if source else None,
         task_id=task.id, title=task.title, display_label=task.display_label,
         note=task.note, is_marked=task.is_marked, created_at=task.created_at, model=task.model,
         results=[music_result_response(result) for result in sorted(task.results, key=lambda item: item.id)],
@@ -677,7 +681,7 @@ def update_music_result_group(db: Session, task_id: int, user_id: int, payload: 
             setattr(task, key, value.strip() or None if isinstance(value, str) else None)
     db.commit()
     db.refresh(task)
-    return music_result_group_response(task)
+    return music_result_group_response(db, task)
 
 
 def list_music_results(db: Session, limit: int = 30) -> MusicResultListResponse:

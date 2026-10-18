@@ -11,6 +11,7 @@ async function main() {
     for (const width of [1440, 390]) {
       const context = await browser.newContext({ viewport: { width, height: 1000 } });
       const group = { task_id: 77, title: '城市夜归人', display_label: null, note: null, is_marked: false,
+        lyrics: '[Verse 1]\n城市的灯照亮远方', instrumental: false, lyrics_task_id: 31, lyrics_version_id: 42,
         created_at: '2026-10-18T08:00:00Z', model: 'v4.5', results: [1, 2].map(id => ({
           id, task_id: 77, external_id: `fixture-${id}`, title: `城市夜归人 ${id}`, media_type: 'audio/mpeg',
           duration_seconds: 150, image_url: null, audio_ready: true, audio_path: `/music/results/${id}/audio`,
@@ -54,6 +55,10 @@ async function main() {
           await page.locator('.music-group-open').click();
           await page.getByText('版本 A', { exact: true }).waitFor();
           await page.getByText('版本 B', { exact: true }).waitFor();
+          await page.getByRole('button', { name: '查看歌词', exact: true }).click();
+          await page.getByText('生成时使用的歌词', { exact: true }).waitFor();
+          assert.equal(await page.locator('.music-group-lyrics pre').innerText(), group.lyrics);
+          assert.equal(await page.getByRole('link', { name: '歌词记录 #31 · 版本 #42' }).getAttribute('href'), '/lyrics?task_id=31&version_id=42');
           await page.getByRole('button', { name: '标记分组', exact: true }).click();
           await page.getByRole('button', { name: '取消分组标记', exact: true }).waitFor();
           await page.getByRole('button', { name: '编辑分组备注', exact: true }).click();

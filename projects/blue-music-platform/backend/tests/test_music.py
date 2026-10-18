@@ -153,6 +153,9 @@ def test_result_groups_keep_versions_together_and_save_annotations(music_context
     assert response.status_code == 200
     group = response.json()["items"][0]
     assert group["task_id"] == task["id"]
+    assert group["lyrics"] == task["lyrics"]
+    assert group["lyrics_version_id"] == task["lyrics_version_id"]
+    assert group["lyrics_task_id"] is not None
     assert len(group["results"]) == len(task["results"])
     changed = context.client.patch(
         f"/api/v1/music/result-groups/{task['id']}", headers=_headers(context),

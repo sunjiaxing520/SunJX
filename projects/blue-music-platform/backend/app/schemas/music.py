@@ -182,6 +182,10 @@ class MusicTaskResponse(BaseModel):
 
 class MusicResultGroupResponse(BaseModel):
     task_id: int
+    lyrics: str
+    instrumental: bool
+    lyrics_version_id: int | None
+    lyrics_task_id: int | None
     title: str
     display_label: str | None
     note: str | None
