@@ -3,7 +3,9 @@ param(
     [string]$CloudflaredPath = 'D:\DevTools\Cloudflared\cloudflared.exe',
     [string]$NpmPath = '',
     [int]$PreviewPort = 4173,
-    [int]$BackendPort = 8000
+    [int]$BackendPort = 8000,
+    [string]$EdgeBindAddress = 'auto',
+    [string]$EdgeAddress = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,9 +100,22 @@ $tunnelProcesses | ForEach-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
 
+if ($EdgeBindAddress -eq 'auto') {
+    $physical = Get-NetIPConfiguration | Where-Object {
+        $_.NetAdapter.HardwareInterface -and $_.IPv4DefaultGateway -and $_.IPv4Address
+    } | Select-Object -First 1
+    $EdgeBindAddress = if ($physical) { [string]($physical.IPv4Address | Select-Object -First 1).IPAddress } else { '' }
+}
+$tunnelArguments = @('tunnel', '--url', "http://127.0.0.1:$PreviewPort", '--no-autoupdate')
+if ($EdgeBindAddress) {
+    [void][System.Net.IPAddress]::Parse($EdgeBindAddress)
+    $tunnelArguments += @('--edge-bind-address', $EdgeBindAddress)
+}
+if ($EdgeAddress) { $tunnelArguments += @('--edge', $EdgeAddress) }
+
 $tunnel = Start-Process `
     -FilePath $CloudflaredPath `
-    -ArgumentList 'tunnel', '--url', "http://127.0.0.1:$PreviewPort", '--no-autoupdate' `
+    -ArgumentList $tunnelArguments `
     -WorkingDirectory (Split-Path -Parent $CloudflaredPath) `
     -WindowStyle Hidden `
     -RedirectStandardOutput $tunnelStdout `
@@ -121,7 +136,7 @@ for ($attempt = 0; $attempt -lt 60; $attempt++) {
         ($combinedLog -join "`n"),
         'https://[a-z0-9-]+\.trycloudflare\.com'
     )
-    if ($match.Success) {
+    if ($match.Success -and ($combinedLog -join "`n") -match 'Registered tunnel connection') {
         $publicUrl = $match.Value
         break
     }
@@ -131,7 +146,7 @@ for ($attempt = 0; $attempt -lt 60; $attempt++) {
 }
 if (-not $publicUrl) {
     Stop-Process -Id $tunnel.Id -Force -ErrorAction SilentlyContinue
-    throw "Cloudflare Tunnel did not return a public URL. See $tunnelStderr"
+    throw "Cloudflare Tunnel did not establish a registered connection. See $tunnelStderr"
 }
 
 Set-Content -LiteralPath $publicUrlFile -Value $publicUrl -Encoding ascii
